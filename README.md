@@ -16,6 +16,7 @@
 | **[Codex CLI 对标改进（28 项）](./docs/comparison/qwen-code-codex-improvements.md)** | 沙箱 + Apply Patch + Feature Flag + 网络代理 + Sticky Env + Permission Profiles |
 | **[OpenCode 对标改进（29 项）](./docs/comparison/qwen-code-opencode-improvements.md)** | Provider 系统 + Plugin 插件 + Snapshot 快照 + 可配置截断 + 编辑器上下文协议 |
 | **[功能对比矩阵](./docs/comparison/features.md)** | 15 Agent × 多维度横向对比 |
+| **[开源 Managed Code Agents 对比](./docs/comparison/managed-agents-landscape.md)** | OpenHands / OpenCode / Goose / Hermes + Qwen daemon 设计——对标 Anthropic Managed Agents |
 | **[一页总结（选型速查）](./docs/SUMMARY.md)** | 给没时间看全部文档的人 |
 
 ## 30 秒选型指南
@@ -99,7 +100,7 @@
 ### 全局对比
 
 - [功能对比矩阵](./docs/comparison/features.md) | [隐私与遥测](./docs/comparison/privacy-telemetry.md) | [定价与成本](./docs/comparison/pricing.md) | [系统要求](./docs/comparison/system-requirements.md)
-- [架构深度对比](./docs/comparison/architecture-deep-dive.md) | [CLI vs IDE](./docs/comparison/cli-vs-ide-agents.md)
+- [架构深度对比](./docs/comparison/architecture-deep-dive.md) | [CLI vs IDE](./docs/comparison/cli-vs-ide-agents.md) | [开源 Managed Code Agents 对比](./docs/comparison/managed-agents-landscape.md)
 
 ### 系统能力 Deep-Dive
 
