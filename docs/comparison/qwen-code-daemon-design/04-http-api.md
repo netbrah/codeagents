@@ -65,7 +65,7 @@ POST   /workspace/:id/skill/reload         reload skill registry
 Qwen Code 的 ACP agent（`packages/cli/src/acp-integration/acpAgent.ts`）已经导入 `@agentclientprotocol/sdk` 的所有 RequestType。**daemon 路由直接用同一组 zod schema 作为请求 body 校验**：
 
 ```ts
-// daemon HTTP route handler
+// daemon HTTP route handler（默认 Express 5，复用 vscode-ide-companion 已有的栈）
 import {
   PromptRequest,         // 已有
   NewSessionRequest,     // 已有
@@ -73,18 +73,27 @@ import {
   SetSessionModelRequest,// 已有
   ...
 } from '@agentclientprotocol/sdk'
+import { z } from 'zod'
 
-// 用 hono-zod-validator 做请求体校验
+// zod 校验中间件（小工具函数，~10 行）
+const validate = (schema: z.ZodSchema) => (req, res, next) => {
+  const result = schema.safeParse(req.body)
+  if (!result.success) return res.status(400).json({ error: result.error })
+  req.validated = result.data
+  next()
+}
+
 app.post('/session/:id/prompt',
-  zValidator('json', PromptRequest),
-  async (c) => {
-    const req = c.req.valid('json')   // 已是 PromptRequest 类型
-    const session = getSession(c.req.param('id'))
-    const response = await session.handlePrompt(req)  // 复用现有 ACP 逻辑
-    return c.json(response)            // PromptResponse
+  validate(PromptRequest),
+  async (req, res) => {
+    const session = getSession(req.params.id)
+    const response = await session.handlePrompt(req.validated)  // 复用现有 ACP 逻辑
+    res.json(response)            // PromptResponse
   }
 )
 ```
+
+> **HTTP 框架选择**：默认推荐 **Express 5**（复用 vscode-ide-companion 已有依赖，0 新包）。Hono 是 Stage 6 SaaS 高并发场景的可选项（与 OpenCode 对齐 + Bun.serve 一线支持），但 MVP 不必要——Express 5 + zod 校验 ~10 行包装即可。详见决策评估部分。
 
 **意义**：协议 schema 0 设计成本——与 ACP agent 共用一份 zod schema，daemon route handler 与 ACP `Session.handleXxx()` 共用同一组业务函数。
 
@@ -293,18 +302,29 @@ POST /session/sess-mobile/load
 
 `packages/cli/src/acp-integration/errorCodes.ts` 已定义 ACP 错误码，daemon 加 HTTP code 映射即可。
 
-## 六、OpenAPI 自动生成
+## 六、OpenAPI 自动生成（可选，Stage 3+）
 
-参考 OpenCode 的 `hono-openapi` 模式，从 zod schema 自动生成 OpenAPI 3.0 spec：
+从 zod schema 自动生成 OpenAPI 3.0 spec：
 
 ```ts
-// server.ts
-import { generateSpecs } from 'hono-openapi'
+// Express + zod-to-openapi
+import { OpenAPIRegistry, OpenApiGeneratorV3 } from '@asteasolutions/zod-to-openapi'
 
-app.get('/openapi.json', (c) => {
-  return c.json(generateSpecs(app))
+const registry = new OpenAPIRegistry()
+registry.registerPath({
+  method: 'post',
+  path: '/session/:id/prompt',
+  request: { body: { content: { 'application/json': { schema: PromptRequest } } } },
+  responses: { 200: { description: 'OK', content: { 'application/json': { schema: PromptResponse } } } },
 })
+
+const generator = new OpenApiGeneratorV3(registry.definitions)
+const spec = generator.generateDocument({ openapi: '3.0.0', info: { title: 'Qwen daemon', version: '1.0' } })
+
+app.get('/openapi.json', (req, res) => res.json(spec))
 ```
+
+> 如果切到 Hono（Stage 6 高并发场景），可改用 `hono-openapi`，更紧凑但功能等价。
 
 SDK 客户端可以从 `/openapi.json` codegen 出 typed HTTP client（参考 OpenCode `@opencode-ai/sdk` 的做法）——但 Qwen 也可以选**手写 SDK 客户端**（更精准控制，复用 ACP zod 类型），不强制 codegen。
 

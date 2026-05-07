@@ -34,7 +34,7 @@ Stage 3 (~2 月): 对标 OpenCode 完整设计
 
 ```
 [现有] qwen --acp                 → stdio NDJSON ACP agent
-[新增] qwen serve --http-bridge   → 启 Hono HTTP server
+[新增] qwen serve --http-bridge   → 启 Express 5 HTTP server（复用 vscode-ide-companion 已有栈）
                                   → 内部启 ACP agent 子进程（pipe stdio）
                                   → HTTP body ↔ stdio NDJSON 桥接
 ```
@@ -50,7 +50,7 @@ Stage 3 (~2 月): 对标 OpenCode 完整设计
 |---|---|---|
 | 新建 `packages/server/` 包 | 0.5d | `packages/server/package.json` |
 | `qwen serve` CLI cmd | 0.5d | `packages/cli/src/cli/cmd/serve.ts`（仿 OpenCode）|
-| Hono HTTP server scaffold | 1d | `packages/server/src/index.ts` |
+| Express 5 HTTP server scaffold（复用 ide-server.ts CORS+Bearer+Origin lock 模板）| 0.5d | `packages/server/src/index.ts` |
 | HTTP→stdio bridge | 2d | `packages/server/src/bridge/HttpAcpBridge.ts` |
 | Auth middleware | 0.5d | bearer token 校验 |
 | `/session/*` 路由 | 1d | 复用 ACP request schema |
@@ -88,7 +88,7 @@ Stage 3 (~2 月): 对标 OpenCode 完整设计
 | HttpTransport（SDK 端）| 2-3d | `packages/sdk-typescript/src/transport/HttpTransport.ts` —— 镜像 ProcessTransport |
 | Web UI 接入（HttpAcpAdapter）| 2d | `packages/webui/src/adapters/HttpAcpAdapter.ts` |
 | Permission flow `daemon-http` mode | 2d | 扩展 PR#3723 `evaluatePermissionFlow()` + SSE permission_request |
-| WebSocket 升级 + bidi 通信 | 2d | `Bun.serve` + `createBunWebSocket` |
+| WebSocket 升级 + bidi 通信 | 2d | `express-ws` 或 `ws` 直接挂（也可 Bun.serve + createBunWebSocket）|
 | MCP per-workspace 共享（同 workspace 多 session 复用）| 2d | 扩展 `mcp-client-manager.ts` 绑定 Workspace（决策 §3）|
 | `/permission/:id` 路由 + persist | 1d | Stage 2 写 settings.json / Stage 3 切 SQLite `permission_decisions` 表（§15）|
 | daemon 生命周期（pid file / graceful shutdown / SIGTERM）| 1d | |
@@ -135,7 +135,7 @@ VSCode       ─────│  多 session HTTP      │
 |---|---|---|
 | Workspace routing 中间件 | 5-7d | URL `/workspace/:id/*` 与 host header 双路由 |
 | mDNS 服务发现 | 1d | `bonjour-service`（OpenCode 同款）—— `_qwen._tcp.local` |
-| OpenAPI codegen | 3-5d | `hono-openapi` 自动生成 spec + SDK 验证 |
+| OpenAPI codegen | 3-5d | `@asteasolutions/zod-to-openapi` 从 ACP zod schema 生成 spec + SDK 验证（Hono 切换则改 `hono-openapi`）|
 | WebUI 直接跑在 daemon 上 | 5-7d | 静态资源 mount，`/ui/*` 直接 serve |
 | 多 token + workspace allowlist | 5-7d | `tokens.json` + per-token user-id |
 | 企业认证（OIDC / SSO）| 7-10d | OAuth 2.0 / OIDC discovery |

@@ -9,7 +9,7 @@
 ```
 qwen serve daemon 进程（唯一长期主进程，process.cwd() 启动后不变）
 │
-├─ Hono HTTP server / WebSocket
+├─ Express 5 HTTP server / WebSocket（Hono 可选 Stage 6+）
 ├─ 全局状态：providers / config / Database (SQLite) / GlobalBus
 │
 ├─ Workspace Map（按 directory 路径缓存）
@@ -81,18 +81,18 @@ export const Instance = {
 ### 3.2 Middleware 路由
 
 ```ts
-// daemon Hono middleware
-const instanceMiddleware: MiddlewareHandler = async (c, next) => {
-  const directory = resolveDirectory(c)
-  const workspaceId = c.req.param('workspaceId') ?? c.req.header('x-qwen-workspace')
-  const sessionId = c.req.param('sessionId')
+// daemon Express middleware（Hono 切换时 c → context 即可）
+const instanceMiddleware: RequestHandler = (req, res, next) => {
+  const directory = resolveDirectory(req)
+  const workspaceId = req.params.workspaceId ?? req.header('x-qwen-workspace')
+  const sessionId = req.params.sessionId
   
   const ctx: InstanceContext = {
     workspaceId,
     directory,
     worktree: await detectWorktree(directory),
     sessionId,
-    clientId: c.req.header('x-qwen-client-id'),
+    clientId: req.header('x-qwen-client-id'),
   }
   
   return Instance.provide(ctx, () => next())

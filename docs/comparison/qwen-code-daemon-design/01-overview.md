@@ -22,7 +22,7 @@ Qwen Code 当前的程序化访问形态：
 ```
 ┌─────────────────────┐  HTTP/WS  ┌──────────────────────────────┐
 │ SDK 客户端 1         │──────────▶│ qwen daemon 进程（长生命）     │
-└─────────────────────┘           │ ├─ Hono / Bun.serve           │
+└─────────────────────┘           │ ├─ Express 5 / Node.js        │
                                    │ ├─ Instance Map               │
 ┌─────────────────────┐  HTTP/WS  │ │   ├─ workspace A             │
 │ Web UI / VSCode     │──────────▶│ │   │   ├─ session 1 (in-mem)  │
@@ -99,7 +99,7 @@ OpenCode 用单一 `OPENCODE_SERVER_PASSWORD`（粗粒度访问控制）。Qwen 
 ┌────────────────────────────────────────────────────────────────┐
 │  qwen daemon 进程 (qwen serve)                                  │
 │  ┌──────────────────────────────────────────────────────────┐  │
-│  │ HTTP / WebSocket 入口（Hono · 默认 Bun.serve / Node 回退）│  │
+│  │ HTTP / WebSocket 入口（Express 5 · Node.js prod / Bun dev）│  │
 │  │ ├─ Auth middleware (bearer token)                        │  │
 │  │ ├─ /session / /file / /pty / /event / ...                │  │
 │  │ └─ WS upgrade → SSE/WebSocket 流式事件                   │  │
@@ -209,7 +209,7 @@ Channels（IM / Telegram / 微信）用法：保持不变（ChannelAdapter → A
 
 | 维度 | OpenCode | Qwen Daemon（本设计）|
 |---|---|---|
-| **HTTP 框架** | Hono | Hono（同款）|
+| **HTTP 框架** | Hono | **Express 5（复用 vscode-ide-companion 已有栈）**——不强行对齐；Hono 是 Stage 6 高并发场景的可选项 |
 | **Schema 来源** | 自创 OpenAPI（13525 行 codegen）| **复用 ACP NDJSON zod schema** |
 | **多 channel 支持** | 仅 SDK / TUI / Web | **SDK / TUI / Web / IM / IDE 全走 SessionRouter** |
 | **认证** | 单密码 `OPENCODE_SERVER_PASSWORD` | **bearer token + 应用层 PR#3723 权限流** |

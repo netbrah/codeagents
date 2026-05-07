@@ -11,7 +11,7 @@
 | 进程模型 | 单 daemon 多 session 共进程 | **同款** | 已验证最优 |
 | `process.cwd()` | 永不改变 | **同款** | OpenCode 已验证 |
 | 上下文传播 | Effect-TS `LocalContext` | **AsyncLocalStorage 直接** | Qwen 不引入 Effect 重依赖 |
-| HTTP 框架 | Hono | **Hono（同款）** | Bun-friendly + OpenCode 已验证 |
+| HTTP 框架 | Hono | **Express 5（默认，复用 vscode-ide-companion 已有依赖）/ Hono 可选（Stage 6 高并发）** | 不强行对齐——Express 5 + zod 校验已够用，Hono 是性能 trigger 后再切 |
 | 协议 schema | OpenAPI codegen（13525 行）| **复用 ACP NDJSON zod schema** | Qwen 已有 838 行 ACP agent，0 设计成本 |
 | 多 channel 支持 | 仅 SDK / TUI / Web | **+ IM / IDE 全走 SessionRouter** | Qwen 已有 Channels 包 |
 | 鉴权 | 单密码 `OPENCODE_SERVER_PASSWORD` | **bearer token + PR#3723 应用层权限流** | Qwen 已有 PR#3723 |
@@ -78,14 +78,14 @@
 
 | 组件 | OpenCode | Qwen Daemon |
 |---|---|---|
-| HTTP 框架 | Hono | Hono |
-| Runtime | Bun 优先 / Node fallback | Bun 优先 / Node fallback |
-| WebSocket | `Bun.serve` + `createBunWebSocket` | 同款 + SSE 兜底 |
-| OpenAPI 生成 | `hono-openapi` | `hono-openapi`（Stage 3）|
+| HTTP 框架 | Hono | **Express 5（默认）** / Hono（Stage 6 可选） |
+| Runtime | Bun 优先 / Node fallback | **Node.js 优先（prod 长跑稳）/ Bun dev** |
+| WebSocket | `Bun.serve` + `createBunWebSocket` | `express-ws` 或 `ws` 直接挂 + SSE 兜底 |
+| OpenAPI 生成 | `hono-openapi` | `@asteasolutions/zod-to-openapi`（Stage 3）|
 | Schema 验证 | Effect Schema | **zod**（与现有 ACP 一致）|
 | 上下文传播 | Effect `Context.Service` | **`AsyncLocalStorage` 直接** |
 | 服务发现 | mDNS Bonjour（默认开启）| Stage 3 可选（默认关）|
-| 持久化 | SQLite via drizzle-orm | JSONL（session）+ SQLite（permission）|
+| 持久化 | SQLite via drizzle-orm | JSON+JSONL → Stage 3 SQLite（[§15](./15-persistence-and-storage.md)）|
 | 鉴权 | `OPENCODE_SERVER_PASSWORD` env | bearer token + PR#3723 |
 
 ## 四、API 命名对比
@@ -213,8 +213,9 @@ const q = query({ transport: new HttpTransport({
 |---|---|
 | daemon 单进程多 session | 1. 复用 ACP zod schema |
 | AsyncLocalStorage 上下文 | 2. 多 channel 路由（IM/IDE/Web/SDK 同源）|
-| Hono / Bun.serve 技术栈 | 3. 复用 PR#3723 应用层权限流 |
-| SQLite + JSONL 持久化 | 4. 默认 0.0.0.0 + 无 token = 拒绝启动 |
+| HTTP+SSE+WebSocket 协议层 | 3. **Express 5 复用 vscode-ide-companion**（Hono 是 Stage 6 可选，不是默认）|
+| 持久化分层（文件+RDBMS）| 4. 复用 PR#3723 应用层权限流 |
+| 默认安全策略 | 5. 默认 0.0.0.0 + 无 token = 拒绝启动 |
 
 **Qwen daemon 不是"OpenCode 的复刻"，而是"借鉴 OpenCode 验证过的进程模型 + 复用 Qwen 自家的 ACP / Channels / PR#3723 / Background tasks 等成熟资产"** —— 这正是 [02 现有资产盘点](./02-existing-assets.md) 表明的 ~75% 复用率的来源。
 

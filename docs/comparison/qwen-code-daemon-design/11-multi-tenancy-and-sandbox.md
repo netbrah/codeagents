@@ -788,7 +788,7 @@ token-bucket throttling、`MonitorRegistry` 等机制不变。
 | `spawn({ cwd })` 显式参数模式（[05-进程模型](./05-process-model.md)）| ✅ 替换为 `sandbox.spawn(cmd, opts)` 调用对称 |
 | Bearer token 已经是 ACL 入口（决策 §7）| ✅ 升级到 token 集合 + ACL 自然 |
 | Channels SessionRouter 多 channel 路由 | ✅ tenant 是更高层路由维度 |
-| ACP zod schema 复用（[04-HTTP API](./04-http-api.md)）| ✅ schema 不变，只是 Hono middleware 多层 ACL |
+| ACP zod schema 复用（[04-HTTP API](./04-http-api.md)）| ✅ schema 不变，只是 Express middleware 多层 ACL |
 
 **结论**：Level 2（多租户 ACL）在当前设计下是 **soft launch**——核心抽象已经支持，主要是补上层 Tenant + ACL + quota 模块；Level 3（shell sandbox）需要**新模块**但不破坏现有架构（Bash tool 内部 dispatch 切换）；Level 4（完整 SaaS）需要**进程模型重构**（决策 §2 的"单 daemon 进程"在 Level 4 升级为"daemon worker pool"，但 application logic 层仍单进程多 session 模式）。
 

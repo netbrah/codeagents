@@ -190,7 +190,7 @@ const IDE_SERVER_PORT_ENV_VAR = 'QWEN_CODE_IDE_SERVER_PORT';
 this.server = app.listen(0, '127.0.0.1', async () => { ... });
 ```
 
-**daemon 设计建议升级 express → Hono**（与 OpenCode 一致 + Bun 友好），但逻辑结构可参考。
+**daemon 设计直接复用 Express 5 栈**（vscode-ide-companion 已有依赖，0 新包；CORS / Bearer / Origin lock 模板 ide-server.ts:154-200 拷贝即用）。Hono 是 Stage 6 高并发场景的可选切换。
 
 ### 2.7 WebUI ACPAdapter
 
