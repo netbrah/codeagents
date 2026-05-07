@@ -6,51 +6,46 @@
 >
 > **2026-05-04 重大更新**：本文写作于 2026-04 中旬时 Qwen Code SubAgent 还**仅有嵌入式展示**；2026-04-27 → 2026-05-04 在 ~8 天内合并了 **15 个 PR**（PR#3471/3488/3642/3684/3687/3720/3721/3771/3739/3791/3801/3784/3792/3808/3809），Qwen Code 现已**完整实现真正后台并发 + pill+dialog UI + background agent resume + Phase C event monitor + Phase D part(a) 长跑 foreground 后台化提示**——把原"Qwen 借鉴 Claude 的 3 个机会"清单基本兑现，部分设计还**反超 Claude**。文末"八、相关追踪 item"的状态全部更新为 ✓ 已实现。
 
-## 零、最新动态（2026-04-27 → 2026-05-07 · 4 kinds 全落地 + foreground subagents 也接入 pill+dialog）
+## 零、最新动态（截至 2026-05-07）
 
-> **Background tasks roadmap (#3634) 四阶段**（2026-05-04 全部 ✓）：
-> - **Phase A** = 后台 subagents（PR#3076 早期合并 ✓）
-> - **Phase B** = managed background shell pool + `/tasks` + dialog 整合（PR#3642 + PR#3720 + PR#3801 ✓ 2026-05-03 收官）
-> - **Phase C** = event monitor tool（PR#3684 ✓ 2026-05-02 + PR#3791 ✓ 2026-05-03 dialog 集成 + PR#3792 ✓ 2026-05-04 review 反馈清扫）
-> - **Phase D part (a)** = 长跑 foreground bash 后台化提示（**PR#3809 ✓ 2026-05-04 收官** · +649/-1 体量从 OPEN 时 +130 增长 5 倍 · 阈值精化为 effective timeout 一半 per-invocation 含 1000ms floor + advisory 加 stateful 警告）
->
-> **2026-05-06 / 05-07 新合并 3 PR**（kind framework 完成 + 前台 subagent 也接入 pill+dialog + subagent 配置隔离修复）：
-> - **PR#3836 ✓ 2026-05-06 dream kind 第 4 消费者**（kind framework 现 agent/shell/monitor/dream 4 个）
-> - **PR#3768 ✓ 2026-05-06 foreground subagents 路由到 pill+dialog**（+1008/-108 · 闭合"前台/后台"UI 对偶 · 解决 verbose subagent live frame 抖动闪烁问题）
-> - **PR#3735 ✓ 2026-05-06 subagent context auto-compact**（+1518/-1091 · 长跑 subagent 不再触发 400 错误）
-> - **PR#3873 ✓ 2026-05-07 subagent Config 隔离修复**（+862/-41 · PR#3774 follow-up · `Object.create(parent)` 现重建 tool registry，subagent 工具走自己 FileReadCache + 自己 approval mode）
->
-> 四阶段加上 PR#3471/3488 控制面 + UI、PR#3687 整合、PR#3739 resume、PR#3721 显示稳定性 后形成**完整的多模态后台任务调度系统**。
-> PR#3768 完成"前台/后台 subagent 同 UI"统一，PR#3735/3873 闭合 subagent 隔离与稳定性。**到 2026-05-07，subagent display + kind framework 设计已基本到位**。
+### TL;DR
 
-| PR | 合并时间 | 内容 | 影响章节 |
+到 2026-05-07，Qwen Code 的 background tasks 设计**基本到位**：
+
+- **Background tasks roadmap (#3634) 四阶段全部落地**（2026-05-04 收官）
+- **Kind framework 4 消费者全到齐**：agent / shell / monitor / **dream**（PR#3836，2026-05-06）
+- **foreground subagents 也接入 pill+dialog**（PR#3768，2026-05-06，闭合前/后台 UI 对偶）
+- **Subagent 隔离与稳定性**修复完成（PR#3735 context auto-compact + PR#3873 Config 隔离）
+
+→ Background tasks display 设计可告一段落，下一步是横向扩展（如 monitor → `send_message` 集成、`/agents --history` 归档对比）。
+
+### 历史里程碑：Background tasks roadmap (#3634) 四阶段
+
+| Phase | 内容 | 收官 PR | 时间 |
 |---|---|---|---|
-| [PR#3471](https://github.com/QwenLM/qwen-code/pull/3471) | 2026-04-27 | 模型侧控制面：`task_stop` / `send_message` / per-agent transcript 工具 | §六.1 |
-| [PR#3488](https://github.com/QwenLM/qwen-code/pull/3488) | 2026-04-28 | UI 层：background-agent **pill**（状态行运行计数）+ **combined dialog**（Down 键打开）+ **detail view**（Enter 进详情）+ **cancel flow**（`x` 键）+ 4 状态分类（Running/Completed/Failed/Cancelled） | §六.1 / §六.3 |
-| [PR#3642](https://github.com/QwenLM/qwen-code/pull/3642) | 2026-04-28 | **Phase B**：`/tasks` 命令 + managed background shell pool（+1025/-411），把后台 shell 也纳入统一调度 | §六.1 |
-| [PR#3687](https://github.com/QwenLM/qwen-code/pull/3687) | 2026-04-29 | 后台 shell 接入 `task_stop` 工具，控制语义统一 | §六.1 |
-| [PR#3720](https://github.com/QwenLM/qwen-code/pull/3720) | 2026-04-29 | **后台 shell 与 SubAgent 合并到统一 Background tasks dialog** —— 跨 Claude 设计 | §六.1 / 反超点 |
-| [PR#3721](https://github.com/QwenLM/qwen-code/pull/3721) | 2026-04-29 | `fix(cli): bound SubAgent display by visual height to prevent flicker` (+1336/-57) | §五.2 显示稳定 |
-| [PR#3771](https://github.com/QwenLM/qwen-code/pull/3771) | 2026-04-30 | `fix(cli): restore SubAgent shortcut focus` —— 焦点锁微调 | §五.3 |
-| [PR#3739](https://github.com/QwenLM/qwen-code/pull/3739) | 2026-05-01 | **`Add background agent resume and continuation`**（**+4087/-165**）—— `BackgroundAgentResumeService` + paused 生命周期 + transcript-first fork resume + `SubagentStart` hook 重放 | §六 反超点（Claude 没有）|
-| [PR#3684](https://github.com/QwenLM/qwen-code/pull/3684) | 2026-05-02 | **Phase C event monitor tool**（**+6297/-147 系列追踪以来最大单 PR**）—— 新增 `Monitor` 工具 spawn 长跑 shell 命令 + token-bucket 节流（burst=5/sustain=1/sec）把 stdout lines 作为事件返回 agent；`MonitorRegistry`（4 状态 + idle timeout + max events 自动停 + 独立 AbortController）；shell 层 sleep 拦截（前台 `sleep N`(N≥2) 阻塞并提示模型用 Monitor 或 `is_background`）。**设计上与 background subagents（Phase A）同构**：独立 AbortController（Ctrl+C 不杀 monitor）+ stdout/stderr 分离 + `<task-notification><kind>monitor</kind>` XML 信封 | §六.5 新增 |
-| [PR#3784](https://github.com/QwenLM/qwen-code/pull/3784) | 2026-05-02 | Phase C 配套 Windows taskkill 兼容修复（+15/-18） | 配套 |
-| [PR#3791](https://github.com/QwenLM/qwen-code/pull/3791) | 2026-05-03 | **Phase C dialog 集成**（+791/-49 · 体量从 OPEN 时 +357/-40 翻倍）—— Monitor 接入 BackgroundTasksDialog；core `MonitorRegistry.setStatusChangeCallback` 镜像 `BackgroundShellRegistry`；`x` 键 + detail view 按 kind 派发 `MonitorDetailBody`；commit `7999b85` lint fix 加 `default: { const _exhaustive: never }` 保运行时 + 编译期 exhaustiveness | §六.5 ✓ |
-| [PR#3801](https://github.com/QwenLM/qwen-code/pull/3801) | 2026-05-03 | **Phase B 收官**（+401/-39 · Issue #3634 Phase B closure）—— `/tasks` 含 monitors（修 headless/non_interactive/ACP 路径 monitor 静默消失 bug）+ interactive 模式 hint 指向 Ctrl+T dialog；`/tasks` 保留为非 TTY 消费者的 long-form fallback。**架构决策**：`/tasks` 不删除（是非 TTY 消费者的唯一检查路径）+ 不"deprecate"（无 removal path）+ 加 hint scoped to interactive | 配套 §六.5 |
-| [PR#3809](https://github.com/QwenLM/qwen-code/pull/3809) | 2026-05-04 | **Phase D part (a) 收官**（+649/-1 · 体量从 OPEN 时 +130 增长 5 倍）—— foreground `shell` 跑 ≥**effective timeout 的一半**（per-invocation，含 1000ms floor）完成时给 LLM-facing result 加 advisory。default-timeout 120s → 60s；显式 `timeout: 600_000` → 300s；`timeout: 1` 不会出"ran for 0s"噪声。Advisory 显式警告"别重跑刚完成的命令"——matters for stateful ops（deploys / migrations / `git push`）。配合 PR#3684 sleep interception 形成完整双层"长跑后台化"防御 | §六.6 新增 |
-| [PR#3792](https://github.com/QwenLM/qwen-code/pull/3792) | 2026-05-04 | **PR#3684 review 反馈清扫**（+664/-227 · 体量从 OPEN 时 +199/-199 增长 3.3 倍）—— Token bucket clock-drift guard（系统 suspend/resume 后 `Date.now()` 倒退保护）/ AST parse logging / 合并 SHELL_TOOL_NAMES / 抽 background-work utils / 路由统一 | 配套 §六.5 |
-| [PR#3808](https://github.com/QwenLM/qwen-code/pull/3808) | 2026-05-04 | **PR#3801 docs follow-up**（+24/-12）—— `shell.ts` / `task-stop.ts` model-facing 字符串从只引用 `/tasks` 升级为同时提及 dialog（让 LLM 根据 TTY/headless/SDK/ACP 模式建议对的 surface）| 配套 §六.5 |
-| **[PR#3836](https://github.com/QwenLM/qwen-code/pull/3836)** | 2026-05-06 | 🌟 **Kind framework 第 4 消费者：dream 任务**（+1714/-100 · 体量从 OPEN 时 +598/-19 增长 3x）—— auto-memory consolidation 后台任务接入 BackgroundTasksDialog；MERGED 版超出 OPEN scope 包含 **cancellation**：`MemoryTaskStatus 'cancelled'` + `MemoryManager.cancelTask` + `task_stop` 第 4 dispatch route + dialog `x` 键路由。framework 现有 **agent / shell / monitor / dream** 四消费者 —— "generic framework" 声称变为强证据 | §六.5 / §六.7 新增 |
-| **[PR#3768](https://github.com/QwenLM/qwen-code/pull/3768)** | 2026-05-06 | 🌟 **foreground subagents 路由到 pill+dialog 时机**（+1008/-108）—— 同步 Agent 调用运行期间 inline `AgentExecutionDisplay` 抑制，转而通过 footer pill + `BackgroundTasksDialog` 呈现；父 turn commit 后完整 frame 出现在 scrollback 不变。**核心动机**：原 live frame 每 tool call/审批都 mutate，verbose subagent / 长 tool list 超 terminal 高度时 `pendingHistoryItems` repaint 产生**可见闪烁**；改走 pill 完全消除该闪烁。**关键设计**：`flavor: 'foreground' \| 'background'` discriminator 加到 `BackgroundTaskEntry`，gating `emitNotification` / `hasUnfinalizedTasks` / cancel grace timer（foreground 全 bypass）；`agent.ts` 同步路径用**复合 AbortController**（parent abort 向下传播，child cancel 不向上）；finally 兜底 unregister；dialog 内 foreground entry **两步 cancel 确认**（防误按 `x` 终结当前 turn）。审批 prompt 持 focus lock 时仍 inline 渲染小 banner | §六.1 + §六.2 焦点锁逻辑 |
-| **[PR#3735](https://github.com/QwenLM/qwen-code/pull/3735)** | 2026-05-06 | 🌟 **subagent 上下文 auto-compact**（+1518/-1091）—— subagent chat 现也走与主 agent 相同的阈值自动 compaction；之前长 multi-turn subagent run（如 small-context model 上的 Explore subagent）会增长超模型上限，触发 400 `maximum context length exceeded`。compaction 现位于 chat 层，主 agent + subagent 共用一个 trigger；移除主 session loop 的 eager pre-call 避免重复；手动 `/compress` reset 路径不变。**实测**：先前 5 轮 ~32K tokens 后 400，现 0 错误跑到自然结束（test 中 665 次 subagent 压缩调用） | §六 反超点（subagent stability）|
-| **[PR#3873](https://github.com/QwenLM/qwen-code/pull/3873)** | 2026-05-07 | 🔧 **subagent Config 隔离修复**（+862/-41 · PR#3774 follow-up）—— `Object.create(parent)` 创建的 subagent Config 现**重建 tool registry**，让 `EditTool` / `WriteFileTool` / `ReadFileTool` 实例 `this.config` 绑到 subagent 而非 parent。**修的 bug**：`Config.createToolRegistry()` 在 parent `initialize()` 时只跑一次，lazy factory close over `this`，导致 subagent 工具 read 仍走 parent 的 `FileReadCache` + parent approval mode。该缺口在 PR#3774 review 中被 #4234090906 标出但延期；本 PR 收尾闭合 | 配套 §六 subagent 隔离 |
+| **A** | 后台 subagents | PR#3076 | 早期 ✓ |
+| **B** | managed background shell pool + `/tasks` + dialog 整合 | PR#3642 / PR#3720 / PR#3801 | 2026-05-03 ✓ |
+| **C** | event monitor tool + dialog 集成 | PR#3684 / PR#3791 / PR#3792 | 2026-05-04 ✓ |
+| **D part (a)** | 长跑 foreground bash 后台化提示 | PR#3809 | 2026-05-04 ✓ |
 
-**关键 OPEN（追踪中）**：
+四阶段加上 PR#3471/3488 控制面 + UI、PR#3687 整合、PR#3739 resume、PR#3721 显示稳定性，形成完整的多模态后台任务调度系统。详见 [§六 各小节](#六qwen-code-已落地的-6-项--2-项反超-claude)。
 
-| PR | 方向 |
-|---|---|
-| ❌ monitor → `send_message` 集成 | PR#3684 自述"未做"清单第 2 项 —— `task_stop` 已经在 PR#3791（已合并）中通过 `x` 键路由 `monitorRegistry.cancel()` 顺带覆盖；`send_message` 因 monitor 语义模糊（无 LLM 消费 message）被推迟，详见 [§六.5](#已落地-5phase-c-event-monitor-toolpr3684-系列追踪以来最大单-pr) |
-| 🆕 **Claude Code Ultrareview** | Claude Code v2.1.132（2026-04-20 Week 17 public preview）发布"云端 fleet 并行 review agents → 推回 CLI/Desktop"。与 Qwen Code 的本地 background subagents 思路正交（云端 vs 本地）—— Qwen daemon Stage 6 SaaS（[§16 HA + §20 vs Anthropic Managed Agents](./qwen-code-daemon-design/20-vs-anthropic-managed-agents.md)）方向上能包装类似产品。详见 [§23-recent-updates](../tools/claude-code/23-recent-updates.md) |
+### 本周新合并（2026-05-06 → 05-07，4 PR）
+
+| PR | 合并 | 一句话 | 详情 |
+|---|---|---|---|
+| [PR#3836](https://github.com/QwenLM/qwen-code/pull/3836) | 2026-05-06 | 🌟 Kind framework 第 4 消费者：dream 任务 | [§六.7](#已落地-7kind-framework-第-4-消费者dream-任务pr3836) |
+| [PR#3768](https://github.com/QwenLM/qwen-code/pull/3768) | 2026-05-06 | 🌟 foreground subagents 路由到 pill+dialog | [§六.8](#已落地-8foreground-subagents-也接入-pilldialogpr3768) |
+| [PR#3735](https://github.com/QwenLM/qwen-code/pull/3735) | 2026-05-06 | 🌟 subagent 上下文 auto-compact 防溢出 | [§六.9](#已落地-9subagent-稳定性与隔离pr3735--pr3873) |
+| [PR#3873](https://github.com/QwenLM/qwen-code/pull/3873) | 2026-05-07 | 🔧 subagent Config 真正隔离（PR#3774 follow-up）| [§六.9](#已落地-9subagent-稳定性与隔离pr3735--pr3873) |
+
+### 追踪中
+
+- ❌ **monitor → `send_message` 集成** — PR#3684 自述"未做"清单第 2 项。`task_stop` 已通过 PR#3791 覆盖；`send_message` 因 monitor 语义模糊被推迟（详见 [§六.5](#已落地-5phase-c-event-monitor-toolpr3684-系列追踪以来最大单-pr)）
+- 🟡 **`/agents --history` 归档对比视图** — 当前 `BackgroundTasksDialog` 偏运行时管理，历史归档 + 对比 diff 仍未实现
+- 🆕 **Claude Code Ultrareview**（云端 fleet）— v2.1.132 Week 17 public preview，云端 fleet 并行 review agents → CLI/Desktop。与 Qwen 本地 background subagents 思路**正交**（云端 vs 本地）
+  - Qwen daemon Stage 6 SaaS 方向上能包装类似产品：[§16 HA + §20 vs Anthropic Managed Agents](./qwen-code-daemon-design/20-vs-anthropic-managed-agents.md)
+  - Claude Code 端详见 [§23-recent-updates](../tools/claude-code/23-recent-updates.md)
 
 ---
 
@@ -494,14 +489,88 @@ PR#3684 自述清单只说"集成"未做，**没规定具体语义**——这是
 
 ---
 
+### 已落地 7：Kind framework 第 4 消费者：dream 任务（PR#3836）✓ 2026-05-06
+
+[PR#3836](https://github.com/QwenLM/qwen-code/pull/3836) ✓ 2026-05-06（**+1714/-100** · 体量从 OPEN 时 +598/-19 增长 3x）—— auto-memory consolidation 后台任务接入 BackgroundTasksDialog。framework 现有 **agent / shell / monitor / dream** 四消费者——"generic framework" 声称变为强证据。
+
+**之前**：managed auto-memory dream 任务静默后台运行（每 UserQuery 通过 `MemoryManager.scheduleDream` 调度），用户只能看到完成时的 `memory_saved` toast，无法看到正在 review 什么 / 失败原因。
+
+**新设计**：
+
+| 维度 | 实现 |
+|---|---|
+| Footer pill 计数 | `1 shell, 1 dream` 同款分类显示 |
+| Dialog 列表 | `[dream] memory consolidation reviewing N sessions` |
+| Detail body 字段 | sessions reviewing / progress text / topics touched / failures |
+| API 复用 | `MemoryManager.subscribe()` / `listTasksByType()`——**zero core-package changes** |
+| Terminal cap | `MAX_RETAINED_TERMINAL_DREAMS = 3`（镜像 `MonitorRegistry`）|
+| 过滤 | `pending` / `skipped` 不显示（每 UserQuery 创建 task，多数被 gated） |
+| 排除 | `extract` tasks 不进 framework（每 UserQuery fire 会 flood pill，已有 `memory_saved` toast）|
+
+**MERGED 版超出 OPEN scope** 包含 cancellation：`MemoryTaskStatus 'cancelled'` + `MemoryManager.cancelTask` + `task_stop` 第 4 dispatch route + dialog `x` 键路由。
+
+---
+
+### 已落地 8：foreground subagents 也接入 pill+dialog（PR#3768）✓ 2026-05-06
+
+[PR#3768](https://github.com/QwenLM/qwen-code/pull/3768) ✓ 2026-05-06（**+1008/-108**）—— 同步 Agent 调用运行期间 inline `AgentExecutionDisplay` 抑制，转通过 footer pill + `BackgroundTasksDialog` 呈现；父 turn commit 后完整 frame 出现在 scrollback 不变。
+
+**核心动机**：原 live frame 每 tool call/审批都 mutate，verbose subagent / 长 tool list 超 terminal 高度时 `pendingHistoryItems` repaint 产生**可见闪烁**。改走 pill 完全消除该闪烁类。
+
+**关键设计**：
+
+| 设计点 | 实现 |
+|---|---|
+| 区分前后台 | `flavor: 'foreground' \| 'background'` discriminator 加到 `BackgroundTaskEntry` |
+| 前台 bypass | `emitNotification` / `hasUnfinalizedTasks` / cancel grace timer 全跳过 |
+| Abort 传播 | `agent.ts` 同步路径用**复合 AbortController**——parent abort 向下传播，child cancel 不向上 |
+| 资源清理 | finally 兜底 unregister（成功 / 失败 / cancel / 异常都覆盖）|
+| 误按防御 | dialog 内 foreground entry **两步 cancel 确认**（防误按 `x` 终结当前 turn）|
+| 审批 UX | 持 focus lock 的 approval prompt 仍 inline 渲染小 banner，标 originating agent 名 |
+| pending plumbing | `isPending` 信号让 dialog 区分"等审批" vs "执行中" |
+
+**意义**：完成"前/后台 subagent 同 UI"统一——之前 foreground 走 inline 模式（闪烁），background 走 pill+dialog（稳定）。现在 inline 仅保留给"审批 prompt 需要焦点锁"的场景，**主流程统一走 pill+dialog**。
+
+---
+
+### 已落地 9：Subagent 稳定性与隔离（PR#3735 + PR#3873）✓ 2026-05-06 / 05-07
+
+两个连续 PR 闭合 subagent 的两个根本性问题：上下文溢出 + Config 隔离。
+
+#### PR#3735 ✓ 2026-05-06：subagent 上下文 auto-compact
+
+[PR#3735](https://github.com/QwenLM/qwen-code/pull/3735) ✓ 2026-05-06（**+1518/-1091**）
+
+**之前的 bug**：长 multi-turn subagent run（如 small-context model 上的 Explore subagent）会增长超模型上限，触发 400 `maximum context length exceeded`。subagent 完全没接 compaction。
+
+**新设计**：subagent chat 现也走与主 agent **相同的阈值自动 compaction**。compaction 移到 chat 层，主 agent + subagent 共用一个 trigger；移除主 session loop 的 eager pre-call 避免重复；手动 `/compress` reset 路径不变。
+
+**实测对比**：
+
+| 测试 | 修复前 | 修复后 |
+|---|---:|---:|
+| Subagent 压缩调用次数 | 0 | 665 |
+| Subagent 跑到 400 前的轮数 | 5（~32K tokens）| 不再 400，跑到 session 自然结束 |
+| 主 agent 压缩调用次数 | n/a | 772（与 send 交替，符合预期）|
+
+#### PR#3873 ✓ 2026-05-07：subagent Config 真正隔离（PR#3774 follow-up）
+
+[PR#3873](https://github.com/QwenLM/qwen-code/pull/3873) ✓ 2026-05-07（**+862/-41**）
+
+**之前的 bug**：`Object.create(parent)` 创建的 subagent Config 没**重建 tool registry**——`Config.createToolRegistry()` 在 parent `initialize()` 时只跑一次，lazy factory close over `this`，导致 `EditTool` / `WriteFileTool` / `ReadFileTool` 实例的 `this.config` 仍绑 parent。结果 subagent 工具 read 走 parent 的 `FileReadCache` + parent approval mode。
+
+PR#3774 加了 per-Config lazy-init `FileReadCache`（让 wrapper Config 直接读时获得自己的 cache），但 bound tools 走的是 parent registry——这个 gap 在 PR#3774 review 中被 #4234090906 标出但延期到本 PR。
+
+**修复**：subagent Config override 触发 tool registry 重建，让 bound tools 重新绑到 subagent 的 `this.config`，正确解析到 subagent 的 cache + approval mode。
+
+---
+
 ### 还有什么可以做？（剩余 gap）
 
-虽然主体已落地（**roadmap #3634 四阶段全部 ✓**），仍有 4 个值得追踪的方向：
+主体已落地（**roadmap #3634 四阶段全部 ✓** + **本周 4 PR 闭合 subagent 稳定性/隔离/UI 同框**），仍有 2 个值得追踪的方向：
 
-1. **前台 subagent 也接入 pill+dialog**：[PR#3768](https://github.com/QwenLM/qwen-code/pull/3768) 🟡 OPEN —— 让前台 subagent 也用统一 UI，与已合并的后台路径形成对偶
-2. **subagent 上下文自动压缩**：[PR#3735](https://github.com/QwenLM/qwen-code/pull/3735) 🟡 OPEN —— 防止长跑 subagent 上下文溢出
-3. **`/agents --history` 归档对比视图**：当前 `BackgroundTasksDialog` 偏运行时管理；历史归档 + 对比 diff 仍未实现
-4. **monitor → `send_message` 集成**：PR#3684 自述"未做"清单第 2 项 —— `task_stop` 已通过 PR#3791 顺带覆盖，但 `send_message` 让 monitor 接收外部消息（如 LLM 主动 hint）暂未对接
+1. **`/agents --history` 归档对比视图**：当前 `BackgroundTasksDialog` 偏运行时管理；历史归档 + 对比 diff 仍未实现
+2. **monitor → `send_message` 集成**：PR#3684 自述"未做"清单第 2 项 —— `task_stop` 已通过 PR#3791 顺带覆盖，但 `send_message` 让 monitor 接收外部消息（如 LLM 主动 hint）暂未对接（详见 [§六.5](#已落地-5phase-c-event-monitor-toolpr3684-系列追踪以来最大单-pr)）
 
 ---
 
