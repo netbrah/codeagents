@@ -6,7 +6,7 @@
 >
 > **2026-05-07 增量更新**：
 > - **Claude Code v2.1.132**（2026-05-06）：默认模型 Opus 4.6 → **Opus 4.7**（Max/Team Premium）+ 新 `xhigh` effort level + 5 个云端新特性（Computer Use / Auto Mode / Ultraplan / Ultrareview / Routines）+ 7 个新斜杠命令 + Conditional `if` Hooks + native binaries。详见 [Claude Code §23 近期更新](../tools/claude-code/23-recent-updates.md)
-> - **Qwen Code v0.15.6**：4 kinds Background tasks framework（agent/shell/monitor/dream）全落地 + foreground subagents 也接入 pill+dialog（PR#3768）+ subagent context auto-compact（PR#3735）+ subagent Config 真正隔离（PR#3873）+ transcript-first fork resume（PR#3739，比 Claude Code 更稳健）。详见 [SubAgent 展示 Deep-Dive](./subagent-display-deep-dive.md)
+> - **Qwen Code v0.15.7**（2026-05-07 release）：4 kinds Background tasks framework（agent/shell/monitor/dream）全落地 + **🌟 PR#3909 LiveAgentPanel**（移除 inline AgentExecutionDisplay，新增 always-on panel 锚定输入框 footer 下方 · 直接 port Claude `CoordinatorTaskPanel` 模式 · 视觉规范逐字 port）+ foreground subagents 也接入 pill+dialog（PR#3768）+ subagent context auto-compact（PR#3735）+ subagent Config 真正隔离（PR#3873 + PR#3887 follow-up）+ transcript-first fork resume（PR#3739，比 Claude Code 更稳健）。详见 [SubAgent 展示 Deep-Dive](./subagent-display-deep-dive.md)
 
 ## 快速参考表
 
@@ -219,7 +219,7 @@
 
 | 能力 | Claude Code | Aider | Gemini CLI | Kimi CLI | Qwen Code | Copilot CLI | Codex CLI | Goose | OpenCode |
 |------|-------------|-------|-----------|----------|-----------|-------------|-----------|-------|---------|
-| **命令总数** | ~86（含 Skill · v2.1.132 加 `/ultrareview` `/ultraplan` `/autofix-pr` `/usage` `/team-onboarding` `/theme`）| ~42 | ~39 | ~28 | 51（v0.15.6）| 34 | 28 | 16（斜杠）+ 15（CLI） | 23（TUI） |
+| **命令总数** | ~86（含 Skill · v2.1.132 加 `/ultrareview` `/ultraplan` `/autofix-pr` `/usage` `/team-onboarding` `/theme`）| ~42 | ~39 | ~28 | 51（v0.15.7）| 34 | 28 | 16（斜杠）+ 15（CLI） | 23（TUI） |
 | **代码审查** | `/review` 插件 | — | `/code-review`（扩展） | — | `/review`（Skill，4 代理并行） | `/review` | `@codex review` | — | — |
 | **模式切换** | — | `/code` `/architect` `/ask` | `/plan` | `/plan` `/yolo` | `/plan` | — | `--ask-for-approval` | — | `--agent` |
 | **模型切换** | `/model` | `/model` `/editor-model` `/weak-model` | `/model` | `/model` | `/model` | `/model` | `--model` | `--model` | — |
@@ -241,7 +241,7 @@
 
 **关键发现：**
 - **Claude Code** 命令数 ~86（v2.1.132），独有 `/review`（代码审查）`/remote-control`（远程控制）`/ultrareview`（云端 fleet 评审）`/ultraplan`（云端 plan 协作）`/autofix-pr`（PR auto-fix）
-- **Qwen Code** 51 命令（v0.15.6），新增 `/tasks`（PR#3642 background tasks 调度入口）+ Arena / 语言 / 洞察 / 扩展独有命令
+- **Qwen Code** 51 命令（v0.15.7），新增 `/tasks`（PR#3642 background tasks 调度入口）+ Arena / 语言 / 洞察 / 扩展独有命令
 - **Aider** ~42 命令，文件/上下文管理和模式切换最细粒度
 - **Gemini CLI / Qwen Code / Kimi CLI** 命令体系接近（Gemini CLI 分叉谱系）
 - **Copilot CLI** 34 命令 + 67 工具 + 3 内置代理，GitHub 生态深度集成
@@ -256,18 +256,21 @@
 
 | 能力 | Claude Code | Qwen Code | OpenCode | 其他 |
 |------|-------------|-----------|----------|------|
-| **后台任务 UI** | footer 上方常驻面板（CoordinatorAgentStatus）| **footer pill + 按需打开 dialog**（按需折叠节省屏幕空间）| 无 | 大多无 |
-| **任务 kind 框架** | LocalAgentTask（agent only）| **4 kinds：agent / shell / monitor / dream** 通用 framework | 无 | 大多无 |
+| **后台任务 always-on panel** | **输入框 footer 下方**常驻 `CoordinatorAgentStatus`（源码注释 "Renders below the prompt input footer"，1 行/agent，elapsed 计时）| 🌟 **`LiveAgentPanel`**（PR#3909，2026-05-07，**直接 port Claude 模式**——同样输入框 footer 下方 · 1 行/agent · 视觉规范 `○ ✔ ▶ name: desc (activity)` 逐字 port · 右列 pin elapsed + tokens）| 无 | 大多无 |
+| **on-demand detail UI** | 无（单层）| **`BackgroundTasksDialog`**（PR#3488 起 · Down 键打开 · detail / cancel / resume）—— **比 Claude 多一层** | 无 | — |
+| **任务 kind 框架** | `LocalAgentTask`（agent only）| **4 kinds：agent / shell / monitor / dream** 通用 framework | 无 | 大多无 |
 | **统一调度面** | agent / shell 分离 UI | **统一 BackgroundTasksDialog**（PR#3720）—— 超越 Claude | 无 | — |
-| **状态分类** | 2 类（running / completed）| **4 类**（Running / Completed / Failed / Cancelled）—— 超越 Claude | — | — |
-| **TTL 自动驱逐** | ✓ 30s 已完成自动消失 | ✗ 保持可见，用户主动 `x` 取消 | — | — |
-| **foreground subagent UI** | inline 渲染 | **inline + pill+dialog 双模式**（PR#3768，2026-05-06 完成）| — | — |
-| **subagent context overflow 防御** | 主 agent compaction | **subagent 也共享主 agent compaction trigger**（PR#3735）| — | — |
-| **Subagent Config 隔离** | tool registry 共享 parent | **Object.create 重建 tool registry**（PR#3873，subagent 工具走自己 FileReadCache + approval mode）| — | — |
-| **云端 fleet 多 Agent** | ✨ **Ultrareview**（v2.1.132 Week 17，云端 fleet 并行 review agents → CLI/Desktop）| 无（本地 only）| 无 | — |
+| **状态分类** | 4 状态（running/completed/failed/canceled · **UI 仅显式 running 与 completed，success/failure 隐式**）| **4 类显式**（Running/Completed/Failed/Cancelled · 4 类直接显示 · `x` 键路由）—— **比 Claude 显式** | — | — |
+| **TTL 自动驱逐** | ✓ 30s 已完成自动消失 | ✗ 保持可见，用户主动 `x` 取消（PR#3488 设计差异）| — | — |
+| **foreground subagent UI** | inline 渲染（v2.1.81 起未变）| **inline → 抑制（PR#3768）→ LiveAgentPanel 取代（PR#3909）** | — | — |
+| **subagent context overflow 防御** | 主 agent compaction | **subagent 也共享主 agent compaction trigger**（PR#3735，long-running Explore 不再 400）| — | — |
+| **Subagent Config 隔离** | tool registry 共享 parent | **`Object.create` 重建 tool registry**（PR#3873 + PR#3887 foreground-fork path 收尾，subagent 工具走自己 FileReadCache + approval mode）| — | — |
+| **云端 fleet 多 Agent** | ✨ **Ultrareview**（v2.1.132 Week 17，云端 fleet 并行 review agents → CLI/Desktop）| 无（本地 only · 设计参考 [Qwen daemon §20](./qwen-code-daemon-design/20-vs-anthropic-managed-agents.md)）| 无 | — |
 | **跨设备协作 plan** | ✨ **Ultraplan**（v2.1.132 Week 15，本地 plan + 云端 web 评审 + 远程或本地执行）| 无 | 无 | — |
 | **Permission classifier** | ✨ **Auto Mode**（v2.1.132 Week 13，介于 manual / `--dangerously-skip-permissions` 之间）| 4 mode permission flow（PR#3723）| — | — |
 | **Computer Use（GUI 自动化）**| ✨ Week 14，CLI 内打开 app + 点击 + 视觉验证 | 无 | 无 | — |
+
+> **设计收敛事件**：PR#3909（2026-05-07）是文档系列追踪期间**首次出现 Qwen 主动对齐 Claude 设计**——之前 PR#3488/3720/3739 都是差异化或反超 Claude，这次反向 port `CoordinatorTaskPanel` 模式。理由：PR#3768（4 月）抑制 inline AgentExecutionDisplay 闪烁后，live phase 完全不可见——直接 port Claude pattern 比保留差异化更优。Qwen 现在是 **LiveAgentPanel（always-on glance）+ BackgroundTasksDialog（按需 detail）双层 UI**，比 Claude 单层 Coordinator panel 更精细。详见 [§六.10](./subagent-display-deep-dive.md#已落地-10liveagentpanel-port-claude-coordinatortaskpanel-模式pr3909)。
 
 ## 使用场景推荐
 
