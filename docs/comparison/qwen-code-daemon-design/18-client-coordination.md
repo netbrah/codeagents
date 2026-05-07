@@ -804,4 +804,4 @@ T=120  之前正在编辑的 prompt 内容 lost? → 不一定
 
 ---
 
-[← 返回 README](./README.md)
+[← 返回 README](./README.md) · [下一篇：长跑稳定性 →](./19-stability-and-longevity.md)

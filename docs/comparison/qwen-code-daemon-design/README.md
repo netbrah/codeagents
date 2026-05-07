@@ -69,6 +69,7 @@ daemon 与外部世界对话的协议层、daemon 进程内部的运行时机制
 | 11 | [多租户与 Shell 沙箱](./11-multi-tenancy-and-sandbox.md) | 4 个 Level 演进路径（单租户→多租户→沙箱→SaaS）+ Tenant 抽象层 + 5 种本地沙箱（OS user / namespace / container 等）+ **远程 sandbox 设计**（SSH / gRPC / k8s job 4 种实现）+ 软兼容性 audit |
 | 12 | [多租户水平越权防御](./12-horizontal-privilege-defense.md) | **5 层防御纵深 + 17 个攻击向量 + 24+ 测试用例** —— Auth/ACL / Filesystem / Cache/State / Sandbox / Side-channel & DoS 五层 + OWASP Top 10 映射 |
 | 16 | [HA 高可用与故障恢复](./16-high-availability.md) | **5 层 HA 架构**（Edge DNS → Ingress sticky → StatefulSet pod N≥3 → Postgres Patroni + Redis Sentinel + S3 多 AZ）+ SSE Last-Event-ID 重连协议 + LLM streaming 中断 7 类场景 + 90s graceful drain + 15 项 Chaos 测试 + 99.9% SLO |
+| 19 | [长跑稳定性与可观测性](./19-stability-and-longevity.md) | **接受"重启不可避免"** —— Node.js 长跑 7 类风险（heap / GC / fd / zombie / exception / native crash / ALS 链表）+ 多租户加剧 5 类 + qwen daemon 10 个具体泄漏点（含修复代码）+ **9 项稳定性模式**（TTL / bounded / quota / circuit breaker / memory threshold restart / heap dump / liveness / native supervisor / worker isolation）+ 6 类 native module 风险 + 22 项 Prometheus 指标 + 30 天 Soak/Chaos 测试矩阵 + Bun vs Node.js 长跑实测 |
 
 ### Part VI — 路线图与外部对比
 
