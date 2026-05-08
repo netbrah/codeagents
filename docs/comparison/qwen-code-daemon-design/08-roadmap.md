@@ -26,6 +26,8 @@ Stage 3 (~2 月): 对标 OpenCode 完整设计
 
 ## Stage 1：实验性 `--http-bridge` flag（~1 周）
 
+> **🚀 实现状态（2026-05-07）**：Stage 1 由 [**PR#3889**](https://github.com/QwenLM/qwen-code/pull/3889) `feat(cli,sdk): qwen serve daemon (Stage 1)` 落地（OPEN，+7698/-46，23 commits）。明确引用 issue #3803。详见本节末 [Stage 1 PR#3889 实现 audit](#stage-1-pr3889-实现-audit2026-05-07)。
+
 ### 目标
 
 **最小改动让用户先用上 daemon 模式**——通过把现有 ACP agent 包装成 HTTP→stdio 桥接，零业务逻辑变更，验证多 client 场景的需求与痛点。
@@ -69,6 +71,108 @@ Stage 3 (~2 月): 对标 OpenCode 完整设计
 - 用户立刻能用 SDK over HTTP / Web UI / VSCode 直连 daemon
 - 暴露多 client 真实场景（哪些 API 用得多 / pain points）
 - 为 Stage 2 设计提供数据
+
+### Stage 1 PR#3889 实现 audit（2026-05-07）
+
+[**PR#3889**](https://github.com/QwenLM/qwen-code/pull/3889) `feat(cli,sdk): qwen serve daemon (Stage 1)` —— OPEN，**+7698/-46 / 23 commits**。
+
+#### 1️⃣ 体量与预估对比
+
+| 维度 | 预估（本节工作清单）| 实际（PR#3889）| 倍数 |
+|---|---|---|---|
+| LOC | ~700-1000 行 | **~5100 LOC**（commits 总和；剔除测试 ~3000 LOC）| **5x-7x** |
+| 工作量 | ~7-8 天 / 1 人 | 多周（含 23 commits 含多轮 audit）| 几周 vs 1 周 |
+| 提交数 | — | **23 commits**：8 实现 + 4 self-audit + 5 review rounds + 4 docs + 2 misc | — |
+
+**超出原因**（设计 → 实现的工程现实）：
+
+| 原因 | 详情 |
+|---|---|
+| **EventBus + ring replay + Last-Event-ID 重连** | 原 §16 §五 计划 Stage 6 HA 才详做，PR#3889 提前到 Stage 1（client_evicted overflow + bounded subscriber queues 都做了）|
+| **Timing-safe bearer compare** | §07 设计为 Bearer，PR#3889 加 SHA-256 + `crypto.timingSafeEqual` + 401 uniform across no-header/bad-scheme/wrong-token，对应 §12 §3.5 side-channel 防御（设计在 §12 但 Stage 1 实现）|
+| **IPv6 loopback ergonomics** | `::1` / `[::1]` / `host.docker.internal` 等 LOOPBACK_BINDS 边界，原设计未具体化 |
+| **EventBus correctness** | `client_evicted` overflow / replay ring / AsyncIterable abort handling 等几百行 |
+| **Self-audit + reviewer rounds** | 23 commits 中 9 轮 audit（self-audit 1-10 + reviewer rounds 1-7）—— 这是 PR#3889 体量超出的最大来源；表明 self-review + 多模型 audit（claude-opus-4-7 / gpt-5.5）流程非常严格 |
+| **DaemonClient SDK** | §04 没单独估算 SDK 端，但 sibling 同步实现 `parseSseStream` / `DaemonHttpError` |
+| **child-crash recovery** | reviewer round 4 加，原设计未含 |
+
+#### 2️⃣ 实现的 9 个 STAGE1_FEATURES（capabilities envelope）
+
+```
+['health', 'capabilities', 'session_create', 'session_list',
+ 'session_prompt', 'session_cancel', 'session_events',
+ 'session_set_model', 'permission_vote']
+```
+
+逐项映射设计章节：
+
+| Feature | 路由 | 设计章节 |
+|---|---|---|
+| `health` | `GET /health` | §04 §一 |
+| `capabilities` | `GET /capabilities`（9 tags）| §10 §三（Stage 1 协议兼容性）|
+| `session_create` | `POST /session` | §04 §一 |
+| `session_list` | `GET /workspace/:id/sessions` | §04 §一 |
+| `session_prompt` | `POST /session/:id/prompt`（per-session FIFO + no-poison）| §04 §一 + 决策 §6 prompt FIFO |
+| `session_cancel` | `POST /session/:id/cancel` | §04 §一 |
+| `session_events` | `GET /session/:id/events` SSE + Last-Event-ID + 15s heartbeat | §04 §三 + §16 §五 SSE 重连 |
+| `session_set_model` | `POST /session/:id/model`（publishes `model_switched`）| §04 §一 |
+| `permission_vote` | `POST /permission/:requestId` first-responder | §04 §三 + §03 §6 决策 + §07 §3 |
+
+#### 3️⃣ 9 commits breakdown（核心实现部分）
+
+| Commit | 关注章节 |
+|---|---|
+| `61f2f59a1` scaffold `qwen serve` Express + auth + Host allowlist + /health + /capabilities | §04 §一 + §07 §1 |
+| `8d7c03a5f` HttpAcpBridge spawn `qwen --acp` per workspace + ACP 10s init + sessionScope:single | §03 §1 + §05 进程模型 |
+| `ca996ecb5` POST /prompt FIFO + /cancel + SessionNotFoundError | §04 §一 + 决策 §6 |
+| `41aa95094` EventBus + SSE Last-Event-ID + 15s heartbeat + ring replay + client_evicted overflow | §04 §三 + §16 §五 + §18 §五 |
+| `6ee655f0a` POST /permission first-responder vote + cancelSession resolves outstanding | §03 §6 决策 + §07 §3 |
+| `8206a64b5` SDK DaemonClient + DaemonHttpError + parseSseStream | §10 SDK / ACP 协议兼容性 |
+| `a8ce5e08d` /workspace/:id/sessions + /session/:id/model + errorMessage helper | §04 §一 |
+| `ad0e6ec06` audit round 1: timing-safe bearer / coalesce spawnOrAttach / parseLastEventId / IPv6 / failOnError | §07 §1 + §12 §3.5 |
+| 后续 14 commits（self-audit 2-10 + reviewer rounds 1-7）| 持续 audit |
+
+#### 4️⃣ 设计 vs 实现对应度评估
+
+| 章节 | 对应度 |
+|---|---|
+| §03 §1 sessionScope='single' default | **100%** ✓ |
+| §03 §6 prompt FIFO + first responder | **100%** ✓ |
+| §04 §一 路由表 | **100%**（9 路由全实现）|
+| §04 §二.2 复用 ACP zod schema | **100%** ✓ |
+| §04 §三 SSE / WebSocket | **80%**（SSE 完整 / WebSocket Stage 1.5 deferred）|
+| §07 §1 Bearer token | **100%** + 加 timing-safe compare + 401 uniform |
+| §07 §6.1 0.0.0.0 拒绝默认 | **100%** ✓ |
+| §10 capabilities envelope | **100%**（9 tags 实现）|
+| §16 §五 SSE Last-Event-ID 重连 | **100%**（ring + replay + 15s heartbeat）|
+| §18 §五 liveness 协议 | **75%**（heartbeat 间隔 15s vs 设计 30s——更激进；client_evicted overflow 已实现）|
+| §17 远端 CLI / Capability 反向 RPC | **0%**（Stage 1 不含；Stage 1.5/2 deferred）|
+| §11/§12/§14/§15 多租户 / 持久化 | **0%**（Stage 4-6 才做）|
+
+**综合**：~95% Stage 1 范畴内的设计决策 1:1 实现；少数偏差都是**设计向更严格演进**（timing-safe / 401 uniform / 15s heartbeat 比 30s 更激进 / IPv6 ergonomics），不是简化。
+
+#### 5️⃣ 经验沉淀
+
+| 经验 | 详情 |
+|---|---|
+| **EventBus 在 Stage 1 就需要完整实现** | 原计划 Stage 6 HA 详做，但 SSE Last-Event-ID 重连是 Stage 1 用户必需，无法 deferred |
+| **Timing-safe / 401 uniform 等 side-channel 防御 Stage 1 就要做** | §12 §3.5 设计放在多租户章节，但 PR#3889 在 Stage 1 单租户也做了——开源 daemon 默认就该这么严 |
+| **IPv6 loopback ergonomics 不能省略** | 容器化 / Docker / `host.docker.internal` 是常见用例，loopback 处理细节比预想复杂 |
+| **多轮 self-audit 流程的价值** | PR#3889 用 9+ 轮 audit（含 claude-opus-4-7 / gpt-5.5 审）—— self-review 比 reviewer 抓的问题更多 |
+| **child-crash recovery 是必需的** | reviewer round 4 才补；spawn 子进程模式下，子进程崩溃时 daemon 必须 graceful 处理而不是把错误传播给所有 SSE clients |
+| **PR 体量 ~5x-7x 预估是常态** | 工程文档预估 vs 实际几乎总是 5x，因为 audit + 边界 + ergonomics 占大头 |
+
+#### 6️⃣ Stage 1 不含 / 推到 Stage 1.5+ 的能力
+
+| 能力 | 状态 |
+|---|---|
+| `WS /session/:id`（双向 WebSocket）| Stage 1.5 |
+| `POST /file/read`、`/file/write` | Stage 2+（agent 已有 fs，daemon-only file API 给远端用）|
+| `HttpTransport` 适配器（替 ProcessTransport）| Stage 2+ |
+| Mobile / browser UI | 待与 PR#3929-3931 协调（参考 [§17 远端 CLI 模式](./17-remote-cli-mode.md)）|
+| Pairing token / LAN URL | 待与 PR#3929-3931 协调 |
+| In-process core import（去除 child-process）| Stage 2 重点 |
+| 多 workspace / 多 session 共进程 | Stage 2 重点 |
 
 ---
 

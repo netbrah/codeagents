@@ -1,5 +1,7 @@
 # 18 — 多端协调策略：subscriber 协议 / liveness / takeover
 
+> **🚀 Stage 1 部分实现**（2026-05-07）：[PR#3889](https://github.com/QwenLM/qwen-code/pull/3889) commit `41aa95094` 实现了本章 §五 liveness 协议子集——15s heartbeat（比设计 30s 更激进）+ bounded subscriber queues + `client_evicted` overflow（设计 §五.4 子连接超时差异化的简化版）+ AbortController on `req.close`（即时剔除断开 client）。多端协调的 active typer / takeover / kind 限额 / IM bot 一对多用户等高级特性 Stage 1 不含——Stage 2/3 才做。详见 [§08 Stage 1 实现 audit](./08-roadmap.md#stage-1-pr3889-实现-audit2026-05-07)。
+
 > [← 上一篇：远端 CLI 模式](./17-remote-cli-mode.md) · [回到 README](./README.md)
 
 > 决策 §1 + §6 让一个 session 可被多 client 同时订阅；本章定义这些 client 如何协调（liveness / active typer / takeover / exclusive 模式 / IM bot 多用户分摊），保住 collaboration 红利的同时解决 stale connection 等运维痛点。

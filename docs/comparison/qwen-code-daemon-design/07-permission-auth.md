@@ -1,5 +1,7 @@
 # 07 — 权限流与认证
 
+> **🚀 Stage 1 实现状态**（2026-05-07）：本章 Bearer token / Host allowlist / 0.0.0.0 拒绝默认 + first-responder permission vote 全部由 [PR#3889](https://github.com/QwenLM/qwen-code/pull/3889) 实现（commits `61f2f59a1` auth scaffold + `6ee655f0a` permission vote + `ad0e6ec06` timing-safe SHA-256+timingSafeEqual + 401 uniform）。Stage 1 实测加了原 §12 §3.5 才有的 side-channel 防御（401 在 no-header/bad-scheme/wrong-token 三情况返回完全一致）。详见 [§08 Stage 1 实现 audit](./08-roadmap.md#stage-1-pr3889-实现-audit2026-05-07)。
+
 > [← 上一篇：MCP / 资源共享](./06-mcp-resources.md) · [下一篇：3 阶段路线图 →](./08-roadmap.md)
 
 > 设计原则：**双层权限**——传输层 bearer token 阻止未授权访问，应用层复用 PR#3723 已合并的 `evaluatePermissionFlow()` 把 daemon 加为第 4 种 execution mode。

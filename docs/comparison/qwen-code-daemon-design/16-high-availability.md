@@ -1,5 +1,7 @@
 # 16 — HA 高可用与故障恢复
 
+> **🚀 Stage 1 提前实现 SSE 重连子集**（2026-05-07）：本章 §五 SSE Last-Event-ID 重连协议**已在 Stage 1 由 [PR#3889](https://github.com/QwenLM/qwen-code/pull/3889) `41aa95094` 提前实现**——EventBus + ring-backed replay + 15s heartbeat + AbortController on `req.close` + 客户端按 `Last-Event-ID` 重连。原本计划 Stage 6 HA 才详做，但发现 SSE 重连是 Stage 1 用户必需（不可 deferred）。多 daemon pod / Postgres / S3 等其他 HA 设计仍是 Stage 6 范畴。详见 [§08 Stage 1 实现 audit](./08-roadmap.md#stage-1-pr3889-实现-audit2026-05-07)。
+
 > [← 上一篇：持久层与外部存储](./15-persistence-and-storage.md) · [回到 README](./README.md)
 
 > 多租户 daemon 在 Stage 6 SaaS 模式下的 HA 设计：状态可恢复性分类、5 层架构、failover 时序、SSE reconnect 协议、LLM streaming 中断 7 种场景、Chaos 测试矩阵、SLO 设计。
