@@ -6,7 +6,7 @@
 >
 > **2026-05-07 增量更新**：
 > - **Claude Code v2.1.132**（2026-05-06）：默认模型 Opus 4.6 → **Opus 4.7**（Max/Team Premium）+ 新 `xhigh` effort level + 5 个云端新特性（Computer Use / Auto Mode / Ultraplan / Ultrareview / Routines）+ 7 个新斜杠命令 + Conditional `if` Hooks + native binaries。详见 [Claude Code §23 近期更新](../tools/claude-code/23-recent-updates.md)
-> - **Qwen Code v0.15.7**（2026-05-07 release）：4 kinds Background tasks framework（agent/shell/monitor/dream）全落地 + **🌟 PR#3909 LiveAgentPanel**（移除 inline AgentExecutionDisplay，新增 always-on panel 锚定输入框 footer 下方 · 直接 port Claude `CoordinatorTaskPanel` 模式 · 视觉规范逐字 port）+ foreground subagents 也接入 pill+dialog（PR#3768）+ subagent context auto-compact（PR#3735）+ subagent Config 真正隔离（PR#3873 + PR#3887 follow-up）+ transcript-first fork resume（PR#3739，比 Claude Code 更稳健）+ **🌟 PR#3539 `/branch` (`/fork` alias) session 分支**（2026-05-08 MERGED · +1538/-18 · slash 命令 + JSONL 完整复制 + 每记录 stamp `forkedFrom` + 原子 create + rollback-safe swap，对标 Claude `--fork-session` flag）。详见 [SubAgent 展示 Deep-Dive](./subagent-display-deep-dive.md)
+> - **Qwen Code v0.15.9**（2026-05-08 release，PR#3971）：4 kinds Background tasks framework（agent/shell/monitor/dream）全落地 + **🌟 PR#3909 LiveAgentPanel**（移除 inline AgentExecutionDisplay，新增 always-on panel 锚定输入框 footer 下方 · 直接 port Claude `CoordinatorTaskPanel` 模式 · 视觉规范逐字 port） + **PR#3919 LiveAgentPanel ownership filter follow-up** + foreground subagents 也接入 pill+dialog（PR#3768）+ subagent context auto-compact（PR#3735）+ subagent Config 真正隔离（PR#3873 + PR#3887 + **PR#3892 第三 wrapper site 闭合**）+ transcript-first fork resume（PR#3739，比 Claude Code 更稳健）+ **🌟 PR#3539 `/branch` (`/fork` alias) session 分支**（2026-05-08 MERGED · +1538/-18 · slash 命令 + JSONL 完整复制 + 每记录 stamp `forkedFrom` + 原子 create + rollback-safe swap，对标 Claude `--fork-session` flag）+ **PR#3894 foreground → background promote 集成**（Phase D part (b)，PR-2 of 3 #3831）+ **PR#3880 searchable `/resume` picker**（free-text 搜 title/prompt/git branch + j/k preview/branch toggle）+ **PR#3956 subagent approval banner 显示 tool details**（compactMode 修复）。详见 [SubAgent 展示 Deep-Dive](./subagent-display-deep-dive.md)
 
 ## 快速参考表
 
@@ -219,7 +219,7 @@
 
 | 能力 | Claude Code | Aider | Gemini CLI | Kimi CLI | Qwen Code | Copilot CLI | Codex CLI | Goose | OpenCode |
 |------|-------------|-------|-----------|----------|-----------|-------------|-----------|-------|---------|
-| **命令总数** | ~86（含 Skill · v2.1.132 加 `/ultrareview` `/ultraplan` `/autofix-pr` `/usage` `/team-onboarding` `/theme`）| ~42 | ~39 | ~28 | 51（v0.15.7）| 34 | 28 | 16（斜杠）+ 15（CLI） | 23（TUI） |
+| **命令总数** | ~86（含 Skill · v2.1.132 加 `/ultrareview` `/ultraplan` `/autofix-pr` `/usage` `/team-onboarding` `/theme`）| ~42 | ~39 | ~28 | **52（v0.15.9，含 `/branch` `/fork` PR#3539 ✓ 2026-05-08）** | 34 | 28 | 16（斜杠）+ 15（CLI） | 23（TUI） |
 | **代码审查** | `/review` 插件 | — | `/code-review`（扩展） | — | `/review`（Skill，4 代理并行） | `/review` | `@codex review` | — | — |
 | **模式切换** | — | `/code` `/architect` `/ask` | `/plan` | `/plan` `/yolo` | `/plan` | — | `--ask-for-approval` | — | `--agent` |
 | **模型切换** | `/model` | `/model` `/editor-model` `/weak-model` | `/model` | `/model` | `/model` | `/model` | `--model` | `--model` | — |
@@ -241,7 +241,7 @@
 
 **关键发现：**
 - **Claude Code** 命令数 ~86（v2.1.132），独有 `/review`（代码审查）`/remote-control`（远程控制）`/ultrareview`（云端 fleet 评审）`/ultraplan`（云端 plan 协作）`/autofix-pr`（PR auto-fix）
-- **Qwen Code** 51 命令（v0.15.7）+ **`/branch` `/fork`**（PR#3539 ✓ 2026-05-08 MERGED · session fork 分支），新增 `/tasks`（PR#3642 background tasks 调度入口）+ Arena / 语言 / 洞察 / 扩展独有命令
+- **Qwen Code** 52 命令（v0.15.9）+ **`/branch` `/fork`**（PR#3539 ✓ 2026-05-08 · session fork 分支）+ `/resume` 搜索增强（PR#3880 ✓ 2026-05-08 · free-text + j/k preview + Ctrl+B branch toggle），原有 `/tasks`（PR#3642 background tasks 调度入口）+ Arena / 语言 / 洞察 / 扩展独有命令
 - **Aider** ~42 命令，文件/上下文管理和模式切换最细粒度
 - **Gemini CLI / Qwen Code / Kimi CLI** 命令体系接近（Gemini CLI 分叉谱系）
 - **Copilot CLI** 34 命令 + 67 工具 + 3 内置代理，GitHub 生态深度集成
