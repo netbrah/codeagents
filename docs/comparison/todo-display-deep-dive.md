@@ -6,14 +6,14 @@
 
 ## 零、4 方源码定位
 
-| Agent | 工具实现 | UI 组件 | 行数 |
-|---|---|---|---|
-| **Claude Code** | `tools/TodoWriteTool/TodoWriteTool.ts` | （leaked 仓未见独立 component；推测 inline tool result）| 工具 ~120 行 + prompt 9527B + types |
-| **Qwen Code** | `packages/core/src/tools/todoWrite.ts` | `cli/src/ui/components/TodoDisplay.tsx` + **`StickyTodoList.tsx`** | 470 + 72 + 135 = 677 行 |
-| **OpenCode** | `packages/opencode/src/tool/todo.ts` + `src/session/todo.ts` | `cli/cmd/tui/component/todo-item.tsx` + **`app/src/pages/session/composer/session-todo-dock.tsx`** + `feature-plugins/sidebar/todo.tsx` | 多文件分布 |
-| **Codex CLI** | `codex-rs/core/src/tools/spec_tests.rs` 注册 `update_plan` | `codex-rs/tui/src/history_cell.rs:2557 new_plan_update` + `ProposedPlanCell` | history_cell.rs 内 ~140 行 |
+| Agent | 数据来源 | 工具 / UI 关键文件 |
+|---|---|---|
+| **Claude Code** | **v2.1.133 prod binary 实测**（2026-05-08 安装版）+ leaked 仓（v2.1.81 时点）交叉验证 | binary `strings` 提取 prompt + `tools/TodoWriteTool/TodoWriteTool.ts`（leaked）|
+| **Qwen Code** | v0.15.7 GitHub 公开源码 | `packages/core/src/tools/todoWrite.ts`（470 行）+ `cli/src/ui/components/TodoDisplay.tsx`（72 行）+ **`StickyTodoList.tsx`**（135 行）|
+| **OpenCode** | GitHub 公开源码 | `packages/opencode/src/tool/todo.ts` + `src/session/todo.ts` + `cli/cmd/tui/component/todo-item.tsx` + **`app/src/pages/session/composer/session-todo-dock.tsx`** + `feature-plugins/sidebar/todo.tsx` + `app/e2e/todo.spec.ts` + `ui/src/components/todo-panel-motion.stories.tsx` |
+| **Codex CLI** | GitHub 公开源码 | `codex-rs/core/src/tools/spec_tests.rs`（`update_plan` 注册）+ `codex-rs/tui/src/history_cell.rs:2557 new_plan_update` + `PlanUpdateCell` + `ProposedPlanCell` + `ProposedPlanStreamCell` |
 
-> **注**：Claude Code 数据来自反编译的 leaked 仓（v2.1.81 时点），Qwen Code / OpenCode / Codex CLI 来自 GitHub 公开源码。
+> **重要更新（2026-05-08）**：本节 Claude Code 数据**已升级**——之前仅基于反编译的 leaked 仓（v2.1.81 时点 + feature-gated 代码），现新增 **v2.1.133 prod binary 实测**（`/root/.local/share/claude/versions/2.1.133`）交叉验证。两份数据有显著差异：leaked 仓含 `verificationNudgeNeeded` / `isTodoV2Enabled` 等 feature-gated 代码，但 v2.1.133 prod binary 实测**这些字符串均为 0 计数**——确认是 build-time DCE 掉了（参考 [Claude Code 22 个 Feature Flag DCE](../tools/claude-code/03-architecture.md)）。本文 Claude 部分以 **v2.1.133 prod binary 为准**，leaked 仓数据仅作"开发分支可能能力"参考。
 
 ## 一、TL;DR
 
@@ -30,35 +30,53 @@ Codex CLI    → 设计分叉（不叫 todo，叫 update_plan，含 explanation 
 
 | Agent | 工具名 | 状态种类（数）| 视觉规范 |
 |---|---|---|---|
-| **Claude Code** | `TodoWriteTool` | pending / in_progress / completed（含 `isTodoV2Enabled` gate 暗示 V2 演进）| 组件未公开（leaked 仓仅工具代码 + prompt）|
+| **Claude Code** | `TodoWrite`（v2.1.133 binary 中变量名 `$R="TodoWrite"`）| **3 类**：pending / in_progress / completed（v2.1.133 binary prompt 实测确认；**无 cancelled**；`isTodoV2Enabled` / `cancelled` / 等扩展状态在 prod binary 中均**未发现**）| 组件名未在 binary 暴露 |
 | **Qwen Code** | `todoWrite` | 3 类：pending / in_progress / completed | `○ ◐ ●` |
 | **OpenCode** | `todowrite` | **4 类**：pending / in_progress / completed / **cancelled** | Checkbox + animated dot（in_progress）|
 | **Codex CLI** | `update_plan`（**不叫 todo**）| 2 状态：✔ completed / □ pending（Codex 文档实测中 in_progress 也存在）| `• Updated Plan` + `└ explanation` + `✔ □` |
 
 **独家命名**：Codex 把工具叫 **`update_plan`** 而非 `todo_write`——这暗示语义差异（plan 是"叙事 + 步骤"，todo 是"任务列表"）。
 
+**Claude Code 状态种类校正（v2.1.133 binary 实测）**：之前推测 v2.1.133 可能有 `cancelled` 或 V2 扩展状态——实测确认**仍是 3 类**（与 v2.1.81 一致）。OpenCode 是 4 方里唯一有 cancelled 状态的。
+
 ## 三、数据结构差异
 
-### 3.1 Claude Code（leaked 仓）
+### 3.1 Claude Code（v2.1.133 binary 实测 + leaked 仓交叉验证）
+
+**v2.1.133 prod binary 中 prompt 原文**（`strings` 提取）：
+
+> "Each todo has `content`, `status` ("pending" | "in_progress" | "completed"), and **`activeForm`** (present-tense label shown while in progress)."
+
+> "Update the todo list for the current session. To be used proactively and often to track progress and pending tasks. **Make sure that at least one task is in_progress at all times.** Always provide both content (imperative) and activeForm (present continuous) for each task."
+
+→ **`activeForm` 字段在 v2.1.133 是真实字段，不是暗示**。LLM 必须为每个 task 提供两个版本：
+- `content`: imperative 形式（"Investigate error paths"）
+- `activeForm`: present continuous 形式（"Investigating error paths"，显示在 in_progress 时）
+
+**Schema 实测**（v2.1.133 prod 简化版）：
 
 ```ts
-// tools/TodoWriteTool/TodoWriteTool.ts
-const inputSchema = lazySchema(() =>
-  z.strictObject({
-    todos: TodoListSchema().describe('The updated todo list'),
-  }),
-)
+{
+  content: string,        // imperative
+  status: 'pending' | 'in_progress' | 'completed',
+  activeForm: string,     // present continuous（in_progress 显示用）
+}
+```
 
+**leaked 仓（v2.1.81 时点 + feature-gated）补充信息**：
+
+```ts
+// tools/TodoWriteTool/TodoWriteTool.ts:21-26
 const outputSchema = lazySchema(() =>
   z.object({
     oldTodos: TodoListSchema(),
     newTodos: TodoListSchema(),
-    verificationNudgeNeeded: z.boolean().optional(),  // 独家：动态计算的 nudge 信号
+    verificationNudgeNeeded: z.boolean().optional(),  // ⚠ feature-gated（VERIFICATION_AGENT + tengu_hive_evidence）
   }),
 )
 ```
 
-`TodoListSchema()` 在 `utils/todo/types.ts` 定义（leaked 仓只导出 types.ts）。
+→ `verificationNudgeNeeded` 字段在 leaked 仓存在但 v2.1.133 prod binary 中**未发现相关字符串**——意味着 feature flag DCE 掉了。当前 prod 不启用 verification nudge。
 
 ### 3.2 Qwen Code
 
@@ -109,14 +127,15 @@ struct PlanItemArg {
 
 ### 3.5 关键 schema 差异速览
 
-| 字段 | Claude | Qwen | OpenCode | Codex |
+| 字段 | Claude（v2.1.133）| Qwen | OpenCode | Codex |
 |---|---|---|---|---|
 | id | ✓ | ✓ | ✗（隐式 index）| ✗（隐式 index）|
-| content / step | ✓ content | ✓ content | ✓ content | ✓ step |
-| status | ✓ | ✓ | ✓ | ✓ |
+| content / step | ✓ content（imperative）| ✓ content | ✓ content | ✓ step |
+| status | ✓ 3 类 | ✓ 3 类 | ✓ 4 类 | ✓ 3 类 |
 | **priority** | ✗ | ✗ | **✓ high/medium/low** | ✗ |
 | **explanation**（叙事）| ✗ | ✗ | ✗ | **✓** |
-| activeForm（动名词）| **✓ 暗示** | ✗ | ✗ | ✗ |
+| **activeForm**（动名词，in_progress 时显示）| **✓ 实测确认（v2.1.133 binary）** | ✗ | ✗ | ✗ |
+| **at least one in_progress 强约束**（prompt 级）| **✓ "at least one task is in_progress at all times"** | ✗ | ✗ | ✗ |
 
 ## 四、UI 展示位置详解
 
@@ -211,10 +230,34 @@ function dot(status: Todo["status"]) {
 
 ## 五、智能集成深度对比
 
-### 5.1 Claude Code — 智能化最深
+### 5.1 Claude Code — 双层智能化（v2.1.133 prod 实测）
+
+**Layer 1：v2.1.133 prod binary 中实际启用的 nudge 系统（"turnsSinceLastTodoWrite" 计数器）**
+
+binary 实测原文（system reminder 注入到对话）：
+
+> "The TodoWrite tool hasn't been used recently. If you're working on tasks that would benefit from tracking progress, consider using the TodoWrite tool to track progress. Also consider cleaning up the todo list if has become stale and no longer matches what you are working on. Only use it if it's relevant to the current work. **This is just a gentle reminder — ignore if not applicable. Make sure that you NEVER mention this reminder to the user.**"
+
+机制：
+- `turnsSinceLastTodoWrite` 计数器跟踪上次 TodoWrite 调用距今轮数
+- 超阈值 → system 注入"gentle reminder" 提示 LLM
+- LLM 不能向用户提及这个 reminder（强约束）
+
+**Layer 2：activeForm 强约束（v2.1.133 prompt 内）**
+
+binary 实测原文：
+
+> "**Make sure that at least one task is in_progress at all times.** Always provide both content (imperative) and activeForm (present continuous) for each task."
+
+机制：
+- prompt 级约束 LLM 始终保持至少一个 in_progress
+- `activeForm`（动名词，"Investigating ..."）vs `content`（imperative，"Investigate ..."）双形态
+- in_progress 时 UI 显示 activeForm 给用户看（present continuous 比 imperative 更自然）
+
+**Layer 3（leaked 仓里的 feature-gated 代码，v2.1.133 prod 中已 DCE）**
 
 ```ts
-// tools/TodoWriteTool/TodoWriteTool.ts:64-76
+// leaked: tools/TodoWriteTool/TodoWriteTool.ts:64-76
 let verificationNudgeNeeded = false
 if (
   feature('VERIFICATION_AGENT') &&
@@ -228,15 +271,15 @@ if (
 }
 ```
 
-**核心创新**：
-- **VerificationNudge**：main agent 关闭 3+ items 且 none 是 verification step → 自动 nudge "spawn VERIFICATION_AGENT"
-- 配 prompt：`"You cannot self-assign PARTIAL by listing caveats in your summary — only the verifier issues a verdict"`
-- Feature gate：`VERIFICATION_AGENT` + GrowthBook `tengu_hive_evidence` 双 gate
-- **`toAutoClassifierInput()`**：与 Auto Mode 权限分类器集成（v2.1.132 引入的 permission classifier）
-- **`shouldDefer: true`**：不阻塞 tool flow
-- **`isTodoV2Enabled()` gate**：暗示 V2 版本演进中
+⚠️ **状态**：v2.1.133 prod binary 实测中 `verificationNudgeNeeded` / `VERIFICATION_AGENT` / `tengu_hive_evidence` 均**未发现字符串**——feature flag 关着，build 时 DCE 掉了。**当前 prod 用户不会触发此功能**。leaked 仓数据仅作"开发分支正在做"的参考。
 
-→ Claude 把 todo 视为**LLM 行为反馈循环的入口**——不仅是任务追踪，更是"防 LLM 跳过验证步骤"的硬约束。
+**Claude 智能化总结**：
+- ✓ **使用频率 nudge**（turnsSinceLastTodoWrite + system reminder）—— **v2.1.133 prod 实际启用**
+- ✓ **强约束在 prompt**（at least one in_progress + dual content/activeForm）—— **v2.1.133 prod 实际启用**
+- ⚠ Verification Agent nudge —— **feature-gated 关着**（leaked 仓里有，prod 没有）
+- ⚠ V2 演进 —— **DCE 掉**（leaked 仓有 `isTodoV2Enabled()` gate，prod binary 找不到字符串）
+
+→ Claude 实际策略是"**用 prompt 约束 + 用 reminder 推动**"，而非纯 schema 字段创新。verification 走的是**别的工具**（不是 TodoWrite 内置）。
 
 ### 5.2 Qwen Code — 基础展示
 
