@@ -108,7 +108,7 @@
 
 **扩展系统：** [Hook/插件](./docs/comparison/hook-plugin-extension-deep-dive.md) | [Skill 技能](./docs/comparison/skill-system-deep-dive.md) | [长期记忆](./docs/comparison/memory-system-deep-dive.md) | [闭环学习](./docs/comparison/closed-learning-loop-deep-dive.md)
 
-**工程实践：** [终端 UI](./docs/comparison/terminal-ui-deep-dive.md) | [Git 集成](./docs/comparison/git-integration-deep-dive.md) | [测试反射](./docs/comparison/test-reflection-deep-dive.md) | [CI 模式](./docs/comparison/ci-scripting-deep-dive.md) | [系统提示](./docs/comparison/system-prompt-deep-dive.md)
+**工程实践：** [终端 UI](./docs/comparison/terminal-ui-deep-dive.md) | [Git 集成](./docs/comparison/git-integration-deep-dive.md) | [测试反射](./docs/comparison/test-reflection-deep-dive.md) | [CI 模式](./docs/comparison/ci-scripting-deep-dive.md) | [系统提示](./docs/comparison/system-prompt-deep-dive.md) | [Todo / Plan 展示](./docs/comparison/todo-display-deep-dive.md)
 
 **命令对比：** [/review](./docs/comparison/review-command.md) | [/compact /plan /init](./docs/comparison/key-commands-deep-dive.md) | [/loop /schedule](./docs/comparison/loop-schedule.md) | [/btw /rewind](./docs/comparison/btw-rewind.md) | [内置命令总览](./docs/comparison/slash-commands-deep-dive.md)
 
