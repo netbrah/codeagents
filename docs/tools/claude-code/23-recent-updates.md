@@ -247,6 +247,35 @@ claude monitor --logs /var/log/app.log --webhook https://...
 | [§14-mcp](./14-mcp.md) | Per-tool result-size override（§八）|
 | [§15-telemetry](./15-telemetry-feature-flags.md) | 新 feature flags（gateway model discovery 等）|
 
+## 十、补：Session fork 模式 vs Qwen `/branch`（2026-05-08 更新）
+
+Claude Code 的 session "branch off" 通过 **`--fork-session` CLI flag** 实现（v2.1.133 binary 实测）：
+
+```bash
+claude --resume --fork-session             # 恢复 + fork（picker 选 session）
+claude --resume <session-id> --fork-session # 复制指定 session
+claude --continue --fork-session            # 续上一个但 fork
+```
+
+错误约束："`--session-id` can only be used with `--continue` or `--resume` if `--fork-session` is also specified."
+
+**Qwen Code 同期实现**（[PR#3539](https://github.com/QwenLM/qwen-code/pull/3539) ✓ 2026-05-08 MERGED，+1538/-18）：
+
+| 维度 | Claude `--fork-session` | Qwen `/branch` (`/fork` alias) |
+|---|---|---|
+| 入口 | CLI flag（启动时）| slash 命令（运行中）|
+| 自述对标 | — | "Mirrors Claude Code's `/branch`" |
+| 持久化（公开）| 未公开 | JSONL 完整复制 + per-record `forkedFrom: {sessionId, messageUuid}` |
+| 原子创建 | 未公开 | `fs.openSync 'wx' 0o600`（无 TOCTOU）|
+| Rollback safe | 未公开 | "core first, UI last" 顺序：finalize → forkSession → loadSession → config.startNewSession → init → UI swap |
+| Hook 区分 | 未公开 | `SessionStartSource.Branch` 独立 enum（不复用 `Resume`）|
+| 标题 collision | 未公开 | `(Branch N)` cap 99 → timestamp fallback |
+| 用户体验 | 启动时 flag | 运行中即时（更顺手）|
+
+**对比启发**：Claude 用 CLI flag 模式（启动时一次性决定），Qwen 用 slash 命令模式（运行中即时 fork）——两种模式各有适用场景。Qwen 选择更顺手的 slash 但工程实现质量更高（atomic create / rollback-safe / hook 独立 enum 都是 Qwen 加的语义边界）。
+
+详见 [SubAgent §六.11](../../comparison/subagent-display-deep-dive.md#已落地-11branch-alias-fork-session-分支pr3539)。
+
 ## 十一、对 Qwen Code daemon 设计的启发
 
 | Claude Code 新特性 | 对应 Qwen daemon 设计的位置 / 借鉴 |
