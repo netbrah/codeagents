@@ -402,4 +402,176 @@ GET / HTTP/1.1
 
 ---
 
+## 八、Pivot 后 API 变化总览（2026-05-09）
+
+> 决策 §2 改为 "1 Daemon Instance = 1 Session" 后，对 HTTP API 的具体影响。**总体：daemon 层 ~95% 不变；orchestrator 层是全新一套**。详见 [§03 §2](./03-architectural-decisions.md#2-状态进程模型pivot-后) + [§22 单 vs 多 Session 设计深度对比](./22-single-vs-multi-session-design.md)。
+
+### 8.1 Daemon 层 9 路由变化（基本不变）
+
+PR#3889 已实现的全部路由 wire 格式 / body schema **保留不变**，仅以下语义微调：
+
+| 路由 | 单 session 后语义 | 是否破坏性 |
+|---|---|---|
+| `POST /session` | daemon spawn 时已绑定唯一 session → **返回现有 session**（替代"创建新")；幂等 | ⚠️ 语义变 / wire 不变 |
+| `POST /session/:id/prompt` | sessionId 必须 = daemon 绑定的那个，否则 `404 session_not_bound` | ⚠️ 多了校验 |
+| `POST /session/:id/cancel` | 同上 | ⚠️ |
+| `GET /session/:id/events` | 同上 | ⚠️ |
+| `POST /session/:id/permission/:reqId` | 同上 | ⚠️ |
+| `POST /session/:id/load`（resume）| 仅当 daemon 未绑 session 时可用，否则 `409 already_bound` | ⚠️ |
+| `POST /workspace`（注册）| daemon spawn 时已绑 workspace → 返回现有 | ⚠️ |
+| `GET /capabilities` | 新增 `mode` / `boundSessionId` / `deploymentMode` 字段 | ✅ 加字段不破坏 |
+| `GET /health` | 新增 `boundSession` / `idleSince` 字段 | ✅ 加字段不破坏 |
+
+**关键设计决策：保留 sessionId 在 URL**——做 client-side 校验，防止 client 拿错 daemon URL 时静默写到错误 session。**不要**改成 sessionId 隐式（看似清爽但失去 fail-fast 防御）。
+
+### 8.2 新增 Orchestrator 层 API（全新，Stage 2+）
+
+多 session 场景下，client 需要"先找到哪个 daemon、再连过去"。Orchestrator 提供：
+
+| 路由 | 用途 | 触发实现阶段 |
+|---|---|---|
+| `POST /coordinator/sessions` | 创建 session（隐含 spawn 新 daemon）+ 返回 `{ sessionId, daemonUrl, token }` | Stage 2 必需 |
+| `GET /coordinator/sessions` | 列出所有 active daemon instances | Stage 2 |
+| `GET /coordinator/sessions/:id` | 查 session metadata + 当前 daemonUrl | Stage 2 |
+| `DELETE /coordinator/sessions/:id` | 终止 session（kill daemon）| Stage 2 |
+| `POST /coordinator/sessions/:id/route` | discovery：sessionId → daemonUrl | Stage 2 必需 |
+| `GET /coordinator/sessions/:id/aggregate` | cross-daemon 聚合（如"我所有 background tasks"）| Stage 2-3 |
+| `GET /coordinator/health` | 全部 daemon pool 健康状态 | Stage 3 |
+| `POST /coordinator/sessions/scope` | 路由策略 `single` / `user` / `thread` | Stage 3 |
+
+**Orchestrator API base URL** 由 `coordinator.baseUrl` 配置（独立于 daemon URL）。Mode A（CLI + HttpServer）单用户场景 **不需要 orchestrator**——直接连 `qwen --serve --port 7776`。Orchestrator 只在 Mode B 多 session 部署时启用。
+
+#### `POST /coordinator/sessions` 示例
+
+```http
+POST /coordinator/sessions HTTP/1.1
+Authorization: Bearer <coordinator-token>
+Content-Type: application/json
+
+{
+  "workspaceUri": "file:///work/repo-a",
+  "scope": "single",          // single / user / thread
+  "preserveTranscript": true,
+  "meta": { "userId": "u-123", "channel": "cli" }
+}
+
+→ 201 Created
+{
+  "sessionId": "sess-abc123",
+  "daemonUrl": "http://127.0.0.1:7776",
+  "daemonToken": "bearer-xyz789",      // 给 client 直连 daemon 用
+  "spawned": true,                     // 是新 spawn 还是复用现有 daemon
+  "mode": "mode-b-headless"
+}
+```
+
+Client 拿到后 **不再走 orchestrator**——直接用 `daemonUrl + daemonToken` 接入 daemon HTTP API。
+
+#### `POST /coordinator/sessions/:id/route` 示例
+
+```http
+POST /coordinator/sessions/sess-abc123/route HTTP/1.1
+Authorization: Bearer <coordinator-token>
+
+→ 200 OK
+{
+  "sessionId": "sess-abc123",
+  "daemonUrl": "http://127.0.0.1:7776",
+  "daemonToken": "bearer-xyz789",
+  "boundSince": "2026-05-09T10:23:45Z"
+}
+```
+
+用于 SDK 重连（拿现有 sessionId → 解析当前 daemonUrl）；orchestrator 维护 `sessionId → daemonUrl` 映射。
+
+### 8.3 Capability envelope 增量
+
+`GET /capabilities` 新增字段（向后兼容 / 老 client 忽略未知字段）：
+
+```jsonc
+{
+  "version": "1.0",
+  "mode": "single-session-daemon",          // 🆕 daemon 模式标识
+  "boundSessionId": "sess-abc123",          // 🆕 已绑定时
+  "boundWorkspace": "/work/repo-a",         // 🆕
+  "deploymentMode": "mode-a-cli",           // 🆕 mode-a-cli / mode-b-headless
+  "supportsBindSwap": false,                // 🆕 不支持替换 session（必须 spawn 新 daemon）
+  "orchestratorUrl": "http://localhost:7700", // 🆕 经 orchestrator 路由时
+  "tags": [
+    "single-session",                       // 🆕
+    "process-isolation",                    // 🆕
+    // ... 原 9 tags 保留
+    "express-5", "ws", "sse", "ndjson",
+    "bearer-auth", "host-allowlist",
+    "permission-vote", "first-responder",
+    "lastevent-replay"
+  ]
+}
+```
+
+Client（SDK / WebUI / IDE）通过 `mode === 'single-session-daemon'` 决定：
+- 不再调 `POST /session` 多次创建（会返回现有 / 409）
+- 看到 daemon URL 时直接用，不需要 multi-session router
+
+### 8.4 Client SDK 行为变化
+
+| Client 行为 | Pivot 前 | Pivot 后 |
+|---|---|---|
+| **创建 session** | `POST daemonUrl/session` 直接创建 | **优先调 orchestrator**：`POST /coordinator/sessions` 拿 daemonUrl + token |
+| **连接已有 session** | 已知 sessionId → `daemonUrl/session/:id/events` | 已知 sessionId → 先 `GET /coordinator/sessions/:id/route` 拿 daemonUrl，再连 |
+| **单机 / Mode A 简单场景** | N/A | 跳过 orchestrator，直连 daemon（`coordinatorUrl` 未配置）|
+| **多 client 同 session** | 同 daemonUrl 多次 attach | **同 daemonUrl 多次 attach**（不变）|
+
+**SDK 加 `coordinatorUrl` 配置项**：
+- 未配置 → 直连 daemon（兼容 PR#3889 现有用法）
+- 已配置 → 走 orchestrator 路由（多 session 场景）
+
+```ts
+// SDK 用法（pivot 后）
+import { DaemonClient } from '@qwen-code/sdk-typescript'
+
+// 场景 1: 直连（Mode A 或已知 daemon URL）
+const client = new DaemonClient({
+  daemonUrl: 'http://127.0.0.1:7776',
+  daemonToken: '<token>',
+})
+
+// 场景 2: 经 orchestrator
+const client = new DaemonClient({
+  coordinatorUrl: 'http://orchestrator.internal:7700',
+  coordinatorToken: '<coord-token>',
+})
+const session = await client.createSession({ workspaceUri, scope: 'single' })
+// SDK 内部已连接到正确的 daemon URL
+```
+
+### 8.5 向后兼容策略
+
+| 兼容点 | 做法 |
+|---|---|
+| 现有 PR#3889 SDK / WebUI 直连 daemon | ✅ 100% 兼容（所有路由保留）|
+| Pivot 前规划的 `POST /session` 多次创建 | ❌ 第二次返回 409 / 现有 session ID；client 应改走 orchestrator |
+| `POST /coordinator/*` 路由 | 🆕 新加，老 client 不会调到（不影响兼容性）|
+| `GET /capabilities` 新字段 | ✅ 字段加法不破坏 schema（老 client 忽略未知字段）|
+| sessionId 在 URL 中 | ✅ 保留作 fail-fast 校验，不去掉 |
+| daemon API 版本号 | 保持 `daemon: "1"` 不需 bump（wire 兼容）|
+
+### 8.6 错误码增量
+
+新增的错误码（沿用 §五 同款 ACP error envelope）：
+
+| HTTP code | error code | 含义 |
+|---|---|---|
+| 404 | `session_not_bound` | sessionId 不匹配 daemon 当前绑定的 session |
+| 409 | `already_bound` | daemon 已绑 session，不能再 `POST /session` 或 `/load` |
+| 503 | `daemon_starting` | orchestrator 已 spawn daemon 但未就绪（client 应短暂重试）|
+| 502 | `daemon_unreachable` | orchestrator → daemon 连接失败（应触发 daemon 重启）|
+| 410 | `daemon_terminated` | 该 sessionId 对应的 daemon 已退出（client 应通过 orchestrator 重新路由）|
+
+### 8.7 一句话总结
+
+**Daemon 层 0 wire 破坏（PR#3889 已实现的全保留）+ Orchestrator 层全新一套（Stage 2 必需）**。Mode A 单用户场景跳过 orchestrator 直连 daemon；Mode B 多 session 场景必需 orchestrator。SDK 加 `coordinatorUrl` 配置项区分两种部署。
+
+---
+
 下一篇：[05-进程模型 →](./05-process-model.md)
