@@ -215,94 +215,14 @@ GET /v1/session/{sid}/subscribers
 | Schema 演进 | Anthropic 主导 | ACP 社区共识 + Qwen 贡献 |
 | OpenAPI 自动生成 | ❌（推测）| ✓ 可选（Stage 3+）|
 
-## 六、Migration Path
+## 六、双向 Migration（理论可行）
 
-### 6.1 从 Anthropic Managed 迁出到自托管 Qwen daemon
+两个方向都**理论可行但非项目目标**，仅作架构兼容性证明：
 
-**触发场景**：
-- 数据合规要求收紧
-- 需要离线 / air-gapped
-- 想用 Claude 之外的模型
-- 想 fork / 定制 runtime
-- 需要多 client 共 session 的 live collaboration
+- **Anthropic Managed → Qwen daemon**：Provider 切到 Anthropic API 仍用 Claude 模型保持行为一致；MCP servers 协议兼容直接迁；session 状态需 schema 映射脚本（Anthropic 私有 → ACP JSONL）。风险：非 Claude 模型 prompt 行为差异、Anthropic-specific tool（code_execution Python 沙箱）需手动适配
+- **Qwen daemon → Anthropic 兼容 API**："drop-in replacement"——加 HTTP route adapter（`/v1/agents/...` ↔ `/v1/session/...`）+ schema adapter（AnthropicMessage ↔ ACP message_part）+ provider adapter（model 名映射），daemon core 0 改动、纯前端 adapter ~500 行 TS
 
-**迁移步骤**：
-
-```
-Phase 1: 影子部署（2-4 周）
-├─ 部署 Qwen daemon（Stage 3 单 daemon 即可起）
-├─ Provider 配置 Anthropic API（仍用 Claude 模型，验证行为一致）
-├─ 业务流量 1% 双跑（Anthropic Managed + Qwen daemon）
-└─ 对比响应正确性 + latency + 错误率
-
-Phase 2: Tool 迁移（2-3 周）
-├─ web_search → Qwen daemon WebSearchTool
-├─ code_execution → Qwen daemon Sandbox（pick 一种）
-├─ file_operations → 用户 fs + Edit/Read tool
-├─ MCP servers → 直接迁（协议兼容）
-└─ Custom function callable → ACP zod schema
-
-Phase 3: Session 状态迁移（1-2 周）
-├─ Anthropic API export sessions
-├─ 转 JSONL（Qwen format，可能需要 schema 映射脚本）
-├─ Import 到 Qwen daemon transcript 目录
-└─ 验证 LoadSession 能恢复对话
-
-Phase 4: 切流（1-2 周）
-├─ 渐进式切流（5% → 25% → 100%）
-├─ 监控 SLO + 错误率
-└─ 完整切完后注销 Anthropic Managed 订阅
-```
-
-**风险点**：
-- LLM 模型差异（如果切到非 Claude）→ prompt 行为可能微调
-- Tool 实现细节差（code_execution 的 Python 库 / 沙箱限制）
-- 业务方做了 Anthropic-specific 的 prompt engineering
-
-### 6.2 基于 Qwen daemon 反向构建 Anthropic 兼容 API
-
-**触发场景**：
-- 你已经有 Anthropic SDK 客户端代码大量
-- 想自托管但不想改 client 代码
-- 提供 "drop-in replacement"
-
-**构建路径**：
-
-```
-Qwen daemon + External Phase 4 SaaS
-       │
-       ├─ HTTP route adapter
-       │   /v1/agents/{id}/sessions/...   ← Anthropic API shape
-       │   ↓ 翻译
-       │   /v1/session/...                ← Qwen daemon native shape
-       │
-       ├─ Schema adapter
-       │   AnthropicMessage ↔ ACP message_part
-       │
-       ├─ Provider adapter
-       │   model: 'claude-3-5-sonnet' → Anthropic API
-       │   model: 'qwen3-coder' → DashScope
-       │
-       └─ 客户端不知不觉
-```
-
-实现样例：
-```ts
-// packages/server/src/adapters/anthropic-compat.ts
-app.post('/v1/agents/:id/sessions', async (c) => {
-  const newSessionReq = adaptAnthropicNewSession(await c.req.json())
-  const session = await daemon.createSession(newSessionReq)
-  return c.json(adaptToAnthropicResponse(session))
-})
-
-app.post('/v1/agents/:id/sessions/:sid/messages', async (c) => {
-  const promptReq = adaptAnthropicPromptToAcp(await c.req.json())
-  const sseStream = daemon.streamPrompt(c.req.param('sid'), promptReq)
-  return c.body(adaptSseToAnthropicFormat(sseStream))
-})
-```
-
-**复用度评估**：daemon 核心 0 改动，纯前端 adapter ~500 行 TypeScript。
+均不在 qwen-code 主线或 External Reference Architecture 范围。如有商业需求由集成方按上面思路实施。
 
 ## 七、数据驻留 / 合规对照
 
