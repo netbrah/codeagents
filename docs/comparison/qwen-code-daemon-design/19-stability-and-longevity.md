@@ -20,7 +20,7 @@
 | Node.js 长跑能力 | ✓ 14 年生产验证（Netflix / LinkedIn / Uber），需主动管理 7 类风险 |
 | 多租户额外风险 | 故障半径 / 资源争抢 / SLO 下限 / leak 累积 / 审计取证 |
 | 9 项稳定性模式 | TTL / bounded / resource quota / circuit breaker / memory threshold restart / heap dump / liveness / native supervisor / process isolation |
-| 重启成本接近 0 | 通过 §16 HA（multi-pod + sticky + drain + SSE 重连）实现 |
+| 重启成本接近 0 | 主线：daemon crash → orchestrator/systemd 重启 + transcript fork-resume + SSE 重连（[§16 §零](./16-high-availability.md#零读法说明两层结构)）；External SaaS：multi-pod + sticky + drain（[§16 Layer 2](./16-high-availability.md#layer-2-external-saas-ha-设计参考)）|
 | 监控告警 | 10+ Prometheus 指标 + 主动 chaos testing |
 | Bun vs Node.js | dev Bun（启动快）/ prod Node.js（长跑稳） |
 
@@ -1068,7 +1068,7 @@ Chaos 测试: 主动注入故障，验证防御机制
 | §19 机制 | 与其他章关系 |
 |---|---|
 | TTL 清理 | §18 §五 liveness 协议（subscriber TTL）+ §14 §五 生命周期表 |
-| Memory threshold restart | §16 §八 graceful drain（90s）+ §16 §四.3 multi-pod sticky |
+| Memory threshold restart | §16 §八 graceful drain（90s）+ §16 Layer 2 multi-pod sticky（External SaaS）|
 | Circuit breaker | §23 §五 quota engine + §12 §4 DoS 防御 |
 | heap dump | §16 §十一 监控告警 |
 | Worker thread | §16 §三 状态可恢复性矩阵（worker 隔离的 LLM streaming 算"瞬时"状态）|
