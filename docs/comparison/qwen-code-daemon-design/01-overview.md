@@ -169,7 +169,7 @@ OpenCode 用单一 `OPENCODE_SERVER_PASSWORD`（粗粒度访问控制）。Qwen 
 │  - sessionScope routing: single / user / thread                    │
 │  - daemon instance discovery / spawn / cleanup                     │
 │  - cross-daemon aggregate API（Web UI 跨 session 聚合视图）         │
-│  - daemon pool / warm pool（External 资源池化优化，详见 §21）        │
+│  - daemon pool / warm pool（External SaaS 资源池化优化）        │
 └────────────────────┬───────────────────────────────────────────────┘
                      │ spawn / route
        ┌─────────────┼─────────────┬──────────────┐
@@ -197,7 +197,7 @@ OpenCode 用单一 `OPENCODE_SERVER_PASSWORD`（粗粒度访问控制）。Qwen 
 **关键性质**：
 - **Daemon instance 内 0 cross-session 复杂度**（qwen-code 主线 scope）——AsyncLocalStorage Instance ctx / Map<workspaceId, Instance> / per-session resource managers 全部不需要
 - **进程级隔离免费**——一 daemon crash 只影响其 session，由外部 orchestrator（或 systemd / k8s 等进程管理器）重启
-- **资源池化在 External 层做**（[§21](./21-future-multi-session-migration.md) 路径 A：用户级 LSP daemon / 共享 MCP / 共享 cache）—— N ≥ 50 时再投，单 session 模型 N < 50 已够用
+- **资源池化在 External 层做**（External SaaS 资源池化：用户级 LSP daemon / 共享 MCP / 共享 cache）—— N ≥ 50 时再投，单 session 模型 N < 50 已够用
 
 ## 四、关键设计决策预告
 

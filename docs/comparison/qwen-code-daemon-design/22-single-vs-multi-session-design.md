@@ -1,8 +1,8 @@
 # 22 — 单 Session vs 多 Session 设计优缺点深度对比
 
-> [← 上一篇：未来 multi-session 迁移成本](./21-future-multi-session-migration.md) · [下一篇：Orchestrator 多租户与配额 →](./23-orchestrator-multi-tenancy.md) · [回到 README](./README.md)
+> [下一篇：Orchestrator 多租户与配额 →](./23-orchestrator-multi-tenancy.md) · [回到 README](./README.md)
 
-> 系统对比"1 Daemon Instance = 1 Session"（当前架构）与"单 daemon 多 session"（OpenCode 模式）两种设计的 tradeoff。**本章回答"为什么选这个"——为选型决策提供数据**；§21 回答"如果未来想扩展到多 session 怎么做"——为演进留退路。
+> 系统对比"1 Daemon Instance = 1 Session"（当前架构）与"单 daemon 多 session"（OpenCode 模式）两种设计的 tradeoff。**本章回答"为什么选这个"——为选型决策提供数据**；扩展到多 session 不在 qwen-code 主线设计目标（决策已定，本章解释为什么选 1 daemon = 1 session）。
 
 ## 一、TL;DR
 
@@ -17,7 +17,7 @@
 | **Crash 半径** | 1 session | 整 daemon |
 | **Subagent isolation** | 自动成立 | 5 PR 套路 |
 | **大规模 SaaS（100+ session/机）** | 需资源池化 | 原生支持 |
-| **Pivot 后默认** | ✅ | ❌ 仅大规模 SaaS 必需时投（[§21](./21-future-multi-session-migration.md)）|
+| **Pivot 后默认** | ✅ | ❌ 仅大规模 SaaS 必需时投（External Reference Architecture）|
 
 **实务建议**：单 session 模式覆盖 95% 真实场景；多 session 模式仅在大客户压测必需时投。
 
@@ -79,7 +79,7 @@ N 个 cold session 启动总成本：
 
 **结论**：Cold start 在 **稳定长 session 工作流下不是 bottleneck**，在 **高频短 session 工作流下是 killer**。
 
-**缓解**：[§21](./21-future-multi-session-migration.md) 路径 A 的 daemon warm pool —— orchestrator 预热 N 个 idle daemon，按需绑 session，cold start ~1-3s → ~50-200ms。
+**缓解**：External SaaS 资源池化路径 的 daemon warm pool —— orchestrator 预热 N 个 idle daemon，按需绑 session，cold start ~1-3s → ~50-200ms。
 
 ### 3.3 内存 baseline 在多大 N 时变得致命
 
@@ -102,7 +102,7 @@ N 个 cold session 启动总成本：
 - N = 10-50 时多 session 优势显现
 - N ≥ 50 时多 session 优势**非常显著**——是大规模 SaaS 选多 session 的核心理由
 
-**Pivot 后默认假设**：N < 50（个人 / 团队 / 中等 SaaS）—— 单 session 经济性可接受；触发条件出现后再投 [§21](./21-future-multi-session-migration.md) 路径 A 资源池化。
+**Pivot 后默认假设**：N < 50（个人 / 团队 / 中等 SaaS）—— 单 session 经济性可接受；触发条件出现后再投 External SaaS 资源池化路径。
 
 ### 3.4 隔离失败的代价对比
 
@@ -129,7 +129,7 @@ N 个 cold session 启动总成本：
 |---|---|---|
 | **Daemon 内部** | ✅ 几乎为 0（直接绑唯一 session）| ❌ ALS / Effect-TS / Map<...> / per-session managers |
 | **Orchestrator 层** | ❌ daemon spawn / discovery / cleanup / cross-daemon aggregate API | ✅ 单 daemon 不需要 |
-| **资源池化层**（[§21](./21-future-multi-session-migration.md) 路径 A）| ❌ 用户级 LSP daemon / 共享 MCP / 共享 cache | ✅ daemon 内自动共享 |
+| **资源池化层**（External SaaS 资源池化路径）| ❌ 用户级 LSP daemon / 共享 MCP / 共享 cache | ✅ daemon 内自动共享 |
 | **Long-run 稳定性** | ✅ daemon 退出即清理 | ❌ 9 项稳定性模式 + 22 项 Prometheus 指标 + Chaos test |
 | **Multi-tenant 安全** | ✅ 进程级隔离 + orchestrator ACL | ❌ daemon 内 5 层防御 + 17 攻击向量 |
 | **跨 session 聚合 UI** | ❌ orchestrator API + cache | ✅ daemon 内 query |
@@ -154,7 +154,7 @@ N 个 cold session 启动总成本：
 
 **OpenCode 已实现多 session daemon ~半年**——经验和坑都踩过，但他们的 codebase 是 Effect-first，不能直接拷代码。
 
-**结论**：保持单 session 模式 = 与已落地代码 0 改造成本对齐；改为多 session = ~2-3 月重构（详见 [§21 路径 C](./21-future-multi-session-migration.md#三路径-c纯迁移到-opencode-模式2-3-月最坏情况)）。
+**结论**：保持单 session 模式 = 与已落地代码 0 改造成本对齐；改为多 session = ~2-3 月重构（详见 扩展到 multi-session daemon（如果未来需要））。
 
 ## 四、何时选哪个：决策树
 
@@ -195,11 +195,11 @@ N 个 cold session 启动总成本：
 ├── N ≤ 50 且长 session 工作流？
 │   └─ 是 → ✅ 单 session（当前默认）
 ├── N ≤ 100 但 cold start 敏感？
-│   └─ 是 → ✅ 单 session + §21 路径 A 资源池化（warm pool）~2-3w
+│   └─ 是 → ✅ 单 session + External SaaS 资源池化（warm pool）~2-3w
 ├── N ≤ 500 且同 workspace 高密度？
-│   └─ 是 → ⚠️ 单 session + §21 路径 B Worker threads ~3-4w
+│   └─ 是 → ⚠️ 单 session + External SaaS Worker threads hybrid ~3-4w
 └── N ≥ 500 大规模 SaaS？
-    └─ 是 → ❌ 多 session 模式（§21 路径 C）~2-3 月
+    └─ 是 → ❌ 多 session 模式（External 重写）~2-3 月
 ```
 
 ## 五、与 PR#3889 / OpenCode 现状的具体对齐
@@ -245,17 +245,6 @@ OpenCode daemon 进程
 
 详见 [§09 与 OpenCode 详细对比](./09-comparison-with-opencode.md)。
 
-## 六、与 §21 的关系
-
-| 章节 | 焦点 |
-|---|---|
-| **§22（本章）** | "为什么选单 session" —— 设计 tradeoff 分析 + 决策树 |
-| **[§21](./21-future-multi-session-migration.md)** | "如果未来想迁移到多 session 怎么做" —— 工作量评估 + 演进路径 |
-
-§22 是 **决策入口**——给出选型依据；§21 是 **退路文档**——保证未来可演进。两章互补：
-- 选型时读 §22
-- 触发瓶颈后读 §21
-- 现有代码按 §22 推荐路径实施 = §21 路径 A/B/C 都可平滑演进
 
 ## 七、与各章节协同
 
@@ -266,7 +255,6 @@ OpenCode daemon 进程
 | [§12 多租户水平越权防御](./12-horizontal-privilege-defense.md) | 多 session 的 17 攻击向量证据 |
 | [§19 长跑稳定性](./19-stability-and-longevity.md) | 多 session 的 9 稳定性模式负担 |
 | [§20 vs Anthropic Managed Agents](./20-vs-anthropic-managed-agents.md) | Anthropic 的 per-session container 与 Qwen 单 session 模型架构相似 |
-| [§21 未来 multi-session 迁移成本](./21-future-multi-session-migration.md) | 多 session 模式的迁移工作量 |
 
 ## 八、一句话总结
 
@@ -277,8 +265,8 @@ OpenCode daemon 进程
 
 **Pivot 后默认单 session**：因为（1）N < 50 时经济性可接受；（2）PR#3889 已落地；（3）OS 进程边界免费提供隔离；（4）触发条件多数项目永远不出现。
 
-**多 session 仅在大规模 SaaS 必需时投**——届时按 [§21](./21-future-multi-session-migration.md) 路径演进，已实现代码不会白做。
+**多 session 仅在大规模 SaaS 必需时投**——届时按 External SaaS 资源池化路径演进，已实现代码不会白做。
 
 ---
 
-[← 上一篇：未来 multi-session 迁移成本](./21-future-multi-session-migration.md) · [下一篇：Orchestrator 多租户与配额 →](./23-orchestrator-multi-tenancy.md) · [回到 README](./README.md)
+[下一篇：Orchestrator 多租户与配额 →](./23-orchestrator-multi-tenancy.md) · [回到 README](./README.md)

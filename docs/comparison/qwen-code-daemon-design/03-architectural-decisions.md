@@ -183,7 +183,7 @@ SDK 客户端默认走 C —— 用户感受到的就是"同 workspace 自动共
 | 实现复杂度 | **低**（每 daemon 自给自足）| 高（cross-session 状态管理）|
 | 适用规模 | **个人 / 小团队 / 中等 SaaS** | 大规模 SaaS（共享更经济）|
 
-适用边界：单机 N < 50 并发 session 经济性可接受；N ≥ 100 时考虑资源池化或迁移到多 session 模式（详见 [§21 演进路径](./21-future-multi-session-migration.md) + [§22 设计对比](./22-single-vs-multi-session-design.md)）。
+适用边界：单机 N < 50 并发 session 经济性可接受；N ≥ 100 时考虑资源池化或迁移到多 session 模式（详见 [§22 设计对比](./22-single-vs-multi-session-design.md)）。
 
 ### 必要的工程约束
 
@@ -226,7 +226,7 @@ qwen daemon instance 进程（1 session 绑定）
     └─ status: { github: 'connected', filesystem: 'connected' }
 
 跨 daemon 实例：各自独立的 MCP client 子进程
-（如同 user 同 workspace 跑 N 个 daemon → N 套 MCP children；可投资源池化优化，详见 §21 路径 A）
+（如同 user 同 workspace 跑 N 个 daemon → N 套 MCP children；可投资源池化优化，详见 External SaaS 资源池化路径）
 ```
 
 ### 决策依据
@@ -249,7 +249,7 @@ per-daemon 的代价：用户在同 user 同 workspace 跑 5 个 daemon（多 se
 | 重复 spawn 数量 | active daemon × 配置的 MCP server 数 |
 | **隔离收益** | **state 绝对干净，不用担心 token / cache / connection 跨 daemon 泄漏** |
 
-**结论**：N < 50 可接受；N ≥ 50 时考虑 [§21 路径 A 资源池化](./21-future-multi-session-migration.md#四路径-a资源池化推荐-2-3w)（用户级 MCP daemon + IPC 共享，External Reference Architecture 范畴）。
+**结论**：N < 50 可接受；N ≥ 50 时考虑 External SaaS 资源池化（用户级 MCP / LSP daemon）。
 
 ### Qwen 保留的两项独有优化（OpenCode 没有）
 

@@ -10,7 +10,7 @@
 > - **FileReadCache per-daemon**——daemon-global singleton，无 key 隔离
 > - **LSP per-daemon**——每 daemon 自己一个 LSP child
 >
-> 代价：同 workspace 多 session 时，LSP / MCP children 重复 spawn。N ≥ 50 时可投资源池化（用户级 LSP daemon / 共享 MCP，详见 [§21](./21-future-multi-session-migration.md) 路径 A）；MCP children 通常很轻。
+> 代价：同 workspace 多 session 时，LSP / MCP children 重复 spawn。N ≥ 50 时可投资源池化（用户级 LSP daemon / 共享 MCP，属于 External SaaS 资源池化范畴）；MCP children 通常很轻。
 >
 > 本章下面的 "per-workspace" / "per-session" 章节描述早期设计推演过程，最终决策已聚合为 per-daemon。
 

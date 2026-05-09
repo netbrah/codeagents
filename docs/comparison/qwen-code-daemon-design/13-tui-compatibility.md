@@ -811,7 +811,7 @@ Mode B 节省 daemon 端资源**有实际意义**的场景：
 | **演示 / 测试 / 调试** | 同时看 CLI + Web 视图最方便 |
 | **client 数量少 / 间歇性接入** | Mode A 不需要永远跑 client，只有连上时才用 |
 
-### 11.7.6 与资源池化（[§21](./21-future-multi-session-migration.md) 路径 A）的协同
+### 11.7.6 与资源池化（External SaaS）的协同
 
 Mode B 多 session 部署时：
 
@@ -829,7 +829,7 @@ Mode B 多 session 部署时：
 |---|---|
 | 本地单用户终端工作 | Mode A（`qwen --serve`），TUI 已经在跑，HTTP 几乎免费 |
 | 服务器 / 容器 / 远端 daemon | Mode B（`qwen serve`），节省 daemon 端 ~30% memory |
-| 大规模 SaaS（100+ session/机）| Mode B + [§21 路径 A](./21-future-multi-session-migration.md#四路径-a资源池化推荐-2-3w) 资源池化 |
+| 大规模 SaaS（100+ session/机）| Mode B + External SaaS 资源池化路径 |
 | 受限内存配额（k8s limit）| Mode B（必选）|
 
 **结论**：Mode B 节省 daemon 端 ~30% memory + 200-500ms cold start，是 **daemon 端的局部优化**，不是系统级节省。真正价值在于：daemon 端资源紧张 / 部署在远端 / 多 session 实例化时，让 daemon 进程更瘦、cold start 更快、能跑更多实例。

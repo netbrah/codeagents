@@ -1,6 +1,6 @@
 # 20 — 与 Anthropic Managed Agents 对比（External Reference Architecture）
 
-> [← 上一篇：长跑稳定性](./19-stability-and-longevity.md) · [下一篇：未来 multi-session 迁移成本 →](./21-future-multi-session-migration.md)
+> [← 上一篇：长跑稳定性](./19-stability-and-longevity.md) 
 
 > **⚠️ 整章是 [External Reference Architecture](./08-roadmap.md#external-reference-architecture参考实现非项目路线图)，不在 qwen-code 主线**——qwen-code 主线只交付 daemon building block（Stage 1/1.5/2），不直接对标 Anthropic Managed Agents（云 SaaS 平台）。本章对比的是**基于 qwen-code daemon + 完整 External Reference Architecture 包装出来的"Managed Qwen Agents"产品** vs Anthropic Managed Agents 云服务。
 >
@@ -529,4 +529,4 @@ Anthropic Managed Agents 与 Qwen daemon 是**两种互补哲学**：
 
 ---
 
-[← 上一篇：长跑稳定性](./19-stability-and-longevity.md) · [下一篇：未来 multi-session 迁移成本 →](./21-future-multi-session-migration.md) · [回到 README](./README.md)
+[← 上一篇：长跑稳定性](./19-stability-and-longevity.md)  · [回到 README](./README.md)
