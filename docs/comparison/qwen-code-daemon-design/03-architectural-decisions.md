@@ -339,7 +339,7 @@ class DaemonInstance {
 | §1 session 'thread' 模式（多租户）| 每 client 独立 session | **隔离 cache**（绝对不能跨 session 共享）|
 | §3 MCP per-workspace | workspace 边界 | FileReadCache **更窄**——session 边界 |
 
-FileReadCache 是**比 MCP 更激进的隔离**（session 内私有 vs MCP per-workspace 共享）。不对称是有意的，因为 cache invalidation 的正确性比 MCP 的状态隔离更微妙。
+FileReadCache 与 MCP 在当前 1 daemon = 1 session 模型下都是 **per-daemon**——pivot 前 multi-session daemon 模型下 FileReadCache 是 per-session 私有（更激进），MCP 是 per-workspace 多 session 共享。pivot 后两者合并；下面说明保留作 pivot 前设计推演记录。
 
 ### 实现要点
 

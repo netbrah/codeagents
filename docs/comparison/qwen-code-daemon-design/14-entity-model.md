@@ -94,22 +94,22 @@ Provider/Skill/Model registry — daemon 全局只读单例
 
 **定义**：1:1 对应一个物理 directory（通常是 git repo 或项目根目录）。
 
-**持有的资源**：
+**持有的资源**（在 1 daemon = 1 workspace 模型下，下列资源等价于 daemon-instance scope）：
 
 | 资源 | 决策依据 |
 |---|---|
-| LSP server (1 个) | per-workspace 共享，跨 session 复用 (§06 §3) |
-| MCP servers (N 个) | per-workspace 模式（§03 §3，与 OpenCode 一致）|
-| Auth credentials | per-workspace 隔离（§06 §6.1）—— 不同 workspace 可用不同 GitHub token |
+| LSP server (1 个) | per-daemon（绑定此 workspace · §06 §3）|
+| MCP servers (N 个) | per-daemon（决策 §3）|
+| Auth credentials | per-daemon 隔离（§06 §6.1）—— 不同 daemon 可用不同 GitHub token |
 | `.qwen/settings.json` | workspace 层 config（§15 §配置 cascade 第 2 层）|
 | `permission_decisions` workspace scope | `alwaysAllow: 'Bash(npm test)'` 类决策 |
 | WorkspaceID | unguessable random（§12 §3.1.A4）|
 | Directory 物理路径 | absolute path，安全校验通过 realpath（§12 §3.2）|
 
 **关系**：
-- 1 tenant 拥有 N workspace
+- 1 tenant 拥有 N workspace（Tenant 在 [§23](./23-orchestrator-multi-tenancy.md) External orchestrator 层）
 - **跨 tenant 不共享 workspace**——同一物理 directory 在不同 tenant 下是不同 workspace 实例（独立 LSP / MCP / settings）
-- 1 workspace 通常 1 session（决策 §1 'single' scope 下），多 session 仅在 fork / load 后
+- **1 daemon = 1 workspace = 1 session**（决策 §2）；多 session 通过 orchestrator spawn 多 daemon 实现，每 daemon 自己的 workspace 绑定
 
 **生命周期**：Lazy 创建（第一次访问 directory 时）+ 显式 `dispose()` 销毁。详见 [§02](./02-existing-assets.md) `Instance.provide` 模式。
 
@@ -123,7 +123,7 @@ Provider/Skill/Model registry — daemon 全局只读单例
 |---|---|
 | Session ID | ≥256 bit unguessable random（§12 §3.1.A4）|
 | Transcript | JSONL 持久化（PR#3739 transcript-first fork resume）|
-| FileReadCache | per-session 私有（决策 §4）|
+| FileReadCache | per-daemon（决策 §4 · 在 1 daemon = 1 session 下天然 session 私有）|
 | 当前 model / mode / config | 通过 ACP `setSessionModel` / `setSessionMode` 设置 |
 | `taskQueue: Promise` | FIFO 串行 prompt（决策 §6）|
 | `subscribers: Set<ClientSubscription>` | 多 client fan-out 订阅集 |
@@ -167,7 +167,7 @@ Provider/Skill/Model registry — daemon 全局只读单例
 
 **持有的资源**：
 - Tool 名称 + 参数（验证通过 ACP zod schema）
-- AsyncLocalStorage Instance context（§05 §3）—— 携带 tenantId / workspaceId / sessionId / cwd
+- 执行上下文：daemon 进程本身就是 session ctx（决策 §2，无需 ALS Instance ctx；如未来扩展到 multi-session 才需，详见 §05 §三）
 - Permission flow 决策（PR#3723 复用，daemon 是第 4-5 mode）
 - Sandbox handle（如果是 shell 类工具，[§11 §二 ShellSandbox interface](./11-multi-tenancy-and-sandbox.md#二shellsandbox-抽象接口)）
 
@@ -187,11 +187,12 @@ Provider/Skill/Model registry — daemon 全局只读单例
 | Token ↔ Tenant | N:1 | 一 token 仅属一 tenant（认证凭证，不是 hierarchy）|
 | Tenant ↔ Workspace | 1:N | tenant 拥有多 workspace |
 | **Tenant ↔ Workspace 跨 tenant 共享** | ❌ **不允许** | [§23 §三 WorkspaceAccess](./23-orchestrator-multi-tenancy.md) + 同 directory 在不同 tenant 下是不同 workspace 实例 |
-| Workspace ↔ Session | 1:N | 同 workspace 可有多 session |
-| Workspace ↔ Session 默认 | 1:1（'single' scope）| 决策 §1 默认值 |
+| **Daemon Instance ↔ Workspace** | 1:1 | 决策 §2：每 daemon 启动时绑定唯一 workspace |
+| **Daemon Instance ↔ Session** | 1:1 | 决策 §2：每 daemon 承载唯一 session（≡ Daemon Instance）|
+| Workspace ↔ Session | 1:N（through orchestrator）| 同 workspace 多 session = orchestrator spawn 多 daemon，每 daemon 自己 1 session |
 | Session ↔ Task | 1:N | 一 session 起多 background task |
-| Session ↔ Client | 1:N | 一 session 被多 client 订阅 |
-| Client ↔ Session | 1:N | 一 client 可同时观察多 session（多 workspace IDE）|
+| Session ↔ Client | 1:N | 一 session 被多 client 订阅（live collaboration）|
+| Client ↔ Session | 1:N | 一 client 可同时观察多 session（连多个 daemon URL）|
 | Session ↔ active prompt | 1:1 | 同 session 一次仅 1 active prompt（FIFO 决策 §6）|
 | Tool call ↔ Session | N:1 | 一 session 顺序执行多个 tool |
 | Tool call ↔ Sandbox | 1:1 | 每 shell 类 tool call 一个 sandbox handle |
@@ -200,22 +201,21 @@ Provider/Skill/Model registry — daemon 全局只读单例
 
 | 资源 | 所有者层级 | 引用 / PR |
 |---|---|---|
-| Token | Tenant | §07 |
+| Token | Tenant（External orchestrator）| §07 |
 | Quota tracker | **Tenant**（在 orchestrator）| [§23 §五](./23-orchestrator-multi-tenancy.md#五per-tenant-quota-引擎) |
 | Audit log | **Tenant**（在 orchestrator）| [§23 §六](./23-orchestrator-multi-tenancy.md#六audit-log) |
 | Sandbox factory | **Daemon Instance** | [§11 §四](./11-multi-tenancy-and-sandbox.md#四sandbox-选择逻辑) |
-| LSP server | **Workspace** | §06 §3 |
-| MCP server | **Workspace** | §06 §1（决策 §3）|
-| Auth credentials（API key 等）| **Workspace** | §06 §6.1 |
-| `.qwen/settings.json` | **Workspace** | [§14 §八 配置 Cascade](#八配置-cascade4-层--5-层-with-tenant) |
-| `permission_decisions` | **Tenant + Workspace** 双键 | §07 §4 / §12 §3.3 |
-| Skill registry | daemon 全局 + path-conditional 激活 | §06 §5 |
-| Provider registry | daemon 全局 | §06 §6 |
-| Session transcript | **Session**（JSONL）| §05 |
-| FileReadCache | **Session** 私有 | §06 §2（决策 §4）|
-| Subagent / Shell / Monitor / Dream task | **Session** 内 task | §六.1-§六.6 (subagent-display) |
-| Tool call execution context | **Session**（含 AsyncLocalStorage Instance）| §05 |
-| Permission decision cache | **Tenant + Workspace** | §07 §4 |
+| LSP server | **Daemon Instance**（per-daemon · 在 1 daemon = 1 workspace 模型下等价 per-workspace）| §06 §3 |
+| MCP server | **Daemon Instance**（per-daemon · 决策 §3）| §06 §1 |
+| Auth credentials（API key 等）| **Daemon Instance**（绑定 workspace）| §06 §6.1 |
+| `.qwen/settings.json` | **Daemon Instance**（绑定 workspace）| [§14 §八 配置 Cascade](#八配置-cascade4-层--5-层-with-tenant) |
+| `permission_decisions` | **Daemon Instance**（per-daemon · 决策 §4）| §07 §4 / §12 §3.3 |
+| Skill registry | **Daemon Instance** + path-conditional 激活 | §06 §5 |
+| Provider registry | **Daemon Instance** | §06 §6 |
+| Session transcript | **Daemon Instance**（JSONL · per-daemon 一份）| §05 |
+| FileReadCache | **Daemon Instance**（per-daemon · 决策 §4）| §06 §2 |
+| Subagent / Shell / Monitor / Dream task | **Daemon Instance** 内 task | §六.1-§六.6 (subagent-display) |
+| Tool call execution context | **Daemon Instance**（daemon 进程本身就是 session ctx，无需 ALS）| §05 |
 | Theme / TUI 设置 | **Client**（不上 daemon）| §13 §4.4 |
 
 ## 五、生命周期与创建/销毁
@@ -262,24 +262,24 @@ Provider/Skill/Model registry — daemon 全局只读单例
 
 ## 七、与决策 §1 sessionScope 的协调
 
-`sessionScope` 决定 Workspace ↔ Session 的关系语义：
+> 在 1 daemon = 1 workspace = 1 session 模型下，sessionScope 决策**移到 External orchestrator 层**（[§23](./23-orchestrator-multi-tenancy.md)），由 orchestrator 决定如何把 session 请求路由到 daemon 实例：
 
 ```
 sessionScope: 'single' (默认)
-  └─ 同 workspace 多 client 共享同一 session
-     Alice 的 CLI + IDE + WebUI → 都看 sess-foo
-     Workspace ↔ Session 关系：1:1 (在 active 时)
+  └─ 同 workspace 路由到同一 daemon instance（已存在则 attach，否则 spawn）
+     Alice 的 CLI + IDE + WebUI → 都连同一 daemon 看 sess-foo
      体现 "live collaboration"
+     daemon-instance scope: 1 daemon = 1 workspace = 1 session
 
 sessionScope: 'thread'
-  └─ 每 HTTP request 独立 session（多租户严格隔离用此）
-     Workspace ↔ Session 关系：1:N，每 client 独立
+  └─ 每 HTTP request spawn 新 daemon instance（多租户严格隔离用此）
+     N requests = N daemons = N sessions
      用于多租户 SaaS
 
 sessionScope: 'user'
-  └─ 同 user-id 跨 channel 共享
-     用户手机微信 + 电脑 SDK → 同 user-id 共享 session
-     Workspace ↔ Session 关系：1:1 per user (跨 channel)
+  └─ 同 user-id 跨 channel 路由到同一 daemon
+     用户手机微信 + 电脑 SDK → 同 user-id 共享 daemon
+     daemon-instance scope: 1 daemon = 1 workspace = 1 session per user
 ```
 
 ## 八、配置 Cascade（4 层 → 5 层 with Tenant）
@@ -366,8 +366,8 @@ Session (runtime SetSessionConfigOptionRequest)
 
 **注意**：
 - Transcript 不入 RDBMS（存 JSONL 文件，§15 详细说明）—— RDBMS 只存 path 引用
-- FileReadCache 完全在内存（per-session 私有）
-- AsyncLocalStorage Instance context 完全在内存
+- FileReadCache 完全在内存（per-daemon · daemon 退出释放）
+- daemon 进程本身就是 session ctx（决策 §2 · 无需 AsyncLocalStorage Instance）
 - LSP server / MCP server 子进程完全在内存（不持久化）
 
 ## 十、与各章决策的对照
@@ -443,7 +443,7 @@ Token "alice-laptop" via SDK     ──┘     (transcript-first fork resume PR#
 
 ## 十二、一句话总结
 
-**Qwen daemon 实体模型 = 5 层 hierarchy（Tenant → Workspace → Session → Background Task → Tool Execution）+ 1 横切层（Client subscription）+ 认证侧 sidebar（External User → Token → Tenant，user 不在 daemon 内）。每层有清晰的资源所有权（Tenant 持 token+quota+audit / Workspace 持 LSP+MCP+auth / Session 持 transcript+FileReadCache / Task 持 4 kinds 状态 / Tool call 瞬时 AsyncLocalStorage Instance）。跨 tenant 边界硬隔离（auth/credentials/sessions/decisions），同 workspace 共享重资源（LSP/MCP），同 session 串行 prompt + fan-out 多 client 订阅 + 任意 client 应答 permission（决策 §1+§6 启用）。配置 cascade 4 层（daemon-global → tenant → workspace → session），存储 ER 图清晰区分入库实体（meta + audit + decisions）vs 文件存储（transcript JSONL）vs 内存（subscriptions/cache/instances）。设计哲学：实体模型只描述 daemon 内部能引用 / 持久化 / 拥有 lifecycle 的对象——User 是外部 IDP 概念，Token 是认证凭证而非容器，二者都不算 hierarchy 层。**
+**Qwen daemon 实体模型 = 5 层 hierarchy（Tenant → Workspace → Session → Background Task → Tool Execution）+ 1 横切层（Client subscription）+ 认证侧 sidebar（External User → Token → Tenant，user 不在 daemon 内）。在决策 §2 "1 daemon = 1 workspace = 1 session" 模型下，中间三层（Workspace / Session / Daemon Instance）合并为同一 process boundary。每层有清晰的资源所有权（Tenant 持 token+quota+audit 在 External orchestrator / Daemon Instance 持 LSP+MCP+auth+transcript+FileReadCache+session state / Task 持 4 kinds 状态 / Tool call 瞬时上下文 = daemon 进程本身）。跨 tenant 边界硬隔离 = 跨 daemon 进程边界天然隔离（OS 级），同 daemon 内多 client 订阅 fan-out + 串行 prompt + 任意 client 应答 permission（决策 §1+§6 启用）。配置 cascade 4 层（daemon-global → tenant → workspace → session）在单 daemon 内多数收缩为 daemon-bound 配置，存储 ER 图清晰区分入库实体（meta + audit + decisions）vs 文件存储（transcript JSONL，per-daemon 一份）vs 内存（subscriptions/cache）。设计哲学：实体模型只描述 daemon 内部能引用 / 持久化 / 拥有 lifecycle 的对象——User 是外部 IDP 概念，Token 是认证凭证而非容器，二者都不算 hierarchy 层。**
 
 ---
 

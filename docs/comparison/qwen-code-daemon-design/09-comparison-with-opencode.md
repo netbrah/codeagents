@@ -213,7 +213,7 @@ const q = query({ transport: new HttpTransport({
 |---|---|
 | daemon 单进程多 session | 1. 复用 ACP zod schema |
 | AsyncLocalStorage 上下文 | 2. 多 channel 路由（IM/IDE/Web/SDK 同源）|
-| HTTP+SSE+WebSocket 协议层 | 3. **Express 5 复用 vscode-ide-companion**（Hono 是 Stage 6 可选，不是默认）|
+| HTTP+SSE+WebSocket 协议层 | 3. **Express 5 复用 vscode-ide-companion**（Hono 是 External SaaS 高并发可选，不是默认）|
 | 持久化分层（文件+RDBMS）| 4. 复用 PR#3723 应用层权限流 |
 | 默认安全策略 | 5. 默认 0.0.0.0 + 无 token = 拒绝启动 |
 
