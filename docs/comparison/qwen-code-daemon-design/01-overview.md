@@ -206,7 +206,7 @@ OpenCode 用单一 `OPENCODE_SERVER_PASSWORD`（粗粒度访问控制）。Qwen 
 | 1 | session 是否跨 client 共享 | **默认共享同一 daemon instance**；scope 由 External orchestrator 路由 | [03 §1](./03-architectural-decisions.md#1-session-是否跨-client-共享) |
 | 2 | 状态进程模型 | **1 Daemon Instance = 1 Session**（与 PR#3889 child-process-per-session 模型一致） | [03 §2](./03-architectural-decisions.md#2-状态进程模型) |
 | 3 | MCP server 生命周期 | **per-daemon MCP state** + PR#3818 in-flight coalesce + 30s 健康检查 | [06](./06-mcp-resources.md) |
-| 4 | FileReadCache 共享 | **per-daemon**（session 内私有语义自动成立）| [06 §2](./06-mcp-resources.md#2-filereadcache-共享策略) |
+| 4 | FileReadCache 共享 | **per-daemon** + PR#3717 实现 + PR#3774 prior-read 守卫 + PR#3810 5 路径 invalidation | [06 §2](./06-mcp-resources.md#2-filereadcache-共享策略) |
 | 5 | Permission flow | **复用 PR#3723，daemon 是第 4 种 mode + 任何 client 都能应答** | [07](./07-permission-auth.md) |
 | 6 | 多 client 并发请求 | **同 session prompt 串行 + 事件 fan-out 多 client 协作观察** | [03 §6](./03-architectural-decisions.md#6-多-client-并发请求) |
 | 7 | 部署模式 | **Mode A（CLI + HttpServer）+ Mode B（Headless Daemon + HttpServer）双模式** | [03 §7](./03-architectural-decisions.md#7-daemon-部署模式clihttpserver-vs-headlesshttpserver) |
