@@ -2,67 +2,51 @@
 
 > [← 上一篇：权限 / 认证](./07-permission-auth.md) · [下一篇：与 OpenCode 详细对比 →](./09-comparison-with-opencode.md)
 
-> 渐进式落地，每阶段都可独立交付价值：
-> - **Stage 1**（~1 周，✅ PR#3889 ~95% 实现）—— Mode B headless `qwen serve`
-> - **Stage 1.5**（~4 天增量）—— Mode A CLI + HttpServer（`qwen --serve`）
-> - **Stage 2**（~1-2 周）—— orchestrator 雏形 + multi-daemon 管理
-> - **Stage 3**（~1 月）—— mDNS / OpenAPI / WebSocket 双向 / 多 token / 集群部署 / 企业鉴权
+> Qwen Code 项目本身只承诺 **"daemon building block"** —— 把 ACP NDJSON 协议通过 HTTP+SSE 暴露成可被任何外部 client / 编排器消费的服务。多 session orchestrator / 多租户 / SaaS 部署等"平台层"由外部实现（商业平台 / k8s operator / 云厂商定制），项目提供 [§22](./22-single-vs-multi-session-design.md) / [§23](./23-orchestrator-multi-tenancy.md) / [§04 §8.2](./04-http-api.md#82-新增-orchestrator-层-apistage-2) 作为参考架构蓝图。
 
 ## 总览
 
 ```
-Stage 1 (~1 周, ✅ PR#3889 ~95% MERGED): Mode B headless qwen serve daemon
-  └─ Express 5 HTTP server + ACP NDJSON over HTTP+SSE
-  └─ 1 daemon instance = 1 session（与 PR#3889 child-process-per-session 一致）
-  └─ 远端 client / WebUI / IDE 接入
+qwen-code 主线（~3 周内 feature complete）：
+├─ Stage 1   ✅ (~1 周, PR#3889 ~95% 实现) Mode B headless qwen serve
+├─ Stage 1.5 🆕 (~4 天增量) Mode A CLI + HttpServer (qwen --serve)
+└─ Stage 2   🆕 (~1-2 周) daemon 完善：mDNS / OpenAPI / WebSocket bidi / 多 token / Metrics
 
-Stage 1.5 (~4d 增量): Mode A CLI + HttpServer
-  └─ qwen --serve [--port N] flag
-  └─ TUI 启动后挂同一套 Express HTTP server
-  └─ TUI 作为 in-process EventBus subscriber（client #0）
-  └─ 用户在 CLI + WebUI/IDE/IM bot 同 session 协作
+────────── qwen-code daemon feature complete ──────────
 
-Stage 2 (~1-2 周): orchestrator 雏形 + multi-daemon 管理
-  └─ qwen-coordinator
-  └─ sessionScope routing: single / user / thread
-  └─ daemon instance discovery / spawn / cleanup
-  └─ SDK HttpTransport + Web UI cross-daemon aggregate
-
-Stage 3 (~1 月): 对标 OpenCode 完整设计
-  └─ mDNS / OpenAPI / WebSocket 双向 / 权限流深化
-  └─ 多 token / 集群部署文档 / 企业鉴权
+External Reference Architecture（外部 / 商业层，参考实现）：
+├─ Orchestrator (multi-daemon spawn / route / cleanup)        → §22 / §04 §8.2 设计参考
+├─ Multi-tenancy (Tenant / OIDC / Quota / Audit)              → §23 设计参考
+├─ Shell sandbox (NoSandbox / OS user / Namespace / Container) → §11 设计参考
+└─ SaaS deployment (k8s / Postgres / Redis / S3)              → §16 / §23 §七 设计参考
 ```
+
+**核心判断**：qwen-code 是 building block，不是 SaaS 平台。Stage 1 + Stage 1.5 + Stage 2 完成后 daemon 协议表面 100% 稳定，外部集成方（如阿里云 DashScope / 自建团队 / 用户）可基于此自由实现 orchestrator + 多租户 + SaaS。这与 OpenCode（端到端 SaaS 路线）的设计哲学相反——后者绑定平台决策，前者保持 Unix 风格的可组合性。
 
 ---
 
-## Stage 1：实验性 `--http-bridge` flag（~1 周）
-
-> **🚀 实现状态（2026-05-07）**：Stage 1 由 [**PR#3889**](https://github.com/QwenLM/qwen-code/pull/3889) `feat(cli,sdk): qwen serve daemon (Stage 1)` 落地（OPEN，+7698/-46，23 commits）。明确引用 issue #3803。详见本节末 [Stage 1 PR#3889 实现 audit](#stage-1-pr3889-实现-audit2026-05-07)。
+## Stage 1：Mode B headless `qwen serve`（~1 周，✅ PR#3889 ~95% 实现）
 
 ### 目标
 
-**最小改动让用户先用上 daemon 模式**——通过把现有 ACP agent 包装成 HTTP→stdio 桥接，零业务逻辑变更，验证多 client 场景的需求与痛点。
+提供 daemon 的最小可用形态——`qwen serve` headless 进程，通过 HTTP+SSE 暴露 ACP NDJSON 协议。一 daemon instance 绑一 session（[§03 §2](./03-architectural-decisions.md#2-状态进程模型)），多 session 由外部 spawn 多个 instance 实现。
 
 ### 实现
 
 ```
 [现有] qwen --acp                 → stdio NDJSON ACP agent
-[新增] qwen serve --http-bridge   → 启 Express 5 HTTP server（复用 vscode-ide-companion 已有栈）
-                                  → 内部启 ACP agent 子进程（pipe stdio）
+[Stage 1] qwen serve              → Express 5 HTTP server
+                                  → 内部 spawn `qwen --acp` per session
                                   → HTTP body ↔ stdio NDJSON 桥接
+                                  → SSE 事件流给多 client
 ```
 
-**特点**：
-- ACP agent 本身不改一行代码
-- daemon 进程 **依然 spawn ACP agent 子进程**（不是真正的 daemon 内 in-process core）
-- 单 ACP session = 单 stdio 子进程 = 多 client 排队访问
-
-### 工作清单
+### 工作清单（设计估算）
 
 | 任务 | 工作量 | 文件 |
 |---|---|---|
 | 新建 `packages/server/` 包 | 0.5d | `packages/server/package.json` |
-| `qwen serve` CLI cmd | 0.5d | `packages/cli/src/cli/cmd/serve.ts`（仿 OpenCode）|
+| `qwen serve` CLI cmd | 0.5d | `packages/cli/src/cli/cmd/serve.ts` |
 | Express 5 HTTP server scaffold（复用 ide-server.ts CORS+Bearer+Origin lock 模板）| 0.5d | `packages/server/src/index.ts` |
 | HTTP→stdio bridge | 2d | `packages/server/src/bridge/HttpAcpBridge.ts` |
 | Auth middleware | 0.5d | bearer token 校验 |
@@ -70,18 +54,6 @@ Stage 3 (~1 月): 对标 OpenCode 完整设计
 | SSE event stream | 1d | NDJSON → SSE 适配 |
 | 文档 + 示例 + e2e 测试 | 1d | |
 | **合计** | **~7-8 天 / 1 人** | ~700-1000 行新增代码 |
-
-### Stage 1 局限
-
-- **同 session 多 client = 排队**（stdio 子进程一次只能处理一个 prompt）
-- **每个新 session = 新 stdio 子进程**（启动开销没省）
-- **跨 session 资源不共享**（LSP / MCP 各打一套）
-
-### 价值
-
-- 用户立刻能用 SDK over HTTP / Web UI / VSCode 直连 daemon
-- 暴露多 client 真实场景（哪些 API 用得多 / pain points）
-- 为 Stage 2 设计提供数据
 
 ### Stage 1 PR#3889 实现 audit（2026-05-07）
 
@@ -151,14 +123,13 @@ Stage 3 (~1 月): 对标 OpenCode 完整设计
 | §03 §6 prompt FIFO + first responder | **100%** ✓ |
 | §04 §一 路由表 | **100%**（9 路由全实现）|
 | §04 §二.2 复用 ACP zod schema | **100%** ✓ |
-| §04 §三 SSE / WebSocket | **80%**（SSE 完整 / WebSocket Stage 1.5 deferred）|
+| §04 §三 SSE / WebSocket | **80%**（SSE 完整 / WebSocket Stage 2 deferred）|
 | §07 §1 Bearer token | **100%** + 加 timing-safe compare + 401 uniform |
 | §07 §6.1 0.0.0.0 拒绝默认 | **100%** ✓ |
 | §10 capabilities envelope | **100%**（9 tags 实现）|
 | §16 §五 SSE Last-Event-ID 重连 | **100%**（ring + replay + 15s heartbeat）|
 | §18 §五 liveness 协议 | **75%**（heartbeat 间隔 15s vs 设计 30s——更激进；client_evicted overflow 已实现）|
-| §17 远端 CLI / Capability 反向 RPC | **0%**（Stage 1 不含；Stage 1.5/2 deferred）|
-| §11/§12/§14/§15 多租户 / 持久化 | **0%**（Stage 4-6 才做）|
+| §17 远端 CLI / Capability 反向 RPC | **0%**（Stage 1 不含；Stage 2 deferred）|
 
 **综合**：~95% Stage 1 范畴内的设计决策 1:1 实现；少数偏差都是**设计向更严格演进**（timing-safe / 401 uniform / 15s heartbeat 比 30s 更激进 / IPv6 ergonomics），不是简化。
 
@@ -173,113 +144,195 @@ Stage 3 (~1 月): 对标 OpenCode 完整设计
 | **child-crash recovery 是必需的** | reviewer round 4 才补；spawn 子进程模式下，子进程崩溃时 daemon 必须 graceful 处理而不是把错误传播给所有 SSE clients |
 | **PR 体量 ~5x-7x 预估是常态** | 工程文档预估 vs 实际几乎总是 5x，因为 audit + 边界 + ergonomics 占大头 |
 
-#### 6️⃣ Stage 1 不含 / 推到 Stage 1.5+ 的能力
+#### 6️⃣ Stage 1 不含 / 推到 Stage 1.5 / Stage 2 / 外部的能力
 
 | 能力 | 状态 |
 |---|---|
-| `WS /session/:id`（双向 WebSocket）| Stage 1.5 |
-| `POST /file/read`、`/file/write` | Stage 2+（agent 已有 fs，daemon-only file API 给远端用）|
-| `HttpTransport` 适配器（替 ProcessTransport）| Stage 2+ |
-| Mobile / browser UI | 待与 PR#3929-3931 协调（参考 [§17 远端 CLI 模式](./17-remote-cli-mode.md)）|
-| Pairing token / LAN URL | 待与 PR#3929-3931 协调 |
-| Orchestrator（multi-daemon spawn / route / cleanup）| Stage 2 重点 |
 | Mode A（CLI + HttpServer，`qwen --serve`）| Stage 1.5（~4d 增量）|
+| `WS /session/:id`（双向 WebSocket）| Stage 2 |
+| OpenAPI 自动生成 + mDNS 服务发现 | Stage 2 |
+| 多 token / per-token user-id | Stage 2 |
+| Prometheus metrics endpoint | Stage 2 |
+| `POST /file/read` / `/file/write` | **External / Stage 2 可选**（agent 已有 fs，daemon-only file API 仅给远端 client 用）|
+| Mobile / browser UI | **External**（参考 [§17 远端 CLI 模式](./17-remote-cli-mode.md)；PR#3929-3931 平行 stack 已有 mobile UI 参考）|
+| Pairing token / LAN URL | **External**（参考 PR#3929-3931）|
+| Orchestrator (multi-daemon spawn / route / cleanup) | **External**（参考 [§04 §8.2](./04-http-api.md#82-新增-orchestrator-层-apistage-2) + [§22](./22-single-vs-multi-session-design.md) + [§23](./23-orchestrator-multi-tenancy.md)）|
+| Multi-tenancy / OIDC / Quota / Audit | **External**（参考 [§23](./23-orchestrator-multi-tenancy.md)）|
+| Shell sandbox（OS user / namespace / container / remote）| **External**（参考 [§11](./11-multi-tenancy-and-sandbox.md)）|
 
 ---
 
-## Stage 2：Orchestrator 雏形 + multi-daemon 管理（~1-2 周）
+## Stage 1.5：Mode A CLI + HttpServer（~4 天增量）
 
 ### 目标
 
-**`qwen-coordinator` 上线**——管理多个 daemon instance 的生命周期，提供 sessionScope 路由 + cross-daemon aggregate API。Stage 1/1.5 让单 daemon instance 跑起来；Stage 2 让 multi-session 部署成形。
+让 `qwen` CLI 进程同时挂载 HttpServer——TUI 在终端正常渲染，远端 client（WebUI / IDE / IM bot）通过 HTTP 接入同一 session（[§03 §7 双部署模式](./03-architectural-decisions.md#7-daemon-部署模式clihttpserver-vs-headlesshttpserver)）。
+
+### 实现
+
+```bash
+# 用户在终端跑：
+qwen --serve --port 7776 [--token-file ~/.qwen/local-token]
+
+# TUI 启动 + Express HTTP server 同进程
+# 远端 client 通过 :7776 接入；TUI 是 client #0（in-process EventBus）
+```
 
 ### 工作清单
 
-| 任务 | 工作量 | 关键文件 / 说明 |
+| 任务 | 工作量 | 文件 |
 |---|---|---|
-| `qwen-coordinator` CLI cmd | 1d | `packages/coordinator/src/cli/cmd.ts`（独立 binary 或 `qwen serve --coordinator` 子命令）|
-| sessionScope 路由策略实现 | 2d | `single` / `user` / `thread` 三档（[§03 §1](./03-architectural-decisions.md#1-session-是否跨-client-共享)）|
-| daemon instance 注册表 | 1d | sessionId → daemonUrl + token 映射，初版用内存 Map |
-| daemon spawn / cleanup | 2d | child_process spawn `qwen --acp`，`/health` 监测 + 自动 reap |
-| `POST /coordinator/sessions` + `route` 路由 | 2d | [§04 §8.2](./04-http-api.md#82-新增-orchestrator-层-apistage-2) |
-| SDK HttpTransport 加 `coordinatorUrl` 配置 | 1-2d | 直连 vs 经 orchestrator 二选一 |
-| Web UI cross-daemon aggregate（"我所有 background tasks"）| 2d | `GET /coordinator/sessions/:id/aggregate` |
-| 集成测试 + 文档 | 2d | |
-| **合计** | **~1.5 周 / 1 人**（或 1 周 / 2 人）| ~1500-2500 行 |
+| `qwen --serve` flag 解析 | 0.5d | `packages/cli/src/cli/cmd/index.ts` |
+| TUI 启动后挂 HttpServer | 0.5d | `packages/cli/src/cli/main.ts` |
+| TUI 作为 in-process subscriber | 1d | `packages/cli/src/ui/services/InProcAdapter.ts`（新建）|
+| 默认 auth/CORS 区分本地 vs 远端 | 0.5d | server config 分发 |
+| 生命周期协同（Ctrl+C drain HTTP）| 0.5d | shutdown hook |
+| 文档 + e2e | 1d | |
+| **合计** | **~4 天 / 1 人** | ~300-500 行新增 |
 
-### Stage 2 验收
+### Stage 1.5 验收
 
-- ✓ Orchestrator 路由 sessionScope `single` / `user` / `thread`
-- ✓ 多 daemon instance spawn / cleanup
-- ✓ SDK 通过 `coordinatorUrl` 自动找到正确 daemon
-- ✓ Web UI 跨 daemon 聚合视图
-- ❌ mDNS 发现（推到 Stage 3）
-- ❌ OpenAPI 自动生成（推到 Stage 3）
+- ✓ `qwen --serve` 启动 TUI + HTTP server 同进程
+- ✓ 远端 client 通过 HTTP 接入同 session（与 TUI 共享 EventBus）
+- ✓ TUI 退出 → HTTP server graceful drain → 整进程退出
+- ✓ 默认 loopback only / no token（本地信任）；远端启用必须显式 `--token`
+- ✓ 与 Stage 1 PR#3889 同 wire 协议（client SDK 不需要改）
 
 ---
 
-## Stage 3：mDNS / OpenAPI / 企业鉴权 / 集群（~1 月）
+## Stage 2：daemon 完善（~1-2 周）
 
 ### 目标
 
-**生产级 daemon**——支持团队部署、多租户、零摩擦发现。
+让 daemon 协议表面 **feature complete**——添加 mDNS 发现、OpenAPI codegen、WebSocket bidi、多 token、Prometheus metrics。Stage 2 完成后 qwen-code daemon scope 锁定，外部集成方可放心基于此构建。
 
 ### 工作清单
 
 | 任务 | 工作量 | 说明 |
 |---|---|---|
-| Workspace routing 中间件 | 5-7d | URL `/workspace/:id/*` 与 host header 双路由 |
+| WebSocket bidi 升级 | 2d | 默认 `express-ws`；SSE → WS 并存（[§04 §三 WebSocket 库选型](./04-http-api.md#websocket-库选型express-5--express-ws-默认)）|
 | mDNS 服务发现 | 1d | `bonjour-service`（OpenCode 同款）—— `_qwen._tcp.local` |
-| OpenAPI codegen | 3-5d | `@asteasolutions/zod-to-openapi` 从 ACP zod schema 生成 spec + SDK 验证（Hono 切换则改 `hono-openapi`）|
-| WebUI 直接跑在 daemon 上 | 5-7d | 静态资源 mount，`/ui/*` 直接 serve |
-| 多 token + workspace allowlist | 5-7d | `tokens.json` + per-token user-id |
-| 企业认证（OIDC / SSO）| 7-10d | OAuth 2.0 / OIDC discovery |
-| 审计日志 | 3-5d | 每次工具调用 / 权限决策 / 文件操作 写 audit.log |
-| 配额管理（每 user / 每 workspace）| 5-7d | LLM token 用量 + tool call 频率限流 |
-| 跨 client 审批 UX | 3-5d | "primary client" 概念 / 多 majority 决策 |
-| 集群多实例 / 负载均衡文档 | 5-7d | sticky session + Redis state（可选）|
-| 健康检查端点 / Metrics（Prometheus）| 3-5d | `/metrics` 标准 OpenMetrics |
-| 文档 + 例子 + 性能基准 | 7-10d | |
-| **合计** | **~6-8 周 / 2-3 人** | ~5000-8000 行 |
+| OpenAPI codegen | 3-5d | `@asteasolutions/zod-to-openapi` 从 ACP zod schema 生成 spec |
+| 多 token / per-token user-id | 2-3d | `tokens.json` + 每 token 绑定 user-id（不做 OIDC——orchestrator 范畴）|
+| Prometheus metrics endpoint | 1-2d | `/metrics` 标准 OpenMetrics（HTTP 请求 / SSE 订阅 / EventBus 队列等）|
+| `HttpTransport` 适配器（SDK 端）| 2-3d | `packages/sdk-typescript/src/transport/HttpTransport.ts` —— 镜像 ProcessTransport 让现有 `query()` 透明走 daemon |
+| 文档 + 示例 + 性能基准 | 2-3d | 单 daemon instance 性能基线 |
+| **合计** | **~1.5-2 周 / 1 人** | ~1500-2500 行 |
 
-### Stage 3 验收
+### Stage 2 验收
 
-| 维度 | 要求 |
-|---|---|
-| 多用户 | 支持 10+ 并发 user，每 user 多 session |
-| 性能 | 单 daemon 进程并发 100 sessions 无明显性能下降 |
-| 可观测性 | OpenMetrics + audit log + traceId（PR#3847 OPEN 已铺路）|
-| 部署 | Docker image + helm chart + 集群部署文档 |
-| 兼容 | OpenAPI spec 稳定 + SDK 版本兼容矩阵 |
-| 安全 | OIDC / SSO + 多 token + 速率限制 + CSP |
+- ✓ WebSocket bidi 升级（与 SSE 并存，client capability 检测）
+- ✓ mDNS 自动发现（同网段零摩擦接入）
+- ✓ OpenAPI spec 自动生成 + SDK 验证
+- ✓ 多 token + 每 token user-id（基础多用户 daemon，不含 OIDC）
+- ✓ Prometheus metrics（基础可观测性）
+- ✓ HttpTransport SDK 适配器（透明替代 ProcessTransport）
+
+### Stage 2 后 qwen-code 状态
+
+```
+                  ┌──────────────────────────┐
+SDK / Web UI ─────│ qwen serve daemon         │
+VSCode       ─────│  - Mode A (含 TUI)        │
+IM bot       ─────│  - Mode B (headless)      │
+                  │  - HTTP + SSE + WebSocket  │
+                  │  - mDNS + OpenAPI          │
+                  │  - Bearer + 多 token       │
+                  │  - Prometheus metrics      │
+                  └──────────────────────────┘
+                  ↑
+              wire 协议稳定，外部可信赖
+```
+
+**daemon protocol surface 锁定**——后续不再扩展 wire 协议，平台层（orchestrator / 多租户 / SaaS）由外部基于此构建。
 
 ---
 
-## 时间线甘特图
+## External Reference Architecture（参考实现，非项目路线图）
+
+下面这些不在 qwen-code 项目路线图中——是给外部集成方（商业平台 / k8s operator / 云厂商）的设计参考。详细文档已写好，可作为蓝图直接 fork 实现。
+
+### Orchestrator（多 daemon 路由 / 生命周期 / 聚合 UI）
+
+| 组件 | 工作量参考 | 设计文档 |
+|---|---|---|
+| `qwen-coordinator` HTTP server | ~3-5d | [§04 §8.2 Orchestrator API](./04-http-api.md#82-新增-orchestrator-层-apistage-2) |
+| sessionScope routing（single / user / thread）| ~2d | [§03 §1](./03-architectural-decisions.md#1-session-是否跨-client-共享) |
+| Daemon instance 注册表（sessionId → daemonUrl）| ~2d | [§04 §8.2 `POST /coordinator/sessions/:id/route`](./04-http-api.md#82-新增-orchestrator-层-apistage-2) |
+| Spawn / cleanup / health watchdog | ~2d | [§16 HA 设计](./16-high-availability.md) |
+| Cross-daemon aggregate API（"我所有 task"）| ~2d | [§04 §8.2 `/aggregate`](./04-http-api.md#82-新增-orchestrator-层-apistage-2) |
+| **合计参考** | **~1.5-2 周 / 1 人** | |
+
+详见 [§22 单 vs 多 Session 设计深度对比](./22-single-vs-multi-session-design.md) 的决策树。
+
+### Multi-tenancy + OIDC + Quota + Audit
+
+| 组件 | 工作量参考 | 设计文档 |
+|---|---|---|
+| Tenant 抽象 + Workspace ACL | ~3-5d | [§23 §三 Tenant 抽象](./23-orchestrator-multi-tenancy.md) |
+| AuthN 4 模式（Bearer / OIDC / mTLS / cookie）| ~5-7d | [§23 §四](./23-orchestrator-multi-tenancy.md#四authentication--authorization) |
+| Quota engine（Redis sliding-window + reservation）| ~5-7d | [§23 §五](./23-orchestrator-multi-tenancy.md#五per-tenant-quota-引擎) |
+| Audit log 4 通道（jsonl / syslog / OpenTelemetry / Kafka）| ~3-5d | [§23 §六](./23-orchestrator-multi-tenancy.md#六audit-log) |
+| **合计参考** | **~3-4 周 / 1-2 人** | |
+
+详见 [§23 Orchestrator 多租户与配额](./23-orchestrator-multi-tenancy.md)。
+
+### Shell Sandbox
+
+| 组件 | 工作量参考 | 设计文档 |
+|---|---|---|
+| `ShellSandbox` interface | ~1d | [§11 §二](./11-multi-tenancy-and-sandbox.md#二shellsandbox-抽象接口) |
+| 4 种本地 sandbox（NoSandbox / OS user / Namespace / Container）| ~2-3w | [§11 §三 / §四](./11-multi-tenancy-and-sandbox.md) |
+| 远程 sandbox（SSH / gRPC / k8s Job / containerd）| ~2-3w | [§11 §五](./11-multi-tenancy-and-sandbox.md#五远程-sandboxdaemon-与-shell-不在同机) |
+| **合计参考** | **~4-6 周 / 1 人** | |
+
+注：Sandbox 是 daemon 内能力，但具体策略取决于部署形态（个人/企业/SaaS），所以放在外部参考。
+
+### SaaS deployment
+
+| 组件 | 工作量参考 | 设计文档 |
+|---|---|---|
+| k8s native（StatefulSet + PVC + Service mesh）| ~1-2w | [§16 5 层 HA 架构](./16-high-availability.md) |
+| Postgres state + Redis cache + S3 transcript | ~1-2w | [§15 持久层](./15-persistence-and-storage.md) |
+| Multi-region / cross-geo scheduling | ~1-2w | [§16 §九 sticky session 路由](./16-high-availability.md) |
+| **合计参考** | **~3-6 周 / 2-3 人** | |
+
+详见 [§16 HA](./16-high-availability.md) + [§15 持久层](./15-persistence-and-storage.md)。
+
+---
+
+## 时间线
 
 ```
-                  Week 1   Week 2   Week 3   Week 4   ...   Week 8   Week 12
-Stage 1           ████
-Stage 2                   ████████████████
-Stage 3                                    ████████████████████████████████
-                                           (同时多人并行)
+                  Week 1   Week 2   Week 3
+qwen-code 主线
+   Stage 1       ████ ✅
+   Stage 1.5         ██
+   Stage 2           ░░░░░░░░░░░░
 
 里程碑:
-   end Week 1: --http-bridge flag GA, 用户首批反馈
-   end Week 4: qwen serve 原生 daemon GA
-   end Week 12: 企业级 daemon 1.0
+   end Week 1: Stage 1 GA（PR#3889 merge）
+   end Week 2: Stage 1.5 GA（Mode A）
+   end Week 3: Stage 2 GA（daemon protocol surface 锁定）
+
+External Reference Architecture（独立时间线，非项目路线图）:
+   Orchestrator ~1.5-2w        → 外部团队按需实施
+   Multi-tenancy ~3-4w         → 外部团队按需实施
+   Shell sandbox ~4-6w         → 外部团队按需实施
+   SaaS deployment ~3-6w       → 外部团队按需实施
 ```
 
 ## 风险与缓解
 
 | 风险 | 缓解 |
 |---|---|
-| 单 daemon instance OOM / race condition | 进程崩溃由 orchestrator 自动重启；transcript JSONL 持久化保证恢复 |
-| MCP server 跨 session 状态泄漏 | per-server `requiresPerSession` flag fallback |
+| 单 daemon instance OOM / race condition | daemon crash 由外部 orchestrator（或 systemd / k8s）自动重启；transcript JSONL 持久化保证 PR#3739 fork-resume 恢复 |
+| MCP server 跨 session 状态泄漏 | per-server `requiresPerSession` flag fallback；1 daemon = 1 session 后此问题大部分自动消失 |
 | FileReadCache 与 history rewrite 同步问题 | PR#3810 已修 5 路径，新加 daemon 路径需类似 audit |
-| Bearer token 泄漏 | 默认 0.0.0.0 binding 拒绝启动（无 token）|
+| Bearer token 泄漏 | 默认 0.0.0.0 binding 拒绝启动（无 token）；timing-safe compare + 401 uniform |
 | `process.chdir()` 误调 | 落地后 grep audit + CI 守卫 |
 | 与现有 ACP agent 行为不一致 | Stage 1 stdio 桥接持续保留作 reference impl |
+| 用户期望"开箱即用 SaaS"失望 | README 顶部明确 scope：daemon building block，平台层外部实现；提供详细 reference architecture 文档 |
 
 ## Stage 0：前置 PR 完成度（确认已就绪）
 

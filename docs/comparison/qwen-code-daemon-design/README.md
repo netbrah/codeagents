@@ -17,6 +17,8 @@
 
 **为什么选这个架构**：进程级隔离免费、crash 半径小、subagent isolation 自动成立、与 [PR#3889](https://github.com/QwenLM/qwen-code/pull/3889) child-process-per-session 实现一致。代价是 cold start ~1-3s/session、内存 ~30-50MB × N session——单机 N < 50 场景可接受。详见 [§22 单 vs 多 Session 设计深度对比](./22-single-vs-multi-session-design.md)。
 
+**项目 scope**：qwen-code 只承诺 daemon building block（Stage 1 / 1.5 / 2，~3 周内 feature complete）。多 session orchestrator / 多租户 / 沙箱 / SaaS 部署等"平台层"作为 [External Reference Architecture](./08-roadmap.md#external-reference-architecture参考实现非项目路线图) 由外部实现，详见 [§22](./22-single-vs-multi-session-design.md) / [§23](./23-orchestrator-multi-tenancy.md) / [§11](./11-multi-tenancy-and-sandbox.md) / [§16](./16-high-availability.md) 设计参考。
+
 > **🚀 Stage 1 实现**（2026-05-07）：[**PR#3889**](https://github.com/QwenLM/qwen-code/pull/3889) `feat(cli,sdk): qwen serve daemon (Stage 1)` —— OPEN，**+7698/-46 / 23 commits**（多轮 self-audit + reviewer rounds）。明确引用 [issue #3803](https://github.com/QwenLM/qwen-code/issues/3803)（本系列对应 issue），**~95% 设计决策 1:1 落地**——Express 5 server / ACP NDJSON over HTTP+SSE / Bearer + Host allowlist + 0.0.0.0 拒绝默认 / SHA-256 timing-safe compare / EventBus + ring replay + Last-Event-ID 重连 / first-responder permission vote / DaemonClient SDK / capabilities envelope 9 tags 全部已实现。详见 [§08 路线图 Stage 1 实现 audit](./08-roadmap.md#stage-1-pr3889-实现-audit2026-05-07)。
 >
 > 平行推进的 [PR#3929/3930/3931](https://github.com/QwenLM/qwen-code/pull/3929) `qwen remote-control` 3-stack（不同作者，独立开发）走 stream-json + dual-output + mobile UI 路线，不引用 issue #3803——是 daemon-design **平行参照而非实现**，未来或在 Stage 1.5/2 与 PR#3889 协调融合（mobile UI / pairing token / LAN URL 移植到 daemon）。
@@ -77,14 +79,14 @@ daemon 与外部世界对话的协议层、daemon 进程内部的运行时机制
 | 14 | [实体模型与层级关系](./14-entity-model.md) | **5 层 hierarchy**（Tenant → Workspace → Session → Background Task → Tool Execution）+ 横切层（Client subscription）+ 认证侧 sidebar（External User / Token：不算 hierarchy）+ 关系矩阵 + 资源所有权层级表 + 生命周期表 + ER 图 |
 | 15 | [持久层与外部存储](./15-persistence-and-storage.md) | **当前 Qwen Code 是纯 JSON+JSONL（无 SQLite / 无 ORM）** → Stage 1-2 沿用现状 → **Stage 3 首次引入 SQLite**（4 类痛点驱动）→ Storage Adapter 抽象 → **Stage 6 切 Postgres + S3**。drizzle-orm 选型 + 8 张核心表 schema + 替代方案对比 |
 
-### Part V — 多租户、安全与高可用（生产级能力）
+### Part V — 平台层能力（External Reference Architecture）
 
-从单用户工具走向企业 SaaS 必须解决的能力。
+> **注**：以下能力**不在 qwen-code 主线路线图**中（[§08](./08-roadmap.md)），是给外部集成方（商业平台 / k8s operator / 云厂商定制）的设计参考蓝图。qwen-code daemon protocol surface 在 [Stage 2](./08-roadmap.md#stage-2daemon-完善1-2-周) 锁定后，下面这些能力可基于此自由实现。
 
 | # | 文档 | 一句话 |
 |---|---|---|
 | 11 | [Shell 沙箱与远程执行](./11-multi-tenancy-and-sandbox.md) | `ShellSandbox` interface + 4 种本地沙箱（NoSandbox / OS user / Linux namespace / Container）+ **远程 sandbox**（SSH / gRPC / k8s Job / containerd over TCP 4 种实现 + 工作流同步 / stdout 流式 / 取消 / 网络容错 / 延迟 5 大挑战）+ Monitor tool 走相同接口 + 与 Claude Code v2.1.98 SCRIPT_CAPS 对齐 |
-| 23 | [Orchestrator 多租户与配额](./23-orchestrator-multi-tenancy.md) | **multi-tenancy 在 orchestrator 层** —— Tenant 抽象 / AuthN 4 模式（Bearer / OIDC / mTLS / cookie）/ AuthZ workspace 映射 / Quota engine（Redis 原子 + reservation 模式）/ Audit log 4 通道（jsonl / syslog / OpenTelemetry / Kafka）/ Stage 4-6 SaaS 路线图 |
+| 23 | [Orchestrator 多租户与配额](./23-orchestrator-multi-tenancy.md) | **multi-tenancy 在 orchestrator 层** —— Tenant 抽象 / AuthN 4 模式（Bearer / OIDC / mTLS / cookie）/ AuthZ workspace 映射 / Quota engine（Redis 原子 + reservation 模式）/ Audit log 4 通道（jsonl / syslog / OpenTelemetry / Kafka）|
 | 12 | [多租户水平越权防御](./12-horizontal-privilege-defense.md) | **5 层防御纵深 + 17 个攻击向量 + 24+ 测试用例** —— Auth/ACL / Filesystem / Cache/State / Sandbox / Side-channel & DoS 五层 + OWASP Top 10 映射 |
 | 16 | [HA 高可用与故障恢复](./16-high-availability.md) | **5 层 HA 架构**（Edge DNS → Ingress sticky → StatefulSet pod N≥3 → Postgres Patroni + Redis Sentinel + S3 多 AZ）+ SSE Last-Event-ID 重连协议 + LLM streaming 中断 7 类场景 + 90s graceful drain + 15 项 Chaos 测试 + 99.9% SLO |
 | 19 | [长跑稳定性与可观测性](./19-stability-and-longevity.md) | **接受"重启不可避免"** —— Node.js 长跑 7 类风险（heap / GC / fd / zombie / exception / native crash / ALS 链表）+ 多租户加剧 5 类 + qwen daemon 10 个具体泄漏点（含修复代码）+ **9 项稳定性模式**（TTL / bounded / quota / circuit breaker / memory threshold restart / heap dump / liveness / native supervisor / worker isolation）+ 6 类 native module 风险 + 22 项 Prometheus 指标 + 30 天 Soak/Chaos 测试矩阵 + Bun vs Node.js 长跑实测 |
@@ -95,7 +97,7 @@ daemon 与外部世界对话的协议层、daemon 进程内部的运行时机制
 
 | # | 文档 | 一句话 |
 |---|---|---|
-| 08 | [路线图](./08-roadmap.md) | Stage 1（~1 周，✅ PR#3889 ~95% 实现 Mode B headless）/ Stage 1.5（~4d 增量 Mode A CLI+HttpServer）/ Stage 2（~1-2 周 orchestrator 雏形）/ Stage 3（~1 月）+ Stage 4-6（多租户 → 沙箱 → SaaS）|
+| 08 | [路线图](./08-roadmap.md) | qwen-code 主线 ~3 周内 feature complete：Stage 1（~1 周 ✅ Mode B headless PR#3889）/ Stage 1.5（~4d Mode A）/ Stage 2（~1-2 周 mDNS+OpenAPI+WebSocket+多 token+metrics）。**Orchestrator / 多租户 / 沙箱 / SaaS 部署作为 External Reference Architecture**（参考设计 §22 / §23 / §11 / §16），由外部商业平台 / k8s operator 实现 |
 | 09 | [与 OpenCode 详细对比](./09-comparison-with-opencode.md) | 路由 / 技术栈 / 设计哲学逐项对照 |
 | 20 | [与 Anthropic Managed Agents 对比](./20-vs-anthropic-managed-agents.md) | **5 层架构对照**（client / agent runtime / tool / sandbox / persistence）+ **内置工具映射** + **协议层差异**（Anthropic 私有 vs ACP 标准）+ **双向 migration path**（Anthropic→Qwen / Qwen→Anthropic 兼容 API）+ **6 类客户场景推荐** + **决策树 6 问选型** + **3 种混合部署模式** + **"Managed Qwen Agents" 产品蓝图**（基于 Stage 6 包装，6 月可建）|
 | 21 | [扩展到 multi-session daemon 的演进路径](./21-future-multi-session-migration.md) | 单 session 模型上限触发后的演进选项 —— 路径 A 资源池化（~2-3w 拿 ~80% OpenCode 经济性）/ 路径 B Worker threads hybrid（~3-4w）/ 路径 C 纯迁移到 OpenCode 模式（~2-3 月）+ YAGNI 触发条件清单 + 推荐演进路径 + 关键不变量（现有代码不会白做）|
