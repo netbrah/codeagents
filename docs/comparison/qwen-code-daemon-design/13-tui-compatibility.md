@@ -530,11 +530,11 @@ Stage 1 (Stage 1 daemon http-bridge): TUI 不动，仍单进程跑 ACP agent
   └─ TUI 体验与现状 100% 一致
   └─ daemon 在 ACP agent 子进程外面包了 HTTP 桥接，TUI 不感知
 
-Stage 2 (Stage 2 原生 daemon): 新增 qwen tui --connect 命令
+Stage 1.5 / Stage 2 (Mode A + daemon 完善): 新增 qwen tui --connect 命令
   └─ TUI 通过 HttpAcpAdapter 连 daemon
   └─ HttpBackgroundTaskProvider / HttpSessionProvider 等新 Provider
   └─ 单进程 qwen 命令保留作 reference
-  └─ 多 TUI 共 session（决策 §1 默认 single）
+  └─ 多 TUI 共同一 daemon instance 的唯一 session（决策 §1 默认 single）
   └─ 本地 fast path（同 host 文件补全 / git）
 
 Stage 3 (对标 OpenCode): TUI 默认 daemon mode

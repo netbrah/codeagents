@@ -100,12 +100,12 @@ Anthropic Managed Agents
 
 | 维度 | Anthropic | Qwen daemon |
 |---|---|---|
-| 进程模型 | Anthropic 内部 worker pool | 单 daemon 进程多 session（[§03 §2](./03-architectural-decisions.md)）|
-| Session 共享语义 | per call 独立 / 持久化跨 call | sessionScope: 'single'（多 client 共享）/ 'thread' / 'user'（[§03 §1](./03-architectural-decisions.md)）|
-| Session 状态管理 | Anthropic 管理（黑盒）| JSONL → SQLite → Postgres 透明分层（[§15](./15-persistence-and-storage.md)）|
+| 进程模型 | Anthropic 内部 worker pool（推测 per-session container/process）| **1 Daemon Instance = 1 Session**（OS 进程边界天然隔离；[§03 §2](./03-architectural-decisions.md#2-状态进程模型)）|
+| Session 共享语义 | per call 独立 / 持久化跨 call | sessionScope 由 External orchestrator 路由（'single' 多 client 共享 daemon / 'thread' / 'user'，[§03 §1](./03-architectural-decisions.md#1-session-是否跨-client-共享)）|
+| Session 状态管理 | Anthropic 管理（黑盒）| 主线：每 daemon JSONL transcript；External SaaS：+ orchestrator 层 SQLite/Postgres 聚合（[§15](./15-persistence-and-storage.md)）|
 | 长跑 / Background | ✓ async tasks API | ✓ 4 kinds（agent/shell/monitor/dream）+ 跨 client 可见（[§subagent-display](../subagent-display-deep-dive.md)）|
-| 进程隔离 | Anthropic 内部决定 | worker thread / sandbox 子进程（[§19 §九](./19-stability-and-longevity.md)）|
-| HA / SLO | Anthropic 99.9%+ | 自管（[§16 99.9% 设计](./16-high-availability.md)）|
+| 进程隔离 | Anthropic 内部决定 | OS 进程边界（决策 §2）+ External Phase 2-3 sandbox（[§11](./11-multi-tenancy-and-sandbox.md)）|
+| HA / SLO | Anthropic 99.9%+ | 主线：daemon crash 重启 + transcript fork-resume（PR#3739/3889）；External SaaS：99.9% 设计（[§16](./16-high-availability.md)）|
 
 ### 3.3 Tool 层
 

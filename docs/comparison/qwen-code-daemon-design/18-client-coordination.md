@@ -797,14 +797,14 @@ T=120  之前正在编辑的 prompt 内容 lost? → 不一定
 
 ## 十六、Stage 1-6 各阶段实施
 
-| Stage | 本章实施 |
+| Stage / Phase | 本章实施 |
 |---|---|
-| Stage 1 (HTTP-bridge) | minimal: 仅 add/remove subscriber + heartbeat |
-| Stage 2 (原生 daemon) | + active typer + subscribers list UI |
-| Stage 3 (完整 daemon) | + takeover + maxTotal/maxPerKind |
-| Stage 4 (多租户) | + exclusive mode tenant config |
-| Stage 5 (sandbox) | (no change) |
-| Stage 6 (SaaS HA) | + Redis 同步 subscribers 跨 pod + audit log webhook |
+| Stage 1 (Mode B headless, PR#3889) | minimal: 仅 add/remove subscriber + 15s heartbeat（已实现）|
+| Stage 1.5 (Mode A) | + TUI in-process subscriber 同 EventBus 协议 |
+| Stage 2 (daemon 完善) | + active typer + subscribers list UI + takeover + maxTotal/maxPerKind |
+| External Phase 1 (orchestrator + 多租户)| + exclusive mode tenant config |
+| External Phase 2-3 (sandbox) | (no change) |
+| External Phase 4 (SaaS HA) | + Redis 同步 subscribers 跨 pod + audit log webhook |
 
 ## 十七、一句话总结
 

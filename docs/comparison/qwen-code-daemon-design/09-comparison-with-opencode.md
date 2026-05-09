@@ -171,11 +171,11 @@
 # Stage 0：现状 - 用户启动 stdio ACP agent
 qwen --acp                                   # stdio NDJSON
 
-# Stage 1（实验）：用 http-bridge 试一下
-qwen serve --http-bridge --port 5096
-
-# Stage 2 GA：原生 daemon
+# Stage 1（PR#3889 ~95% 实现）：Mode B headless qwen serve
 qwen serve --port 5096
+
+# Stage 1.5（~4d 增量）：Mode A CLI + HttpServer
+qwen --serve --port 5096
 
 # 客户端切换
 # 旧：spawn qwen --acp + ndJsonStream(child.stdin/stdout)
@@ -209,12 +209,13 @@ const q = query({ transport: new HttpTransport({
 
 ## 九、核心结论
 
-| 共识 | Qwen 差异化 |
+| 共识（与 OpenCode 部分相同）| Qwen 差异化 |
 |---|---|
-| daemon 单进程多 session | 1. 复用 ACP zod schema |
-| AsyncLocalStorage 上下文 | 2. 多 channel 路由（IM/IDE/Web/SDK 同源）|
-| HTTP+SSE+WebSocket 协议层 | 3. **Express 5 复用 vscode-ide-companion**（Hono 是 External SaaS 高并发可选，不是默认）|
-| 持久化分层（文件+RDBMS）| 4. 复用 PR#3723 应用层权限流 |
+| daemon 不再 spawn CLI 子进程 | 1. 复用 ACP zod schema |
+| HTTP+SSE+WebSocket 协议层 | 2. 多 channel 路由（IM/IDE/Web/SDK 同源）|
+| 持久化分层（文件+RDBMS）| 3. **Express 5 复用 vscode-ide-companion**（Hono 是 External SaaS 高并发可选，不是默认）|
+| ACP / OpenAPI 协议表面 | 4. 复用 PR#3723 应用层权限流 |
+| **进程模型分歧** | 5. **1 daemon = 1 session**（OpenCode 是单进程多 session）—— OS 进程边界免费 + 避开应用层 ALS / Effect-TS 复杂度 |
 | 默认安全策略 | 5. 默认 0.0.0.0 + 无 token = 拒绝启动 |
 
 **Qwen daemon 不是"OpenCode 的复刻"，而是"借鉴 OpenCode 验证过的进程模型 + 复用 Qwen 自家的 ACP / Channels / PR#3723 / Background tasks 等成熟资产"** —— 这正是 [02 现有资产盘点](./02-existing-assets.md) 表明的 ~75% 复用率的来源。

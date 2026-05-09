@@ -13,14 +13,14 @@
 
 ## 一、TL;DR
 
-| Stage | 持久化栈 | 关键变化 |
+| Stage / Phase | 持久化栈 | 关键变化 |
 |---|---|---|
 | **当前 Qwen Code（无 daemon）** | JSON + JSONL 文件 | 现状基线 |
-| **Stage 1（HTTP-bridge MVP）** | **沿用 JSON + JSONL** | 不加新依赖 |
-| **Stage 2（原生 daemon，单租户）** | + 内存 Map cache | 暂不加 SQLite |
-| **Stage 3（完整 daemon，长跑 + 多 client）** | **首次引入 SQLite**（permission/audit/tokens 需要 ACID + 索引）| 新依赖：`better-sqlite3` + `drizzle-orm` |
-| **Stage 4-5（多租户 + sandbox）** | SQLite + JSONL + 加密敏感字段 | quota / tenant config 上 SQLite |
-| **Stage 6（SaaS HA）** | **Postgres + S3 + 可选 Redis** | 替换 SQLite，drizzle 同 ORM 切 dialect |
+| **Stage 1（Mode B headless `qwen serve`，PR#3889）** | **沿用 JSON + JSONL** | 每 daemon 一份 transcript JSONL |
+| **Stage 1.5 / Stage 2（Mode A + daemon 完善）** | + 内存 Map cache | daemon 主线不引入 SQLite（保持纯文件）|
+| **External Phase 1（多租户 orchestrator）** | **orchestrator 层引入 SQLite**（permission/audit/tokens 需要 ACID + 索引）| 新依赖：`better-sqlite3` + `drizzle-orm` |
+| **External Phase 2-3（sandbox）** | SQLite + JSONL + 加密敏感字段 | quota / tenant config 上 SQLite |
+| **External Phase 4（SaaS HA）** | **Postgres + S3 + 可选 Redis** | 替换 SQLite，drizzle 同 ORM 切 dialect |
 
 **关键设计原则**：
 - **MVP 不引入新依赖**：Stage 1 沿用现有 JSON/JSONL 路线，验证 daemon 架构本身
@@ -179,7 +179,7 @@ async function migrateFromFiles() {
 ### 4.1 优点
 
 - **零部署**：embedded，daemon 启动时 open file 即可
-- **WAL 模式**：高并发读 + 单写者，足够 daemon 内多 session 并发
+- **WAL 模式**：高并发读 + 单写者；External orchestrator 用于跨 daemon 聚合 audit / quota / permission decisions 时多 daemon 并发写
 - **单文件备份**：`cp qwen.db backup.db` 即可
 - **跨平台**：Linux / macOS / Windows 一致
 - **drizzle-orm 一线支持**：与 OpenCode 同栈
@@ -772,13 +772,13 @@ REVOKE ALL ON pg_catalog FROM qwen_app;
 当前 Qwen Code (无 daemon): JSON + JSONL 文件
   └─ ~/.qwen/settings.json + transcripts JSONL
 
-Stage 1 (HTTP-bridge MVP): 沿用现状
+Stage 1 (Mode B headless qwen serve, PR#3889): 沿用现状
   └─ 不引入 SQLite / 任何 ORM
-  └─ daemon 仅是 HTTP 包装，文件 IO 不变
+  └─ daemon 每实例一份 transcript JSONL；文件 IO 不变
 
-Stage 2 (原生 daemon 单租户): + 内存 Map cache
-  └─ FileReadCache / Subscriber Map / AsyncLocalStorage 都在内存
-  └─ 持久化仍是 JSON / JSONL
+Stage 1.5 / Stage 2 (Mode A + daemon 完善): + 内存 cache
+  └─ FileReadCache / Subscriber Set / EventBus 都在内存（per-daemon singleton）
+  └─ 持久化仍是 JSON / JSONL（daemon 主线不引入 SQLite）
 
 Stage 3 (完整 daemon 多 client): 首次引入 SQLite
   └─ 新依赖：better-sqlite3 + drizzle-orm

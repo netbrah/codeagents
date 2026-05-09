@@ -949,14 +949,14 @@ CLI 端必须验证收到的 SSE event `session_id` 与自己订阅的 sessionId
 
 ## 十六、Stage 1-6 各阶段 Remote 支持矩阵
 
-| Stage | Remote-Remote | Capability RPC | NAT 穿透 | 备注 |
+| Stage / Phase | Remote-Remote | Capability RPC | NAT 穿透 | 备注 |
 |---|---|---|---|---|
-| Stage 1 (HTTP-bridge) | ⚠ 仅 localhost | ✗ | ✗ | MVP 先做 local-local |
-| Stage 2 (原生 daemon) | ✓ 实验性 | partial（editor / clipboard）| ✓ | 推 Tailscale 模式 |
-| Stage 3 (完整 daemon) | ✓ | ✓ 全 5 类 | ✓ | 默认推荐 remote |
-| Stage 4 (多租户) | ✓ | ✓ | ✓ | + tenant 隔离 |
-| Stage 5 (sandbox) | ✓ | ✓ | ✓ | + sandbox 在 daemon 端 |
-| Stage 6 (SaaS HA) | ✓✓ 主部署模式 | ✓ | mTLS + Cloudflare | Stage 6 默认就是 Remote |
+| Stage 1 (Mode B headless, PR#3889) | ✓（默认 loopback；--host 0.0.0.0 + --token 启用 remote）| ✗ | ✗ | bearer + Host allowlist + 0.0.0.0 拒启动默认 |
+| Stage 1.5 (Mode A) | ✓ 同上 | ✗ | ✗ | TUI + HttpServer 同进程 |
+| Stage 2 (daemon 完善) | ✓ | ✓ 全 5 类 | ✓ | + WebSocket bidi + mDNS + 多 token |
+| External Phase 1 (orchestrator + 多租户)| ✓ | ✓ | ✓ | + tenant 隔离 |
+| External Phase 2-3 (sandbox) | ✓ | ✓ | ✓ | + sandbox 在 daemon 端 |
+| External Phase 4 (SaaS HA) | ✓✓ 主部署模式 | ✓ | mTLS + Cloudflare | SaaS 部署默认就是 Remote |
 
 ## 十七、一句话总结
 
