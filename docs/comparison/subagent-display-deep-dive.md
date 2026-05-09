@@ -16,7 +16,7 @@
 - **Background tasks roadmap (#3634) 四阶段**全部落地（2026-05-04 收官）+ **Phase D part (b) 也开始**（foreground → background promote，PR#3894 ✓ MERGED PR-2 of 3，PR#3969 OPEN PR-3 of 3 Ctrl+B keybind）
 - **Kind framework 4 消费者全到齐**：agent / shell / monitor / **dream**（PR#3836，2026-05-06）
 - **foreground subagents 也接入 pill+dialog**（PR#3768，2026-05-06，闭合前/后台 UI 对偶）
-- **Subagent 隔离与稳定性 5 PR 套**：context auto-compact（PR#3735）+ Config 隔离（PR#3873 + PR#3887 + **PR#3892 第三 wrapper site 闭合**）+ approval banner 修复（PR#3956）
+- **Subagent 稳定性与隔离 6 PR 套**：context auto-compact（PR#3735）+ Config 隔离（PR#3873 + PR#3887 + **PR#3892 第三 wrapper site 闭合**）+ **PR#3707 per-agent ContentGenerator view**（不同 model 的 subagent 看到正确 modality）+ approval banner 修复（PR#3956）
 - **🌟 PR#3539 `/branch` (`/fork` alias) session 分支** ✓ 2026-05-08 MERGED（slash 命令 + JSONL 复制 + atomic create + rollback-safe swap）
 - **PR#3880 searchable `/resume` picker** ✓ 2026-05-08 MERGED（free-text + j/k preview + Ctrl+B branch toggle）
 
@@ -604,9 +604,9 @@ PR#3684 自述清单只说"集成"未做，**没规定具体语义**——这是
 
 ---
 
-### 已落地 9：Subagent 稳定性与隔离（PR#3735 + PR#3873 + PR#3887 + PR#3892）✓ 2026-05-06 → 05-08
+### 已落地 9：Subagent 稳定性与隔离（PR#3735 + PR#3873 + PR#3887 + PR#3892 + PR#3707）✓ 2026-05-06 → 05-08
 
-四个连续 PR 闭合 subagent 的根本性问题：上下文溢出 + Config 隔离（3 个 wrapper sites 全覆盖）+ 4 fork path 全覆盖。
+**5 个连续 PR** 闭合 subagent 的根本性问题：上下文溢出 + Config 隔离（3 个 wrapper sites 全覆盖）+ 4 fork path 全覆盖 + per-agent ContentGenerator view。
 
 #### PR#3735 ✓ 2026-05-06：subagent 上下文 auto-compact
 
@@ -674,6 +674,16 @@ const runFramedFork = () =>
 | **Memory-extraction 栈级最坏** | extract 调度器创建 fork 调 fork —— 每层都缺自己的 cache，cache hit 命中 wrong session |
 
 **修复**：runForkedAgent 的 YOLO wrapper 也走 PR#3873 同样的 tool registry 重建路径。**PR#3873 review 标出的 3 个 wrapper sites 全部闭合**：subagent Config（PR#3873）+ foreground-fork path（PR#3887）+ runForkedAgent YOLO wrapper（PR#3892）。
+
+#### PR#3707 ✓ 2026-05-08：per-agent ContentGenerator view via AsyncLocalStorage
+
+[PR#3707](https://github.com/QwenLM/qwen-code/pull/3707) ✓ 2026-05-08 01:56（**+983/-471**）—— subagent 使用不同 model 时的 ContentGenerator 隔离。
+
+**bug**：subagent 在 image-capable model 上跑（如 `qwen3.6-plus`），parent 在 text-only model（如 `glm-5.1`）—— `read_file` 工具的 modality 检查（决定是否 inline images / PDFs）解析到 **parent 的 config**，subagent 看到 `[Unsupported image file: ...]` 而不是实际图片。
+
+**修复**：`Config.getContentGenerator{,Config}()` 现在**先查 AsyncLocalStorage frame**，再 fallback 到 instance field。每个 subagent execution frame 都有自己的 ContentGenerator view（含 modality table），跨 sync tool path + user-approval continuation 都一致。
+
+**意义**：补齐 subagent 隔离最后一公里——之前 PR#3873 / PR#3887 / PR#3892 修的是 `getApprovalMode` / `FileReadCache` / `tool registry`，这次修的是 `getContentGenerator{,Config}`。**5 个 PR 套至此 subagent 完整 Config 隔离闭合**：approval mode / FileReadCache / tool registry / ContentGenerator / modality table 全部 per-subagent。
 
 ---
 
