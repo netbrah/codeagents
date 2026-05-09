@@ -13,29 +13,45 @@
 
 > 设计原则：**daemon 主进程 `process.cwd()` 永不改变**——参考 OpenCode 验证过的模式。详细背景见 [SDK / ACP / Daemon §六.4](../sdk-acp-daemon-architecture-deep-dive.md#64-工作目录隔离asynclocalstorage-上下文传播)。
 
-## 一、整体进程拓扑
+## 一、整体进程拓扑（当前架构：1 daemon = 1 session）
 
 ```
-qwen serve daemon 进程（唯一长期主进程，process.cwd() 启动后不变）
+qwen serve daemon instance 进程（绑定唯一 session，process.cwd() 启动后不变）
 │
-├─ Express 5 HTTP server / WebSocket（Hono 可选 External SaaS 高并发）
-├─ 全局状态：providers / config / Database (SQLite) / GlobalBus
+├─ Express 5 HTTP server + express-ws（Hono 可选 External SaaS 高并发）
+│   ├─ Auth middleware（Mode A loopback / Mode B bearer）
+│   └─ /session/:id/* / /capabilities / /health
 │
-├─ Workspace Map（按 directory 路径缓存）
-│   ├─ Workspace A（/work/repo-a）
-│   │   ├─ Sessions（in-memory · per-session FileReadCache）
-│   │   ├─ LSP server #A（spawn 一次，跨 session 共享）
-│   │   └─ MCP servers（per-workspace 共享 · 见 §06）
-│   │
-│   └─ Workspace B（/work/repo-b）
-│       └─ ...
+├─ EventBus（多 client fan-out）
+│   ├─ in-process subscriber（Mode A 本地 TUI = client #0）
+│   ├─ HTTP/SSE subscriber（远端 client：CLI / WebUI / IDE / IM bot）
+│   └─ first-responder permission vote
 │
-└─ AsyncLocalStorage<InstanceContext>
-    └─ 每 HTTP request 进入时绑定 { workspaceId, directory, sessionId, clientId }
-       │
-       ├─ 整条 async 链都能 Instance.directory / Instance.workspace 取值
-       └─ 子进程 spawn 时显式传 cwd，不依赖 process.cwd()
+├─ Core（in-process · 直接绑唯一 session）
+│   ├─ Session（1 个，启动时绑定）
+│   ├─ FileReadCache（daemon-global singleton）
+│   ├─ Permission decision cache（per-daemon）
+│   ├─ Background tasks（4 kinds：agent / shell / monitor / dream）
+│   ├─ providers / config / SessionService（PR#3739 transcript-first resume）
+│   └─ Transcript JSONL（per-daemon 一份）
+│
+├─ 子进程层（per-daemon · 不跨 daemon 共享）
+│   ├─ LSP server（绑此 daemon 的 workspace）
+│   ├─ MCP servers（per-daemon · 详见 §06）
+│   └─ PTY / Bash 工具调用（按工具调用粒度）
+│
+└─ daemon 启动时绑定（启动后不变）
+    ├─ workspace（1 个）
+    ├─ session id（1 个）
+    └─ process.cwd()（不变；子进程 spawn 显式传 cwd）
 ```
+
+**关键性质**（与 §03 §2 决策一致）：
+- daemon 进程本身就是 session ctx，**无需 AsyncLocalStorage Instance ctx**
+- daemon 内只绑定一个 workspace，**无需 `Map<workspaceId, Instance>` 路由层**
+- 多 session 由 External orchestrator spawn 多个 daemon 实例（[§01 §3.2](./01-overview.md#32-多-session-场景external-orchestrator--多-daemon-instances) + [§04 §8.2](./04-http-api.md#82-orchestrator-层-apiexternal-reference-architecture)）
+
+> **下面 §三-§四 章节描述的 `AsyncLocalStorage` / `Map<workspaceId, Instance>` / `LocalContext` 等内容**——是"如果未来扩展到 multi-session daemon 的实现参考"（[§21 路径 C](./21-future-multi-session-migration.md#三路径-c纯迁移到-opencode-模式2-3-月最坏情况)），不是当前 qwen-code 主线设计。读者如想对照 OpenCode multi-session 模型可参考；如只关注当前 1-session 模型可跳过。
 
 ## 二、客户端如何声明 cwd
 
