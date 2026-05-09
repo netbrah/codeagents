@@ -2,16 +2,16 @@
 
 > [← 上一篇：HTTP API 设计](./04-http-api.md) · [下一篇：MCP / 资源共享 →](./06-mcp-resources.md)
 
-> **🔄 设计 pivot 影响（2026-05-09）**：决策 §2 改为"1 Daemon Instance = 1 Session"后，本章**大幅简化**：
+> **核心约束**（[§03 §2](./03-architectural-decisions.md#2-状态进程模型)）：
 >
-> - **AsyncLocalStorage Instance ctx 不再需要** —— daemon 进程本身就是 session ctx，没有跨 session 路由问题
-> - **`Map<workspaceId, Instance>` 不需要** —— daemon 内只一个 workspace
-> - **`process.cwd()` 不变性约束仍成立** —— daemon 启动时绑定 cwd，跑期间不变
-> - **子进程 spawn 显式传 cwd** 仍需要（spawn LSP / MCP / Bash 子进程）
+> - daemon 进程本身就是 session ctx —— 不需要 AsyncLocalStorage Instance 路由层
+> - daemon 内只绑定一个 workspace —— 不需要 `Map<workspaceId, Instance>`
+> - `process.cwd()` 启动后不变 —— daemon 启动时绑定 cwd，跑期间不变
+> - 子进程 spawn 仍需显式传 cwd（LSP / MCP / Bash）
 >
-> 本章原内容（AsyncLocalStorage / LocalContext / Instance.directory 等）作为"如果未来需要回到 multi-session daemon 的实现参考"保留。详见 [§03 §2 状态进程模型 pivot](./03-architectural-decisions.md#2-状态进程模型pivot-后)。
+> 本章下面"AsyncLocalStorage / LocalContext / Instance.directory" 等内容作为 "未来如扩展到 multi-session daemon 的实现参考"（详见 [§21](./21-future-multi-session-migration.md) 路径 C）保留。
 
-> 设计原则：**daemon 主进程 `process.cwd()` 永不改变**，每请求/session 通过 `AsyncLocalStorage` 传播自己的"虚拟 cwd"——参考 OpenCode 验证过的模式。详细背景见 [SDK / ACP / Daemon §六.4](../sdk-acp-daemon-architecture-deep-dive.md#64-工作目录隔离asynclocalstorage-上下文传播)。
+> 设计原则：**daemon 主进程 `process.cwd()` 永不改变**——参考 OpenCode 验证过的模式。详细背景见 [SDK / ACP / Daemon §六.4](../sdk-acp-daemon-architecture-deep-dive.md#64-工作目录隔离asynclocalstorage-上下文传播)。
 
 ## 一、整体进程拓扑
 

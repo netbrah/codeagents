@@ -1,16 +1,14 @@
-# 03 — 6 个架构决策
+# 03 — 7 个架构决策
 
 > [← 上一篇：现有资产盘点](./02-existing-assets.md) · [下一篇：HTTP API 设计 →](./04-http-api.md)
 
-> [SDK / ACP / Daemon 架构 Deep-Dive §七.3](../sdk-acp-daemon-architecture-deep-dive.md#73-真正的难点架构决策) 列出 6 个"真正的难点是几个架构决策——而不是代码量"。本文为每个决策点给出明确选择 + 理由。
-
-> **🔄 设计 pivot（2026-05-09）**：决策 §1 / §2 在最初设计中走"单 daemon 多 session"路线（OpenCode 模式）。**经讨论改为 "1 Daemon Instance = 1 Session"——多 session 通过 spawn 多个 daemon 实例实现，由 orchestrator 路由**。理由：与 PR#3889 已有的"`qwen --acp` child-process per session"模型对齐（PR#3889 实际就是这个模型，只是命名为"child"），同时**避开 Stage 2-3 跨 session 隔离的最大复杂度**（AsyncLocalStorage Instance ctx / per-session resource managers / 5 PR subagent Config 隔离套路 / Effect-TS LocalContext 等价物全部不需要）。详见各决策节。
+> [SDK / ACP / Daemon 架构 Deep-Dive §七.3](../sdk-acp-daemon-architecture-deep-dive.md#73-真正的难点架构决策) 列出"真正的难点是几个架构决策——而不是代码量"。本文为每个决策点给出明确选择 + 理由。
 
 ## 1. session 是否跨 client 共享
 
 **问题**：用户在手机微信上发了一条消息让 agent 跑研究，回到电脑想继续——同一个 session 还是新 session？多个 client（CLI + VSCode + WebUI）同时打开同一个项目，互相能看到对方的 prompt 吗？
 
-### 选择（pivot 后）
+### 选择
 
 **默认跨 client 共享同一 daemon instance**——多 client（CLI + VSCode + WebUI + IM bot）连接到同一 daemon instance 时，自然共享该 daemon 的唯一 session。**Daemon Instance ↔ Session 是 1:1 关系**——session 由 orchestrator 创建/分配 daemon instance 时确定。
 
@@ -48,7 +46,7 @@ scope 概念**移到 orchestrator 层**（不是 daemon 内部）：
 | Client B 通过 LoadSession 加载历史 | 从该 daemon 的本地 transcript JSONL 重建 |
 | 所有 client 都断开 + 空闲 N 分钟 | daemon instance 进入 idle，可被 orchestrator 回收（详见 §19）|
 
-这是 **"live collaboration" 模型** —— 与 Google Docs 多人编辑一个文档同构。**与 pivot 前唯一区别**：协作发生在 daemon 进程内（而非 daemon 内某个 session 子单元），没有跨 session 路由开销。
+这是 **"live collaboration" 模型** —— 与 Google Docs 多人编辑一个文档同构。协作发生在 daemon 进程内，没有跨 session 路由开销。
 
 ### 理由
 
@@ -127,17 +125,17 @@ SDK 客户端默认走 C —— 用户感受到的就是"同 workspace 自动共
 
 ---
 
-## 2. 状态进程模型（pivot 后）
+## 2. 状态进程模型
 
 **问题**：所有 session 都跑在 daemon 主进程？还是 daemon 路由到子进程，每 session 一个？
 
-### 决策（pivot 后）
+### 决策
 
 **1 Daemon Instance = 1 Session = 1 Process**。多 session 通过 orchestrator spawn 多个 daemon 实例实现，**daemon 内部只承载一个 session 的状态**。
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│ Orchestrator (qwen-coordinator, 原 `qwen serve` 角色) │
+│ Orchestrator (qwen-coordinator)                      │
 │   - 管理 daemon instance 生命周期                       │
 │   - sessionScope 'single'/'user'/'thread' 路由策略     │
 │   - 多 daemon instance 注册表（sessionId → port）       │
@@ -159,58 +157,44 @@ SDK 客户端默认走 C —— 用户感受到的就是"同 workspace 自动共
    └────────┘     └────────┘     └────────┘
 ```
 
-### 与 PR#3889 的关系
+### 与 PR#3889 的对应
 
-PR#3889 已经按这个模型实现：
-- `qwen serve` HTTP front → **orchestrator 角色**
+[PR#3889](https://github.com/QwenLM/qwen-code/pull/3889) 已按此模型实现：
+- `qwen serve` HTTP front 承担 **orchestrator 角色**
 - spawn `qwen --acp` child per workspace per session → **daemon instance**
-
-Pivot 是**重新命名 + 提升 child 的架构地位**：
-- 把 child 称为正式的 "Daemon Instance"
-- HTTP front 降级为 routing/orchestrator layer，不持有 session 状态
 
 ### 决策依据
 
-1. **PR#3889 已经这么做** —— pivot 是 retrofit 命名，不改架构方向，~0 实施成本
-2. **进程级隔离免费** —— 一个 session crash 不影响其他 session（V8 / OS 自动）
-3. **避开跨 session 隔离的复杂度** —— AsyncLocalStorage Instance ctx / per-session resource managers / 5 PR subagent Config 隔离套路 / Effect-TS LocalContext 等价物**全部不需要**
-4. **多租户简化** —— 不在 daemon 内做 ACL，每 tenant 启动自己的 daemon instances，orchestrator 层做 ACL
-5. **资源生命周期清晰** —— kill daemon = 清理所有 fd / child process / memory（不需要 per-session cleanup hooks）
+1. **进程级隔离免费** —— 一个 session crash 不影响其他 session（V8 / OS 自动）
+2. **避开跨 session 隔离的复杂度** —— 不需要 AsyncLocalStorage Instance ctx / per-session resource managers / 5 PR subagent Config 隔离套路 / Effect-TS LocalContext 等价物
+3. **多租户简化** —— 不在 daemon 内做 ACL，每 tenant 启动自己的 daemon instances，orchestrator 层做 ACL
+4. **资源生命周期清晰** —— kill daemon = 清理所有 fd / child process / memory（不需要 per-session cleanup hooks）
+5. **与 PR#3889 child-process-per-session 实现一致**——~0 改造成本
 
-### 与原"单 daemon 多 session" 的对比
+### 代价权衡
 
-| 维度 | 单 daemon 多 session（原设计）| 1 daemon = 1 session（pivot 后）|
+| 维度 | 1 daemon = 1 session（本决策）| 单 daemon 多 session（OpenCode 模式）|
 |---|---|---|
-| 跨 session 资源共享（LSP/MCP）| ✓ 共享，省内存 | ✗ 每 daemon 自己一份 |
-| 隔离强度 | 应用层 AsyncLocalStorage | **OS 级 process** |
-| Crash 半径 | 整 daemon 影响所有 session | **仅 affected session** |
-| Cold start | 启动一次（共用）| **每 session ~1-3s**（V8 isolate）|
-| 内存 baseline | ~50MB / daemon | **~30-50MB × N session** |
-| 实现复杂度 | 高（cross-session 状态管理）| **低**（每 daemon 自给自足）|
-| 适用规模 | 大规模 SaaS（共享更经济）| **个人 / 小团队 / 中等 SaaS** |
-| Stage 6 SaaS 1000+ session | 直接 multi-pod sharded | **需 daemon pool / lazy spawn / hibernation** |
+| 跨 session 资源共享（LSP/MCP）| ✗ 每 daemon 自己一份 | ✓ 共享，省内存 |
+| 隔离强度 | **OS 级 process** | 应用层 AsyncLocalStorage |
+| Crash 半径 | **仅 affected session** | 整 daemon 影响所有 session |
+| Cold start | **每 session ~1-3s**（V8 isolate）| 启动一次（共用）|
+| 内存 baseline | **~30-50MB × N session** | ~50MB / daemon |
+| 实现复杂度 | **低**（每 daemon 自给自足）| 高（cross-session 状态管理）|
+| 适用规模 | **个人 / 小团队 / 中等 SaaS** | 大规模 SaaS（共享更经济）|
 
-### Pivot 不影响的设计决策
-
-下面这些决策**仍然成立**（仅作用域从"daemon 内 session"变为"daemon 实例本身"）：
-
-- 决策 §1 sessionScope 概念（移到 orchestrator）
-- 决策 §6 多 client FIFO + fan-out + first responder（仍是 per-daemon 内逻辑）
-- §17 远端 CLI（client 连接 specific daemon instance）
-- §18 多端协调 multi-client per daemon
-- §19 长跑稳定性（每 daemon 独立长跑）
-- §20 vs Anthropic Managed Agents 对照（架构哲学相似性不变）
+适用边界：单机 N < 50 并发 session 经济性可接受；N ≥ 100 时考虑资源池化或迁移到多 session 模式（详见 [§21 演进路径](./21-future-multi-session-migration.md) + [§22 设计对比](./22-single-vs-multi-session-design.md)）。
 
 ### 必要的工程约束
 
 | 约束 | 验证手段 |
 |---|---|
-| daemon 主线程**永不**调用 `process.chdir()` | 沿用原约束 |
-| daemon 顶层 `process.on('uncaughtException')` log + graceful exit（让 orchestrator 重启）| 替换原"通知 affected session"逻辑 |
+| daemon 主线程**永不**调用 `process.chdir()` | CI grep audit |
+| daemon 顶层 `process.on('uncaughtException')` log + graceful exit（让 orchestrator 重启）| top-level handler |
 | Orchestrator 健康监测 daemon instances，超阈值自动 restart | `/health` 端点 + watchdog |
 | Daemon instance 启动后**永不接受第二个 session** | session ID 在启动时绑定，多 session 拒绝 |
 
-### 实现要点（pivot 后）
+### 实现要点
 
 - Daemon 进程内**不需要 AsyncLocalStorage Instance ctx**——daemon 进程本身就是 session ctx
 - LSP / MCP / FileReadCache 都是 daemon-global singleton（不需要 per-workspace / per-session map）
@@ -218,7 +202,7 @@ Pivot 是**重新命名 + 提升 child 的架构地位**：
 - crash recovery：orchestrator 检测 daemon 崩溃 → 重新 spawn → 新 daemon 用 PR#3739 transcript-first fork resume 重建
 - 多 client 仍 attach 到同 daemon（multi-client per daemon）
 
-进程模型详解见 [05-进程模型](./05-process-model.md)（pivot 后简化）。
+进程模型详解见 [05-进程模型](./05-process-model.md)。
 
 ---
 
@@ -532,7 +516,7 @@ class PermissionRequestHandler {
 
 ---
 
-## 7. Daemon 部署模式：CLI+HttpServer vs Headless+HttpServer（pivot 后新增）
+## 7. Daemon 部署模式：CLI+HttpServer vs Headless+HttpServer
 
 **问题**：用户已经在终端跑 `qwen` 交互式 CLI 时，能否同时让 WebUI / IDE / IM bot 接入到这个进程的 session？还是必须先关掉 CLI 改用 headless `qwen serve`？
 
@@ -607,7 +591,7 @@ class PermissionRequestHandler {
 2. **Mode B 是云 / 服务器场景必需**——容器 / 远端机器没人在终端坐着
 3. **两种模式实现成本几乎相同**——共享 Core / Express HTTP server / EventBus / subscriber 协议；区别只是 Mode A 多挂一个 in-process bus client（TUI），Mode B 不挂
 4. **PR#3889 已经实现 Mode B 雏形**（`qwen serve daemon`）；Mode A 是把同一套 HttpServer 嵌入到 `qwen` 进程内
-5. **与 pivot §2 完全自洽**——两种模式都是"1 daemon instance = 1 session"，只是 daemon instance 的"形态"（含 TUI 或不含）不同
+5. **与决策 §2 完全自洽**——两种模式都是"1 daemon instance = 1 session"，只是 daemon instance 的"形态"（含 TUI 或不含）不同
 
 ### 实现要点
 
@@ -683,10 +667,10 @@ PR#3889 已经实现 Mode B 的 ~95%。Mode A 的工作量增量：
 
 | # | 决策 | 选择 | 关键依据 PR / 工具 |
 |---|---|---|---|
-| 1 | session 跨 client 共享 | **默认共享同一 daemon instance**（pivot 后）；scope 移到 orchestrator | Channels SessionRouter scope 系统 |
-| 2 | 状态进程模型 | **1 Daemon Instance = 1 Session**（pivot 后，与 PR#3889 child-process-per-session 一致）| Node `AsyncLocalStorage`（pivot 后不需要）|
-| 3 | MCP server 生命周期 | **per-daemon MCP state**（pivot 后简化）+ in-flight coalesce + 30s 健康检查 | PR#3818 + PR#3741 健康检查 |
-| 4 | FileReadCache 共享 | **per-daemon**（pivot 后；原"session 内私有"语义不变）| PR#3717 + PR#3774 + PR#3810 invalidation 5 路径 |
+| 1 | session 跨 client 共享 | **默认共享同一 daemon instance**；scope 由 orchestrator 路由 | Channels SessionRouter scope 系统 |
+| 2 | 状态进程模型 | **1 Daemon Instance = 1 Session**（与 PR#3889 child-process-per-session 一致）| OS process 隔离 |
+| 3 | MCP server 生命周期 | **per-daemon MCP state** + in-flight coalesce + 30s 健康检查 | PR#3818 + PR#3741 健康检查 |
+| 4 | FileReadCache 共享 | **per-daemon**（session 内私有语义自动成立）| PR#3717 + PR#3774 + PR#3810 invalidation 5 路径 |
 | 5 | Permission flow | 复用 PR#3723 + daemon 第 4 mode + SSE permission_request | PR#3723 evaluatePermissionFlow() |
 | 6 | 多 client 并发 | **同 session prompt 串行 + 事件 fan-out 多 client + 任何 client 可应答 permission** | ACP 协议语义 + Session task queue + subscriber set |
 | 7 | **部署模式** | **支持 Mode A（CLI+HttpServer）+ Mode B（Headless+HttpServer）双模式** | PR#3889 已实现 Mode B；Mode A ~4d 增量 |

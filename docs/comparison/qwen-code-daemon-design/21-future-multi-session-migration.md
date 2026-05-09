@@ -1,12 +1,12 @@
-# 21 — 未来回到 multi-session daemon 的迁移成本评估
+# 21 — 扩展到 multi-session daemon 的演进路径
 
 > [← 上一篇：与 Anthropic Managed Agents 对比](./20-vs-anthropic-managed-agents.md) · [下一篇：单 vs 多 Session 设计深度对比 →](./22-single-vs-multi-session-design.md) · [回到 README](./README.md)
 
-> Pivot 后（[§03 §2](./03-architectural-decisions.md#2-状态进程模型pivot-后)）Qwen daemon 走"1 Daemon Instance = 1 Session"路线。本章评估**未来如想切到 OpenCode 那样的 single-process multi-session 模式的工程成本、触发条件、推荐演进路径**——避免现在为可能不会到来的 scale 付永久工程债，同时保留未来可演进的退路。
+> 当前架构走"1 Daemon Instance = 1 Session"路线（[§03 §2](./03-architectural-decisions.md#2-状态进程模型)）。本章评估**当生产规模触及单 session 模型上限时，扩展到 single-process multi-session 模式的工程成本、触发条件、推荐演进路径**——避免现在为可能不会到来的 scale 付永久工程债，同时保留未来可演进的退路。
 
 ## 一、TL;DR
 
-**纯迁移到 OpenCode 模式 ~2-3 月**（类似 pivot 前估算）；**但大部分场景不需要——有 ~2-3w 的"资源池化"中段路径能拿 ~80% OpenCode 经济性**。
+**纯迁移到 OpenCode 模式 ~2-3 月**；**但大部分场景不需要——有 ~2-3w 的"资源池化"中段路径能拿 ~80% OpenCode 经济性**。
 
 | 路径 | 工作量 | 收益 | 适用 |
 |---|---|---|---|
@@ -16,9 +16,7 @@
 
 **推荐**：YAGNI——直到生产监控显示具体瓶颈再投。多数项目永远停在路径 A 之前。
 
-## 二、为什么 pivot 模型可能不够用？
-
-Pivot 模型的固有代价（详见 [§03 §2 决策对比](./03-architectural-decisions.md#2-状态进程模型pivot-后)）：
+## 二、单 session 模型的固有代价
 
 | 代价 | 单 daemon 影响 | 触发瓶颈条件 |
 |---|---|---|
@@ -28,13 +26,13 @@ Pivot 模型的固有代价（详见 [§03 §2 决策对比](./03-architectural-
 | **OS 资源消耗** | 每 daemon 占进程表项 + 文件描述符 | 单机 1000+ daemon 触 OS 上限 |
 | **Cross-daemon 聚合 UI** | "我所有 background tasks"等视图需 orchestrator 聚合 | 高频跨 session 协同操作 |
 
-**只有以上瓶颈实际发生才需要回到 multi-session daemon**——否则 pivot 模型的"进程级隔离免费 + 实现简化"是优解。
+**只有以上瓶颈实际发生才需要回到 multi-session daemon**——否则单 session 模型的"进程级隔离免费 + 实现简化"是优解。
 
 ## 三、路径 C：纯迁移到 OpenCode 模式（~2-3 月，最坏情况）
 
 ### 3.1 工作量明细
 
-把 pivot 省下的复杂度全部加回去：
+把单 session 模型省下的复杂度全部加回去：
 
 | 工作项 | 工作量 | 备注 |
 |---|---|---|
@@ -44,10 +42,10 @@ Pivot 模型的固有代价（详见 [§03 §2 决策对比](./03-architectural-
 | Permission decision cache 加 sessionId 维度 | 0.5w | PR#3723 evaluatePermissionFlow 扩展 |
 | **Subagent isolation 5 PR 套路全做**（Config wrapper / agent-local resources）| **2-3w** | **真痛点**——见 §3.2 |
 | Cross-session race condition 测试覆盖 | 1w | OOM / 资源泄漏 / fd 累积 |
-| Unified crash recovery（top-level uncaughtException → 仅杀 affected session）| 1w | pivot 模型下 daemon 崩溃由 orchestrator 重启；OpenCode 模式下要在进程内做 |
+| Unified crash recovery（top-level uncaughtException → 仅杀 affected session）| 1w | 单 session 模型下 daemon 崩溃由 orchestrator 重启；OpenCode 模式下要在进程内做 |
 | Effect-TS / LocalContext 引入或自研等价物 | 1-2w | 或不引入 Effect-TS，用纯 ALS 包一层 `Instance` API |
 | 文档 + e2e + 性能基准 | 1w | |
-| **合计** | **~2-3 月** | 与 pivot 前估算（Stage 2 ~3w + Stage 3 ~2m）接近 |
+| **合计** | **~2-3 月** | 类似 OpenCode 实现的总工作量 |
 
 ### 3.2 Subagent isolation 5 PR 套路是真痛点
 
@@ -67,10 +65,10 @@ Qwen 团队历史上为单 session 内 subagent 隔离做的 5 PR 套路：
 
 **好消息**：
 - PR#3889 child-process API **不需要弃用**——可作为 "Mode B / D 双模式"共存：
-  - Mode B（per-session daemon，pivot 后默认）：单 session 场景
+  - Mode B（per-session daemon，当前默认）：单 session 场景
   - Mode D（multi-session daemon）：高密度场景
 - Orchestrator 路由层不变，只是后端 daemon instance 内部从"1 session"扩到"N session"
-- 大部分 channels / WebUI / SDK 代码无需改动（pivot 前后 wire 协议一致）
+- 大部分 channels / WebUI / SDK 代码无需改动（wire 协议不变）
 
 **坏消息**：
 - 资源所有权语义破坏性变化：currently `per-daemon = per-session = per-workspace` 三位一体；OpenCode 模式下要拆开。所有依赖"daemon-global = session-global"的代码点都要 grep 找出来改
@@ -79,7 +77,7 @@ Qwen 团队历史上为单 session 内 subagent 隔离做的 5 PR 套路：
 
 ## 四、路径 A：资源池化（推荐 ~2-3w）
 
-**保持 pivot 模型不变，把"昂贵资源"做用户级共享**。这是性价比最高的中段路径。
+**保持单 session 模型不变，把"昂贵资源"做用户级共享**。这是性价比最高的中段路径。
 
 ### 4.1 池化对象与做法
 
@@ -178,7 +176,7 @@ Qwen 团队历史上为单 session 内 subagent 隔离做的 5 PR 套路：
 | 跨 session 状态强一致性需求 | 出现批量事务 / 跨 session 锁 | → 路径 C |
 | 大客户压测要求 | 单机 1000+ session | → 路径 B/C 二选 |
 
-**没有这些信号前**：pivot 模型 + 资源池化（路径 A）已是更优解，避免为可能不会到来的 scale 付永久工程债。
+**没有这些信号前**：单 session 模型 + 资源池化（路径 A）已是更优解，避免为可能不会到来的 scale 付永久工程债。
 
 ## 七、推荐演进路径
 
@@ -187,7 +185,7 @@ Stage 1   ✅ Mode B headless（PR#3889 已实现）
 Stage 1.5 🆕 Mode A CLI+HttpServer（~4d）
 Stage 2   🆕 orchestrator + multi-daemon（~1-2w）
 Stage 3   🆕 对标 OpenCode 完整设计（~1m）
-─────────── pivot 模型上限：~50 session/机器 ──────────
+─────────── 单 session 模型上限：~50 session/机器 ──────────
 Stage 4   🆕 资源池化路径 A（LSP/MCP/cache 用户级共享 + warm pool） ~2-3w
 ─────────── 资源池化上限：~200 session/机器 ──────────
 Stage 5   ⚠️ Worker threads hybrid 路径 B  ~3-4w
@@ -204,13 +202,13 @@ Stage 6   ❌ 纯 OpenCode 模式迁移 路径 C  ~2-3m
 
 | 章节 | 协同 |
 |---|---|
-| [§03 §2 状态进程模型](./03-architectural-decisions.md#2-状态进程模型pivot-后) | pivot 决策本身——本章是 pivot 的"未来退路评估" |
+| [§03 §2 状态进程模型](./03-architectural-decisions.md#2-状态进程模型) | 单 session 决策本身——本章是该决策的"未来退路评估" |
 | [§05 进程模型](./05-process-model.md) | AsyncLocalStorage / LocalContext / Map<workspaceId, Instance> 章节作为路径 C 实施参考 |
 | [§06 MCP / 资源共享](./06-mcp-resources.md) | per-workspace MCP / per-session FileReadCache 章节作为路径 A 池化设计参考 |
 | [§08 路线图](./08-roadmap.md) | Stage 1-3 是默认路径；本章是 Stage 4-6 的"如果生产瓶颈出现"分支 |
 | [§09 与 OpenCode 对比](./09-comparison-with-opencode.md) | 路径 C 等价于"完全对齐 OpenCode 模型" |
 | [§16 HA](./16-high-availability.md) | 资源池化 / Worker threads 都改变 HA 模型——daemon-pool → Worker-pool |
-| [§19 长跑稳定性](./19-stability-and-longevity.md) | 路径 C 把跨 session 稳定性挑战重新带回（pivot 已天然规避）|
+| [§19 长跑稳定性](./19-stability-and-longevity.md) | 路径 C 把跨 session 稳定性挑战重新带回（单 session 模型天然规避）|
 
 ## 九、关键不变量
 
@@ -219,19 +217,19 @@ Stage 6   ❌ 纯 OpenCode 模式迁移 路径 C  ~2-3m
 | 不变量 | 含义 |
 |---|---|
 | **Wire 协议** | ACP NDJSON over HTTP+SSE 不变（[§04](./04-http-api.md) / [§10](./10-protocol-compatibility.md)） |
-| **Mode A / Mode B** | 双部署模式（[§03 §7](./03-architectural-decisions.md#7-daemon-部署模式cli-httpserver-vs-headless-httpserverpivot-后新增)）在所有路径下都保留 |
+| **Mode A / Mode B** | 双部署模式（[§03 §7](./03-architectural-decisions.md#7-daemon-部署模式clihttpserver-vs-headlesshttpserver)）在所有路径下都保留 |
 | **PR#3889 已实现部分** | 路径 A/B/C 都不弃用现有 child-process API，只是增加新 mode |
 | **Multi-client per session** | live collaboration 模型（[§03 §6](./03-architectural-decisions.md#6-多-client-并发请求)）所有路径都保留 |
 
-**这意味着**：现在按 pivot 模型实施的所有代码，未来任何路径都能复用——不会有"白做了"的部分。
+**这意味着**：现在按单 session 模型实施的所有代码，未来任何路径都能复用——不会有"白做了"的部分。
 
 ## 十、一句话总结
 
-**纯迁移到 OpenCode 模式 ~2-3 月，类似 pivot 前估算**——但**大部分场景不需要**：路径 A 资源池化（~2-3w）能拿 ~80% 经济性；路径 B Worker threads（~3-4w）覆盖更深；路径 C 纯迁移仅在大规模 SaaS 必需时投。
+**纯迁移到 OpenCode 模式 ~2-3 月**——但**大部分场景不需要**：路径 A 资源池化（~2-3w）能拿 ~80% 经济性；路径 B Worker threads（~3-4w）覆盖更深；路径 C 纯迁移仅在大规模 SaaS 必需时投。
 
 **触发条件多数项目永远不出现**——cold start / 内存 / OS 资源 / 跨 session 一致性等瓶颈是高密度 SaaS 场景才暴露。**YAGNI**：直到生产监控显示具体瓶颈再投。
 
-**关键洞察**：Pivot 后不是"放弃 OpenCode 路径"，而是"延后到生产数据驱动"——所有现有代码都可平滑演进，**没有白做**。
+**关键洞察**：选单 session 模型不是"放弃 OpenCode 路径"，而是"延后到生产数据驱动"——所有现有代码都可平滑演进，**没有白做**。
 
 ---
 

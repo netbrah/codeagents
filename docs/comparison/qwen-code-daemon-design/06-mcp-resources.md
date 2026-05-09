@@ -4,18 +4,15 @@
 
 > daemon 模式下"哪些资源跨 session 共享、哪些隔离"是性能与正确性的关键平衡。
 
-> **🔄 设计 pivot 影响（2026-05-09）**：决策 §2 改为"1 Daemon Instance = 1 Session"后，本章**大量简化**：
+> **核心策略**（[§03 §2](./03-architectural-decisions.md#2-状态进程模型) "1 daemon = 1 session"模型下）：
 >
-> | 原决策 | Pivot 后 |
-> |---|---|
-> | 决策 §3 MCP per-workspace（同 workspace 多 session 共享）| **MCP per-daemon**（每 daemon 自己一组 MCP children；无跨 session 共享）|
-> | 决策 §4 FileReadCache per-session（同 daemon 内多 session 隔离）| **FileReadCache per-daemon**（daemon-global singleton，无 key 隔离）|
-> | LSP per-workspace（多 session 共享）| **LSP per-daemon**（每 daemon 自己一个 LSP child）|
-> | 同 workspace 多 session 共享 LSP / MCP child（资源经济）| **每 daemon 各自 spawn**（资源代价但简化）|
+> - **MCP servers per-daemon**——每 daemon 自己一组 MCP children；无跨 daemon 共享
+> - **FileReadCache per-daemon**——daemon-global singleton，无 key 隔离
+> - **LSP per-daemon**——每 daemon 自己一个 LSP child
 >
-> 代价：同 workspace 多 session 时，LSP / MCP children 重复 spawn（每 daemon 一份）。缓解：用户级 LSP daemon 通过 IPC 共享（[§19](./19-stability-and-longevity.md)）；MCP children 通常很轻。
+> 代价：同 workspace 多 session 时，LSP / MCP children 重复 spawn。N ≥ 50 时可投资源池化（用户级 LSP daemon / 共享 MCP，详见 [§21](./21-future-multi-session-migration.md) 路径 A）；MCP children 通常很轻。
 >
-> 详见 [§03 §2 状态进程模型 pivot](./03-architectural-decisions.md#2-状态进程模型pivot-后)。本章下面的"per-workspace"/"per-session"细节在 pivot 后等价于"per-daemon"，作为单 session 内的资源管理仍可参考。
+> 本章下面的 "per-workspace" / "per-session" 章节描述早期设计推演过程，最终决策已聚合为 per-daemon。
 
 ## 1. MCP server 共享策略
 

@@ -2,9 +2,7 @@
 
 > [← 上一篇：架构总览](./01-overview.md) · [下一篇：6 个架构决策 →](./03-architectural-decisions.md)
 
-> 把 Qwen Code 现有代码逐一对照"daemon 化需要什么"——结论：**~70% 已具备**，只需补传输层。
-
-> **🔄 设计 pivot 影响（2026-05-09）**：pivot 改为"1 Daemon Instance = 1 Session"后，现有资产盘点结论**不变**——本章列出的 70% 既存能力（ACP / Channels / WebUI / SDK Transport / SessionService / Bus / etc.）pivot 后**全部仍然适用**，且部分需求（per-session 隔离 / cross-session resource maps）反而**不再需要**。Mode A 复用现有 TUI 资产 100%；Mode B 复用 PR#3889 已实现的 Express HTTP server 100%。详见 [§03 §2 + §7](./03-architectural-decisions.md#2-状态进程模型pivot-后)。
+> 把 Qwen Code 现有代码逐一对照"daemon 化需要什么"——结论：**~70% 已具备**，只需补传输层。Mode A 复用现有 TUI 资产 100%；Mode B 复用 PR#3889 已实现的 Express HTTP server 100%。
 
 ## 一、资产清单总览
 

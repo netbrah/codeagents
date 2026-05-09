@@ -2,16 +2,15 @@
 
 > **🚀 Stage 1 提前实现 SSE 重连子集**（2026-05-07）：本章 §五 SSE Last-Event-ID 重连协议**已在 Stage 1 由 [PR#3889](https://github.com/QwenLM/qwen-code/pull/3889) `41aa95094` 提前实现**——EventBus + ring-backed replay + 15s heartbeat + AbortController on `req.close` + 客户端按 `Last-Event-ID` 重连。原本计划 Stage 6 HA 才详做，但发现 SSE 重连是 Stage 1 用户必需（不可 deferred）。多 daemon pod / Postgres / S3 等其他 HA 设计仍是 Stage 6 范畴。详见 [§08 Stage 1 实现 audit](./08-roadmap.md#stage-1-pr3889-实现-audit2026-05-07)。
 
-> **🔄 设计 pivot 影响（2026-05-09）**：决策 §2 改为"1 Daemon Instance = 1 Session"后，HA 模型**大幅简化**：
+> **HA 模型核心**（[§03 §2](./03-architectural-decisions.md#2-状态进程模型) "1 daemon = 1 session"下）：
 >
-> - **不再是 multi-pod with sticky session by sessionId**（原设计模型）
-> - **新模型：daemon-pool with orchestrator**——每 daemon process 是独立 session 单位，failover = restart specific daemon（不是 pod failover）
-> - **状态恢复**：orchestrator 检测 daemon crash → spawn 新 daemon → 用 PR#3739 transcript-first fork resume 重建（更直接、更可靠）
-> - **不需要跨 daemon 共享 Postgres 状态**（除非聚合 audit log）—— 每 daemon 自己的 transcript JSONL
-> - **Crash isolation natural**——一 daemon 崩溃只影响其 session，不影响其他 daemon（vs 原设计需要 in-daemon crash recovery）
-> - **Stage 6 多 region / S3 transcript backup 仍适用**——但 sticky session 路由概念被 orchestrator 直接路由替代
+> - **daemon-pool with orchestrator**——每 daemon process 是独立 session 单位，failover = restart specific daemon
+> - **状态恢复**：orchestrator 检测 daemon crash → spawn 新 daemon → 用 PR#3739 transcript-first fork resume 重建
+> - **每 daemon 自己的 transcript JSONL**（不需要跨 daemon 共享 Postgres，除非聚合 audit log）
+> - **Crash isolation natural**——一 daemon 崩溃只影响其 session，不影响其他 daemon
+> - **Stage 6 多 region / S3 transcript backup**：通过 orchestrator 直接路由（不需要 pod 级 sticky session）
 >
-> 详见 [§03 §2 状态进程模型 pivot](./03-architectural-decisions.md#2-状态进程模型pivot-后)。本章 5 层 HA 架构 / Chaos testing / SLO 设计等内容仍适用，但路由层粒度从"pod 级 sticky"变为"orchestrator → daemon instance 直接路由"。
+> 本章 5 层 HA 架构 / Chaos testing / SLO 设计仍适用，路由层从"pod 级 sticky"变为"orchestrator → daemon instance 直接路由"。
 
 > [← 上一篇：持久层与外部存储](./15-persistence-and-storage.md) · [回到 README](./README.md)
 
@@ -773,8 +772,8 @@ SLI 3: Session resume 正确性
 
 | 决策 | HA 影响 |
 |---|---|
-| §1 默认共享同一 daemon instance（pivot 后；scope 移到 orchestrator）| 多 client 共 session → sticky 必须按 sessionId 路由到对应 daemon instance |
-| §2 **1 Daemon Instance = 1 Session**（pivot 后）| HA 通过 daemon-pool + orchestrator 路由；每 daemon crash 只影响自己一个 session |
+| §1 默认共享同一 daemon instance；scope 由 orchestrator 路由 | 多 client 共 session → sticky 必须按 sessionId 路由到对应 daemon instance |
+| §2 **1 Daemon Instance = 1 Session** | HA 通过 daemon-pool + orchestrator 路由；每 daemon crash 只影响自己一个 session |
 | §3 MCP per-daemon | 新 daemon 重启 MCP（1-3s 启动延迟）|
 | §4 FileReadCache per-daemon | 新 daemon 重建（首次 read 需重 stat → 命中率短期下降）|
 | §5 Permission 第 4-5 mode | failover 后未决 permission 请求需重发 |

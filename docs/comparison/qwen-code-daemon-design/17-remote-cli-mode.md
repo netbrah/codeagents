@@ -1,17 +1,13 @@
 # 17 — 远端 CLI 模式与 Client Capability 协议
 
-> **🔄 设计 pivot 影响（2026-05-09）**：决策 §2 改为"1 Daemon Instance = 1 Session"后，远端 CLI 模式**基本不受影响**：
->
-> - **Multi-client per daemon 仍是核心价值**——CLI / WebUI / IM bot 连同一 daemon = 共享同一 session（原设计核心保留）
-> - **远端 client 直连 daemon instance**（之前是连"daemon 然后路由到 session"），少一跳
-> - **Client capability 反向 RPC** 不变
-> - **NAT 穿透 / TLS / mTLS / Bearer token** 不变
-> - **变化**：client 启动时需要先问 orchestrator "我应该连哪个 daemon"（discovery 协议）—— orchestrator 负责把 sessionId 映射到 daemon URL
->
-> 详见 [§03 §2 状态进程模型 pivot](./03-architectural-decisions.md#2-状态进程模型pivot-后)。
-
-
 > [← 上一篇：HA 高可用与故障恢复](./16-high-availability.md) · [回到 README](./README.md)
+
+> **远端 client 接入流程**（[§03 §2](./03-architectural-decisions.md#2-状态进程模型) "1 daemon = 1 session"下）：
+>
+> - **Multi-client per daemon 是核心价值**——CLI / WebUI / IM bot 连同一 daemon = 共享同一 session
+> - **远端 client 直连 daemon instance**——少一跳（不需要"daemon 内 session 路由"）
+> - **Client capability 反向 RPC / NAT 穿透 / TLS / mTLS / Bearer token** 全部不变
+> - **Discovery 协议**：client 启动时先问 orchestrator "我应该连哪个 daemon"，orchestrator 负责把 sessionId 映射到 daemon URL
 
 > CLI 连接远端 daemon 的完整设计：3 类拓扑取舍、Client Capability 反向 RPC 协议（让 daemon 调起本地 editor/clipboard/browser）、TLS/mTLS auth 链、NAT 穿透方案、Local echo 性能优化、离线降级。
 

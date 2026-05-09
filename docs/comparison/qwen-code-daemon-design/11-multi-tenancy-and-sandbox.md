@@ -1,17 +1,13 @@
 # 11 — 多租户与 Shell 沙箱
 
-> **🔄 设计 pivot 影响（2026-05-09）**：决策 §2 改为"1 Daemon Instance = 1 Session"后，多租户**显著简化**：
->
-> - **Tenant 抽象移到 orchestrator 层**——daemon 内不感知租户（每 daemon 只服务一个 session 的一个 tenant）
-> - **不需要 daemon 内 ACL middleware**（[§11 §4.3](./11-multi-tenancy-and-sandbox.md)）—— orchestrator spawn daemon 时就绑定 tenant，daemon 进程级隔离
-> - **per-tenant quota / audit log** 仍在 orchestrator 层统计（聚合各 daemon 数据）
-> - **Sandbox 选择 5 种**仍适用——但每 daemon 一个 sandbox handle（不是 daemon 内多 session map）
-> - **Stage 4-6 路线图保留**，但 daemon 内复杂度大幅降低
->
-> 详见 [§03 §2 状态进程模型 pivot](./03-architectural-decisions.md#2-状态进程模型pivot-后)。
-
-
 > [← 上一篇：协议兼容性](./10-protocol-compatibility.md) · [下一篇：水平越权防御 →](./12-horizontal-privilege-defense.md)
+
+> **多租户简化要点**（[§03 §2](./03-architectural-decisions.md#2-状态进程模型) "1 daemon = 1 session"模型下）：
+>
+> - **Tenant 抽象在 orchestrator 层**——daemon 内不感知租户（每 daemon 只服务一个 session 的一个 tenant）
+> - **不需要 daemon 内 ACL middleware**——orchestrator spawn daemon 时就绑定 tenant，daemon 进程级隔离
+> - **per-tenant quota / audit log** 在 orchestrator 层统计（聚合各 daemon 数据）
+> - **Sandbox 选择 5 种**：每 daemon 一个 sandbox handle
 
 > 当前设计（Stage 1-3）针对单租户。本章评估**多租户 + Shell 沙箱**的演进路径——结论：核心抽象已为多租户预留（Stage 4 是 soft launch），shell sandbox 需要 Stage 5 单独工程投入。
 
@@ -755,9 +751,9 @@ token-bucket throttling、`MonitorRegistry` 等机制不变。
 ```
 [已设计 Stage 1-3]
 └─ Stage 1 (~1 周, ✅ PR#3889 ~95% 实现) Mode B headless daemon
-└─ Stage 1.5 (~4d 增量, pivot 后新增) Mode A CLI + HttpServer
-└─ Stage 2 (~1-2 周, pivot 后简化) orchestrator 雏形 + multi-daemon
-└─ Stage 3 (~1 月, pivot 后简化) 对标 OpenCode 完整设计
+└─ Stage 1.5 (~4d 增量) Mode A CLI + HttpServer
+└─ Stage 2 (~1-2 周) orchestrator 雏形 + multi-daemon
+└─ Stage 3 (~1 月) 对标 OpenCode 完整设计
 
 [新增 Stage 4-6]
 ├─ Stage 4 (~1-2 周) 多租户共 daemon 进程

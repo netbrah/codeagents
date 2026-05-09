@@ -2,29 +2,15 @@
 
 > [← 上一篇：3 阶段路线图](./08-roadmap.md) · [下一篇：协议兼容性 →](./10-protocol-compatibility.md)
 
-> 本设计与 OpenCode daemon 在大方向上一致（共进程 + AsyncLocalStorage + SQLite），但在关键路径上做了 4 个有意识的差异化选择。
-
-> **🔄 设计 pivot 影响（2026-05-09）**：pivot 改为"1 Daemon Instance = 1 Session"后，与 OpenCode 的关系**显著变化**：
->
-> | 维度 | OpenCode | Qwen daemon（pivot 前）| Qwen daemon（pivot 后）|
-> |---|---|---|---|
-> | 进程模型 | 单 daemon 多 session | 单 daemon 多 session | **1 daemon = 1 session** |
-> | 跨 session 资源共享 | ✓ Effect-TS LocalContext | ✓ AsyncLocalStorage | **❌ 每 daemon 自给自足** |
-> | 隔离强度 | 应用层 | 应用层 | **OS process 级** |
-> | 多 session 管理 | daemon 内 Map<directory, Instance> | daemon 内 Map | **orchestrator 层** |
-> | 实现哲学 | "Effect-first 大基础设施" | "AsyncLocalStorage 包一层" | **"OS 进程边界免费 + orchestrator 路由"** |
->
-> Pivot 后 Qwen daemon 与 OpenCode 在**进程模型层面分歧**——OpenCode 走 single-process multi-session，Qwen 走 multi-process single-session。本章原列出的"4 个差异化选择"在 pivot 后变为 **5 个**（新增"进程模型与 multi-session 路由位置"差异）。详见 [§03 §2 状态进程模型 pivot](./03-architectural-decisions.md#2-状态进程模型pivot-后)。
->
-> **代价权衡**：Qwen 失去 OpenCode 的 cross-session 资源经济性（同 workspace 多 session 共享 LSP/MCP/cache），换取 process-level 隔离 + 实现简化。OpenCode 仍是 cross-session 资源共享场景的更优解；Qwen pivot 模型更适合 PR#3889 已选的 child-process-per-session 路径。
+> 本设计与 OpenCode daemon 在 wire 协议、HTTP 路由、SQLite 持久化层面相似，但在**进程模型层面分歧**：OpenCode 走 single-process multi-session，Qwen 走 multi-process single-session（[§03 §2](./03-architectural-decisions.md#2-状态进程模型)）。代价权衡：Qwen 失去 OpenCode 的 cross-session 资源经济性（同 workspace 多 session 共享 LSP/MCP/cache），换取 process-level 隔离 + 实现简化。OpenCode 仍是 cross-session 资源共享场景的更优解；Qwen 模型更适合 [PR#3889](https://github.com/QwenLM/qwen-code/pull/3889) 已选的 child-process-per-session 路径。详见 [§22 单 vs 多 Session 设计深度对比](./22-single-vs-multi-session-design.md)。
 
 ## 一、设计哲学对比
 
 | 维度 | OpenCode | Qwen Daemon（本设计）| 差异理由 |
 |---|---|---|---|
-| 进程模型 | 单 daemon 多 session 共进程 | **1 Daemon Instance = 1 Session**（pivot 后；多 session 由 orchestrator spawn 多 daemon）| 与 PR#3889 child-process-per-session 模型对齐；进程级隔离免费、避开跨 session 隔离复杂度 |
+| 进程模型 | 单 daemon 多 session 共进程 | **1 Daemon Instance = 1 Session**（多 session 由 orchestrator spawn 多 daemon）| 与 PR#3889 child-process-per-session 模型对齐；进程级隔离免费、避开跨 session 隔离复杂度 |
 | `process.cwd()` | 永不改变 | **同款** | OpenCode 已验证 |
-| 上下文传播 | Effect-TS `LocalContext` | **pivot 后无需**（daemon 进程本身就是 session ctx）| Qwen 不引入 Effect 重依赖；pivot 后连 ALS Instance ctx 也不需要 |
+| 上下文传播 | Effect-TS `LocalContext` | **不需要**（daemon 进程本身就是 session ctx）| Qwen 不引入 Effect 重依赖；连 ALS Instance ctx 也不需要 |
 | HTTP 框架 | Hono | **Express 5（默认，复用 vscode-ide-companion 已有依赖）/ Hono 可选（Stage 6 高并发）** | 不强行对齐——Express 5 + zod 校验已够用，Hono 是性能 trigger 后再切 |
 | 协议 schema | OpenAPI codegen（13525 行）| **复用 ACP NDJSON zod schema** | Qwen 已有 838 行 ACP agent，0 设计成本 |
 | 多 channel 支持 | 仅 SDK / TUI / Web | **+ IM / IDE 全走 SessionRouter** | Qwen 已有 Channels 包 |

@@ -2,7 +2,7 @@
 
 > **🚀 Stage 1 实现状态**（2026-05-07）：本章 Bearer token / Host allowlist / 0.0.0.0 拒绝默认 + first-responder permission vote 全部由 [PR#3889](https://github.com/QwenLM/qwen-code/pull/3889) 实现（commits `61f2f59a1` auth scaffold + `6ee655f0a` permission vote + `ad0e6ec06` timing-safe SHA-256+timingSafeEqual + 401 uniform）。Stage 1 实测加了原 §12 §3.5 才有的 side-channel 防御（401 在 no-header/bad-scheme/wrong-token 三情况返回完全一致）。详见 [§08 Stage 1 实现 audit](./08-roadmap.md#stage-1-pr3889-实现-audit2026-05-07)。
 
-> **🆕 双部署模式认证差异（2026-05-09）**：[§03 §7](./03-architectural-decisions.md#7-daemon-部署模式cli-httpserver-vs-headless-httpserverpivot-后新增) 新增 Mode A（CLI + HttpServer）后，认证默认值按模式区分：
+> **双部署模式认证默认值**（[§03 §7](./03-architectural-decisions.md#7-daemon-部署模式clihttpserver-vs-headlesshttpserver)）：
 >
 > | 维度 | Mode A（`qwen --serve`）| Mode B（`qwen serve`）|
 > |---|---|---|
@@ -13,7 +13,7 @@
 >
 > 本章详细的 Bearer token 生命周期、permission flow、first-responder vote 等机制 **两种模式完全一致**——只是 Mode A 默认关掉 bearer（loopback 信任）但仍可显式 `--token` 启用。
 >
-> **Pivot 影响（2026-05-09）**：pivot 改为"1 Daemon Instance = 1 Session"后，permission decisions cache **per-daemon**（不再需要 per-session 隔离）；first-responder vote 仍是 per-daemon 内逻辑（同一 daemon 多 client 抢答 permission_request）。详见 [§03 §2 §6](./03-architectural-decisions.md#2-状态进程模型pivot-后)。
+> Permission decisions cache 是 per-daemon（[§03 §2](./03-architectural-decisions.md#2-状态进程模型) "1 daemon = 1 session"模型下自然成立）；first-responder vote 仍是 per-daemon 内逻辑（同一 daemon 多 client 抢答 permission_request）。
 
 > [← 上一篇：MCP / 资源共享](./06-mcp-resources.md) · [下一篇：3 阶段路线图 →](./08-roadmap.md)
 

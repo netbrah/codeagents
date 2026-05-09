@@ -1,29 +1,21 @@
 # Qwen Code Daemon 架构设计（系列文档）
 
 > Qwen Code 引入 HTTP daemon 模式的完整设计方案。基于 [SDK / ACP / Daemon 架构 Deep-Dive](../sdk-acp-daemon-architecture-deep-dive.md) 第七章"Qwen Code 引入 daemon 的工作量评估"展开为可执行的工程蓝图。
->
-> 设计目标：**~2-3 周 MVP / ~1.5-2 月对标 OpenCode**，最大化复用 Qwen Code 已有的 ACP / Channels / WebUI / SDK Transport 抽象。
 
-> **🔄 设计 pivot（2026-05-09）：1 Daemon Instance = 1 Session**。多 session 通过 orchestrator spawn 多个 daemon 实例实现。
->
-> - **核心转变**：从原"单 daemon 多 session"（OpenCode 模式）改为"1 daemon = 1 session"，多 session 由 orchestrator 路由
-> - **与 PR#3889 一致**：PR#3889 实际就是 child-process-per-session 模型，pivot 只是重新命名（child → "Daemon Instance"，HTTP front → "Orchestrator"）
-> - **核心收益**：避开 Stage 2-3 跨 session 隔离的最大复杂度（AsyncLocalStorage Instance ctx / per-session resource managers / 5 PR subagent Config 隔离套路 / Effect-TS LocalContext 等价物**全部不需要**），节省 ~1 月工作量
-> - **代价**：cold start ~1-3s/session、内存 ~30-50MB × N session、cross-daemon 聚合 UI 复杂度移到 orchestrator
-> - **影响章节**：决策 §1+§2 大改 / [§14 entity model 简化](./14-entity-model.md) / [§06 资源共享](./06-mcp-resources.md) per-daemon 化 / 其他章节加 cross-ref note
-> - **详见**：[§03 §1+§2 决策 pivot](./03-architectural-decisions.md#1-session-是否跨-client-共享)
+## 核心架构
 
-> **🆕 设计扩展（2026-05-09）：双部署模式（Mode A + Mode B）**。在 pivot 之上明确支持两种 daemon instance 形态：
->
-> | 模式 | 命令 | TUI | 适用场景 |
-> |---|---|:---:|---|
-> | **Mode A: CLI + HttpServer** | `qwen --serve [--port N]` | ✅ 本地渲染 | 单用户在终端 + WebUI / IDE / IM bot 同时接入 |
-> | **Mode B: Headless Daemon + HttpServer** | `qwen serve [--port N]` | ❌ | 服务器 / 容器 / 远端机器 |
->
-> - **两种模式都遵循"1 daemon instance = 1 session"**——区别仅在 daemon instance 是否同时承载本地 TUI 客户端
-> - **TUI 是 client #0**（in-process EventBus），与 HTTP 远端 client 共享同一份 message_part / tool_call / permission_request 事件流（决策 §6 fan-out）
-> - **PR#3889 已实现 Mode B 的 ~95%**；Mode A 增量 ~4 天（TUI 启动后挂 HttpServer + InProcAdapter）
-> - **详见**：[§03 §7 决策](./03-architectural-decisions.md#7-daemon-部署模式cli-httpserver-vs-headless-httpserverpivot-后新增)
+**1 Daemon Instance = 1 Session**——每个 daemon 进程承载唯一一个 session；多 session 通过 orchestrator spawn 多个 daemon 实例实现。
+
+**双部署模式**：
+
+| 模式 | 命令 | TUI | 适用场景 |
+|---|---|:---:|---|
+| **Mode A: CLI + HttpServer** | `qwen --serve [--port N]` | ✅ 本地渲染 | 单用户在终端 + WebUI / IDE / IM bot 同时接入 |
+| **Mode B: Headless Daemon + HttpServer** | `qwen serve [--port N]` | ❌ | 服务器 / 容器 / 远端机器 |
+
+两种模式都遵循"1 daemon instance = 1 session"，区别仅在 daemon instance 是否同时承载本地 TUI 客户端。TUI 是 client #0（in-process EventBus），与 HTTP 远端 client 共享同一份事件流（[§03 §6](./03-architectural-decisions.md#6-多-client-并发请求) fan-out）。
+
+**为什么选这个架构**：进程级隔离免费、crash 半径小、subagent isolation 自动成立、与 [PR#3889](https://github.com/QwenLM/qwen-code/pull/3889) child-process-per-session 实现一致。代价是 cold start ~1-3s/session、内存 ~30-50MB × N session——单机 N < 50 场景可接受。详见 [§22 单 vs 多 Session 设计深度对比](./22-single-vs-multi-session-design.md)。
 
 > **🚀 Stage 1 实现**（2026-05-07）：[**PR#3889**](https://github.com/QwenLM/qwen-code/pull/3889) `feat(cli,sdk): qwen serve daemon (Stage 1)` —— OPEN，**+7698/-46 / 23 commits**（多轮 self-audit + reviewer rounds）。明确引用 [issue #3803](https://github.com/QwenLM/qwen-code/issues/3803)（本系列对应 issue），**~95% 设计决策 1:1 落地**——Express 5 server / ACP NDJSON over HTTP+SSE / Bearer + Host allowlist + 0.0.0.0 拒绝默认 / SHA-256 timing-safe compare / EventBus + ring replay + Last-Event-ID 重连 / first-responder permission vote / DaemonClient SDK / capabilities envelope 9 tags 全部已实现。详见 [§08 路线图 Stage 1 实现 audit](./08-roadmap.md#stage-1-pr3889-实现-audit2026-05-07)。
 >
@@ -102,7 +94,7 @@ daemon 与外部世界对话的协议层、daemon 进程内部的运行时机制
 
 | # | 文档 | 一句话 |
 |---|---|---|
-| 08 | [3 阶段路线图](./08-roadmap.md) | Stage 1（~1 周，✅ PR#3889 ~95% 实现 Mode B headless）/ Stage 1.5（~4d 增量 Mode A CLI+HttpServer，pivot 后新增）/ Stage 2（~1-2 周 orchestrator 雏形，pivot 后简化）/ Stage 3（~1 月对标 OpenCode，pivot 后简化）+ Stage 4-6（多租户 → 沙箱 → SaaS）|
+| 08 | [路线图](./08-roadmap.md) | Stage 1（~1 周，✅ PR#3889 ~95% 实现 Mode B headless）/ Stage 1.5（~4d 增量 Mode A CLI+HttpServer）/ Stage 2（~1-2 周 orchestrator 雏形）/ Stage 3（~1 月）+ Stage 4-6（多租户 → 沙箱 → SaaS）|
 | 09 | [与 OpenCode 详细对比](./09-comparison-with-opencode.md) | 路由 / 技术栈 / 设计哲学逐项对照 |
 | 20 | [与 Anthropic Managed Agents 对比](./20-vs-anthropic-managed-agents.md) | **5 层架构对照**（client / agent runtime / tool / sandbox / persistence）+ **内置工具映射** + **协议层差异**（Anthropic 私有 vs ACP 标准）+ **双向 migration path**（Anthropic→Qwen / Qwen→Anthropic 兼容 API）+ **6 类客户场景推荐** + **决策树 6 问选型** + **3 种混合部署模式** + **"Managed Qwen Agents" 产品蓝图**（基于 Stage 6 包装，6 月可建）|
 | 21 | [未来回到 multi-session daemon 的迁移成本](./21-future-multi-session-migration.md) | **Pivot 后退路评估** —— 路径 A 资源池化（~2-3w 拿 ~80% OpenCode 经济性）/ 路径 B Worker threads hybrid（~3-4w）/ 路径 C 纯迁移到 OpenCode 模式（~2-3 月）+ YAGNI 触发条件清单 + 推荐演进路径 + 关键不变量（现有代码不会白做）|

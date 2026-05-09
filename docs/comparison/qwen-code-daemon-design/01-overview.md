@@ -2,10 +2,6 @@
 
 > [← 返回 README](./README.md) · [下一篇：现有资产盘点 →](./02-existing-assets.md)
 
-> **🔄 设计 pivot（2026-05-09）：1 Daemon Instance = 1 Session**。本章描述的"daemon 模型"在 pivot 后明确为：每个 daemon 进程承载唯一一个 session；多 session 通过 orchestrator spawn 多个 daemon 实例实现。详见 [§03 §2 状态进程模型 pivot](./03-architectural-decisions.md#2-状态进程模型pivot-后)。
->
-> **🆕 双部署模式（2026-05-09）**：daemon instance 有两种形态——**Mode A（CLI + HttpServer，`qwen --serve`）** 同时承载本地 TUI 客户端 + 远端 HTTP 接入；**Mode B（Headless Daemon，`qwen serve`）** 无 TUI 全 HTTP。两种模式都遵循"1 daemon = 1 session"，区别仅在是否包含本地 TUI。详见 [§03 §7](./03-architectural-decisions.md#7-daemon-部署模式cli-httpserver-vs-headless-httpserverpivot-后新增)。
-
 ## 一、daemon 模型 vs Qwen 当前的 subprocess 模型
 
 Qwen Code 当前的程序化访问形态：
@@ -21,7 +17,7 @@ Qwen Code 当前的程序化访问形态：
 每次 SDK query() / Client 实例 = 1 个 CLI 子进程
 ```
 
-引入 daemon 后（pivot 后：1 daemon = 1 session，多 session 由 orchestrator 管）：
+引入 daemon 后（1 daemon instance = 1 session，多 session 由 orchestrator 管）：
 
 ```
                                    ┌──────────────────────────────┐
@@ -58,8 +54,8 @@ Mode B: daemon instance 无 TUI 全 HTTP（qwen serve）
 | 原则 | OpenCode | Qwen Daemon（本设计）|
 |---|---|---|
 | daemon 不再 spawn CLI | core 直接 import | 同样 |
-| ~~多 session 共享主进程~~（pivot 后分歧）| `Map<directory, InstanceContext>` | **1 daemon = 1 session**（pivot 后；orchestrator 层 spawn 多 daemon）|
-| `process.cwd()` 不变 | `AsyncLocalStorage` 上下文传播 | 同样但 pivot 后无需 ALS Instance ctx（daemon 进程本身就是 session ctx；详见 [05-进程模型](./05-process-model.md)）|
+| 多 session 模型 | `Map<directory, InstanceContext>`（同进程 N session）| **1 daemon = 1 session**（orchestrator 层 spawn 多 daemon）|
+| `process.cwd()` 不变 | `AsyncLocalStorage` 上下文传播 | 同样但无需 ALS Instance ctx —— daemon 进程本身就是 session ctx（详见 [05-进程模型](./05-process-model.md)）|
 | 持久化关键状态 | SQLite + drizzle-orm（`session.sql.ts:SessionTable`）| Stage 1-2 沿用 JSONL（PR#3739）+ Stage 3 引入 SQLite 装 permission/audit/tokens（§15）|
 
 ### 2.2 Qwen 独有的 3 条特色
@@ -107,12 +103,12 @@ OpenCode 用单一 `OPENCODE_SERVER_PASSWORD`（粗粒度访问控制）。Qwen 
 
 详见 [07-权限/认证](./07-permission-auth.md)。
 
-## 三、整体架构图（pivot 后：1 Daemon Instance = 1 Session）
+## 三、整体架构图
 
-> **Pivot 后核心变化**（[§03 §2](./03-architectural-decisions.md#2-状态进程模型pivot-后)）：
-> - 每个 daemon 进程**只承载唯一一个 session**——不再有 daemon 内 `Map<workspaceId, Instance>` 多 session 路由
-> - **多 session 由 orchestrator 层 spawn 多个 daemon 实例**（"qwen-coordinator"角色，原 `qwen serve` HTTP front 在 multi-session 部署下升级为此）
-> - **Mode A（CLI + HttpServer）/ Mode B（Headless Daemon）双部署模式**（[§03 §7](./03-architectural-decisions.md#7-daemon-部署模式cli-httpserver-vs-headless-httpserverpivot-后新增)）—— 区别仅在 daemon 进程是否同时承载本地 TUI
+**核心原则**：
+- 每个 daemon 进程**只承载唯一一个 session**——daemon 内无 multi-session 路由
+- **多 session 由 orchestrator 层 spawn 多个 daemon 实例**（`qwen-coordinator` 角色）
+- **Mode A（CLI + HttpServer）/ Mode B（Headless Daemon）双部署模式**（[§03 §7](./03-architectural-decisions.md#7-daemon-部署模式clihttpserver-vs-headlesshttpserver)）—— 区别仅在 daemon 进程是否同时承载本地 TUI
 
 ### 3.1 单 Daemon Instance 内部架构（Mode A / Mode B 共用）
 
@@ -147,7 +143,7 @@ OpenCode 用单一 `OPENCODE_SERVER_PASSWORD`（粗粒度访问控制）。Qwen 
 │  │ - Permission flow（PR#3723 + daemon 第 4 mode）            │  │
 │  │ - MCP client manager（PR#3818 coalesce + 30s health check）│  │
 │  │ - Background tasks（PR#3471/3488/3642/3791/3836 4 kinds）  │  │
-│  │   ⚠️ pivot 后无需 AsyncLocalStorage Instance ctx           │  │
+│  │   注：无需 AsyncLocalStorage Instance ctx                │  │
 │  │      —— daemon 进程本身就是 session ctx                    │  │
 │  └──────────────────────────────────────────────────────────┘  │
 │                          ↓                                      │
@@ -196,19 +192,19 @@ OpenCode 用单一 `OPENCODE_SERVER_PASSWORD`（粗粒度访问控制）。Qwen 
 **关键性质**：
 - **Daemon instance 内 0 cross-session 复杂度**——AsyncLocalStorage Instance ctx / Map<workspaceId, Instance> / per-session resource managers 全部不需要
 - **进程级隔离免费**——一 daemon crash 只影响其 session，由 orchestrator 重启
-- **资源池化由 orchestrator 层做**（[§21](./21-future-multi-session-migration.md) 路径 A：用户级 LSP daemon / 共享 MCP / 共享 cache）—— 触发条件出现后再投，pivot 模型本身够用
+- **资源池化由 orchestrator 层做**（[§21](./21-future-multi-session-migration.md) 路径 A：用户级 LSP daemon / 共享 MCP / 共享 cache）—— N ≥ 50 时再投，单 session 模型 N < 50 已够用
 
 ## 四、关键设计决策预告
 
 | # | 决策 | 选择 | 详细 |
 |---|---|---|---|
-| 1 | session 是否跨 client 共享 | **默认共享同一 daemon instance**（pivot 后；scope 概念移到 orchestrator） | [03 §1](./03-architectural-decisions.md#1-session-是否跨-client-共享) |
-| 2 | 状态进程模型 | **1 Daemon Instance = 1 Session**（pivot 后；与 PR#3889 child-process-per-session 模型一致） | [03 §2](./03-architectural-decisions.md#2-状态进程模型pivot-后) |
-| 3 | MCP server 生命周期 | **per-daemon MCP state**（pivot 后简化）+ Qwen 保留 PR#3818 in-flight coalesce + 30s 健康检查 | [06](./06-mcp-resources.md) |
-| 4 | FileReadCache 共享 | **per-daemon**（pivot 后；原 session 内私有语义自动成立） | [06 §2](./06-mcp-resources.md#2-filereadcache-共享策略) |
+| 1 | session 是否跨 client 共享 | **默认共享同一 daemon instance**；scope 由 orchestrator 路由 | [03 §1](./03-architectural-decisions.md#1-session-是否跨-client-共享) |
+| 2 | 状态进程模型 | **1 Daemon Instance = 1 Session**（与 PR#3889 child-process-per-session 模型一致） | [03 §2](./03-architectural-decisions.md#2-状态进程模型) |
+| 3 | MCP server 生命周期 | **per-daemon MCP state** + PR#3818 in-flight coalesce + 30s 健康检查 | [06](./06-mcp-resources.md) |
+| 4 | FileReadCache 共享 | **per-daemon**（session 内私有语义自动成立）| [06 §2](./06-mcp-resources.md#2-filereadcache-共享策略) |
 | 5 | Permission flow | **复用 PR#3723，daemon 是第 4 种 mode + 任何 client 都能应答** | [07](./07-permission-auth.md) |
 | 6 | 多 client 并发请求 | **同 session prompt 串行 + 事件 fan-out 多 client 协作观察** | [03 §6](./03-architectural-decisions.md#6-多-client-并发请求) |
-| 7 | 部署模式（pivot 后新增）| **Mode A（CLI + HttpServer）+ Mode B（Headless Daemon + HttpServer）双模式** | [03 §7](./03-architectural-decisions.md#7-daemon-部署模式cli-httpserver-vs-headless-httpserverpivot-后新增) |
+| 7 | 部署模式 | **Mode A（CLI + HttpServer）+ Mode B（Headless Daemon + HttpServer）双模式** | [03 §7](./03-architectural-decisions.md#7-daemon-部署模式clihttpserver-vs-headlesshttpserver) |
 
 ## 五、最终用户体验
 

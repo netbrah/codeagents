@@ -12,7 +12,7 @@
 > | **Mode A in-process bus subscriber**（`qwen --serve`）| in-process EventBus（与 HTTP 远端 client 走同一套 fan-out） | §03 §7 |
 > | **Mode B 远端 TUI**（`qwen client --remote-url`，[§17](./17-remote-cli-mode.md)）| HTTP/SSE via HttpAcpAdapter | §17 |
 >
-> Mode A 的 TUI **不是 HTTP client**——它是 in-process subscriber，省了 HTTP 序列化成本但拿到字节级一致的事件流。本章下面的 HttpAcpAdapter 部分主要适用于 Mode B（远端 TUI）。Mode A 用 `InProcAdapter` 做同等抽象但内部直接订阅 EventBus。详见 [§03 §7](./03-architectural-decisions.md#7-daemon-部署模式cli-httpserver-vs-headless-httpserverpivot-后新增)。
+> Mode A 的 TUI **不是 HTTP client**——它是 in-process subscriber，省了 HTTP 序列化成本但拿到字节级一致的事件流。本章下面的 HttpAcpAdapter 部分主要适用于 Mode B（远端 TUI）。Mode A 用 `InProcAdapter` 做同等抽象但内部直接订阅 EventBus。详见 [§03 §7](./03-architectural-decisions.md#7-daemon-部署模式clihttpserver-vs-headlesshttpserver)。
 
 ## 一、TL;DR — 4 层兼容性矩阵
 
@@ -667,7 +667,7 @@ class HttpAcpAdapter {
 - **Mode B（Headless Daemon）**：所有 client 走 HTTP/SSE；web-ui = 路线 3；如要 xterm.js 旁路（路线 1）需另开 `tui_frame` event channel
 - **路线 1 旁路最自然的位置**：Mode A 下 Ink 已经在跑 TUI 渲染，只需在 stdout 写入处 tee 一份到 SSE；Mode B 下 daemon 没跑 TUI，要专门启 headless Ink renderer，工作量翻倍
 
-详见 [§03 §7 双部署模式](./03-architectural-decisions.md#7-daemon-部署模式cli-httpserver-vs-headless-httpserverpivot-后新增)。
+详见 [§03 §7 双部署模式](./03-architectural-decisions.md#7-daemon-部署模式clihttpserver-vs-headlesshttpserver)。
 
 ---
 

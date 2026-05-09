@@ -2,14 +2,11 @@
 
 > **🚀 Stage 1 实现状态**（2026-05-07）：本章 9 路由全部由 [PR#3889](https://github.com/QwenLM/qwen-code/pull/3889) 实现（commits `61f2f59a1` scaffold + `ca996ecb5` prompt/cancel + `41aa95094` SSE EventBus + `6ee655f0a` permission + `a8ce5e08d` workspace/model）。详见 [§08 Stage 1 实现 audit](./08-roadmap.md#stage-1-pr3889-实现-audit2026-05-07)。
 
-> **🔄 设计 pivot 影响（2026-05-09）**：pivot 改为"1 Daemon Instance = 1 Session"后：
+> **API 模型要点**（[§03 §2](./03-architectural-decisions.md#2-状态进程模型) "1 daemon = 1 session"下）：
 >
-> - **`POST /session` 仍存在**——但语义从"在多 session daemon 内创建一个 session"变为"daemon instance 启动时绑定唯一 session（如已绑定则返回 409）"
-> - **多 session 操作移到 orchestrator 层**：`POST /coordinator/sessions/{id}/route` 等聚合 API 由 orchestrator 提供，单 daemon 不感知
-> - **本章 9 路由的 wire 格式不变**——pivot 不改协议，只改"daemon 内 N 个 session"语义为"orchestrator 路由到 N 个 daemon 各自的唯一 session"
-> - **Mode A vs Mode B**：两种部署模式的 HTTP API **完全一致**（Mode A 多挂个 in-process TUI subscriber 不影响 wire）
->
-> 详见 [§03 §2](./03-architectural-decisions.md#2-状态进程模型pivot-后) + [§03 §7](./03-architectural-decisions.md#7-daemon-部署模式cli-httpserver-vs-headless-httpserverpivot-后新增)。
+> - **`POST /session`**：daemon instance 启动时绑定唯一 session，幂等（已绑定时返回现有，第二次创建返回 409）
+> - **多 session 操作在 orchestrator 层**：`POST /coordinator/sessions/{id}/route` 等聚合 API 由 orchestrator 提供；详见本章 §八
+> - **Mode A vs Mode B**（[§03 §7](./03-architectural-decisions.md#7-daemon-部署模式clihttpserver-vs-headlesshttpserver)）：两种部署模式的 HTTP API **完全一致**（Mode A 多挂个 in-process TUI subscriber 不影响 wire）
 
 > [← 上一篇：6 个架构决策](./03-architectural-decisions.md) · [下一篇：进程模型 →](./05-process-model.md)
 
@@ -404,7 +401,7 @@ GET / HTTP/1.1
 
 ## 八、Pivot 后 API 变化总览（2026-05-09）
 
-> 决策 §2 改为 "1 Daemon Instance = 1 Session" 后，对 HTTP API 的具体影响。**总体：daemon 层 ~95% 不变；orchestrator 层是全新一套**。详见 [§03 §2](./03-architectural-decisions.md#2-状态进程模型pivot-后) + [§22 单 vs 多 Session 设计深度对比](./22-single-vs-multi-session-design.md)。
+> 决策 §2 改为 "1 Daemon Instance = 1 Session" 后，对 HTTP API 的具体影响。**总体：daemon 层 ~95% 不变；orchestrator 层是全新一套**。详见 [§03 §2](./03-architectural-decisions.md#2-状态进程模型) + [§22 单 vs 多 Session 设计深度对比](./22-single-vs-multi-session-design.md)。
 
 ### 8.1 Daemon 层 9 路由变化（基本不变）
 
@@ -527,7 +524,7 @@ Client（SDK / WebUI / IDE）通过 `mode === 'single-session-daemon'` 决定：
 - 已配置 → 走 orchestrator 路由（多 session 场景）
 
 ```ts
-// SDK 用法（pivot 后）
+// SDK 用法
 import { DaemonClient } from '@qwen-code/sdk-typescript'
 
 // 场景 1: 直连（Mode A 或已知 daemon URL）

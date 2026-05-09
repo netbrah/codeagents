@@ -4,18 +4,16 @@
 
 > 把前面 13 章散落在各处的实体（Tenant / Workspace / Session / Task / Tool / Client）汇总到一张层级图，定义它们的关系、资源所有权、生命周期、跨边界约束。
 
-> **🔄 设计 pivot 影响（2026-05-09）**：决策 §2 改为"1 Daemon Instance = 1 Session"后，本文 5 层 hierarchy **简化**为以 Daemon Instance 为核心：
+> **核心实体层级**（[§03 §2](./03-architectural-decisions.md#2-状态进程模型) "1 daemon = 1 session"模型下）：
 >
 > ```
 > Tenant → Workspace → Daemon Instance（≡ Session）→ Background Task → Tool Execution
 > ```
 >
-> - **Session ≡ Daemon Instance**（同义合并）—— 不再是 daemon 内的子单元
-> - 资源所有权简化：LSP / MCP / FileReadCache **全部 per-daemon**（不再需要 per-workspace MCP / per-session FileReadCache 区分）
+> - **Session ≡ Daemon Instance**（同义合并）—— 不是 daemon 内的子单元
+> - 资源所有权：LSP / MCP / FileReadCache 全部 per-daemon
 > - 跨 session 共享 = 跨 daemon 共享 = **不允许**（process-level 隔离自然成立）
-> - **多 client 共 daemon = 共 session**（live collaboration 模型不变）
->
-> 详见 [§03 §2 状态进程模型 pivot](./03-architectural-decisions.md#2-状态进程模型pivot-后)。本文细节内容（如 §六 跨 tenant 边界硬约束 / §九 ER 图）大部分仍适用，但层级数从 5 层降为本质上的 4 层（Session 与 Daemon Instance 合并）。
+> - **多 client 共 daemon = 共 session**（live collaboration）
 
 ## 一、TL;DR — 5 层 hierarchy + 认证侧 + 横切层
 
@@ -376,14 +374,14 @@ Session (runtime SetSessionConfigOptionRequest)
 
 | 章节 | 决策 | 对应实体层 |
 |---|---|---|
-| §03 §1 | 默认共享同一 daemon instance（pivot 后；scope 移到 orchestrator）| Daemon Instance ≡ Session |
-| §03 §2 | **1 Daemon Instance = 1 Session**（pivot 后）| 每 daemon 一个 V8 isolate；多 daemon 由 orchestrator 管 |
-| §03 §3 | MCP per-daemon（pivot 后简化）| MCP 资源所有权 = Daemon Instance |
+| §03 §1 | 默认共享同一 daemon instance；scope 由 orchestrator 路由 | Daemon Instance ≡ Session |
+| §03 §2 | **1 Daemon Instance = 1 Session** | 每 daemon 一个 V8 isolate；多 daemon 由 orchestrator 管 |
+| §03 §3 | MCP per-daemon | MCP 资源所有权 = Daemon Instance |
 | §03 §4 | FileReadCache per-daemon | FileReadCache 资源所有权 = Daemon Instance |
 | §03 §5 | Permission flow 第 4-5 mode | tool call 层 + tenant + workspace 双键决策 |
 | §03 §6 | 同 daemon 串行 + fan-out 多 client | Daemon.taskQueue + subscribers Set |
 | §03 §7 | Mode A / Mode B 双部署模式 | Daemon Instance 形态：含 TUI / 不含 |
-| §05 | pivot 后无需 ALS Instance ctx（daemon 进程本身就是 session ctx）| tool call 执行上下文 = daemon-global |
+| §05 | 不需要 ALS Instance ctx（daemon 进程本身就是 session ctx）| tool call 执行上下文 = daemon-global |
 | §11 | Tenant 抽象（移到 orchestrator 层）| Orchestrator 路由 |
 | §11 §5 | ShellSandbox interface | Tool call 层调用 |
 | §12 | 17 个攻击向量 + 5 层防御 | 跨 tenant 硬约束 + 同 session 隔离 |
