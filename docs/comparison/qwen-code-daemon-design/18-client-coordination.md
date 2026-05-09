@@ -2,6 +2,15 @@
 
 > **🚀 Stage 1 部分实现**（2026-05-07）：[PR#3889](https://github.com/QwenLM/qwen-code/pull/3889) commit `41aa95094` 实现了本章 §五 liveness 协议子集——15s heartbeat（比设计 30s 更激进）+ bounded subscriber queues + `client_evicted` overflow（设计 §五.4 子连接超时差异化的简化版）+ AbortController on `req.close`（即时剔除断开 client）。多端协调的 active typer / takeover / kind 限额 / IM bot 一对多用户等高级特性 Stage 1 不含——Stage 2/3 才做。详见 [§08 Stage 1 实现 audit](./08-roadmap.md#stage-1-pr3889-实现-audit2026-05-07)。
 
+> **🔄 设计 pivot 影响（2026-05-09）**：决策 §2 改为"1 Daemon Instance = 1 Session"后，本章**仍核心相关**——multi-client per daemon 是 daemon 价值的核心：
+>
+> - **Active typer / takeover / kind 限额 / IM bot 一对多** 全部仍是 per-daemon 内逻辑（不变）
+> - **Cross-session multi-client**（如 IM bot 同时连接多个 session）—— 在 pivot 后变成"client 同时 attach 多个 daemon"，由 client 端管理（更简单）
+> - **Cross-daemon aggregate UI**（如"我所有 background tasks"视图）—— 由 orchestrator 提供 aggregate API
+>
+> 详见 [§03 §2 状态进程模型 pivot](./03-architectural-decisions.md#2-状态进程模型pivot-后)。
+
+
 > [← 上一篇：远端 CLI 模式](./17-remote-cli-mode.md) · [回到 README](./README.md)
 
 > 决策 §1 + §6 让一个 session 可被多 client 同时订阅；本章定义这些 client 如何协调（liveness / active typer / takeover / exclusive 模式 / IM bot 多用户分摊），保住 collaboration 红利的同时解决 stale connection 等运维痛点。

@@ -4,6 +4,18 @@
 
 > 渐进式落地，每阶段都可独立交付价值。Stage 1 ~1 周可用、Stage 2 ~3 周完整 daemon、Stage 3 ~2 月对标 OpenCode。
 
+> **🔄 设计 pivot 影响（2026-05-09）**：决策 §2 改为"1 Daemon Instance = 1 Session"后，工作量**显著降低**：
+>
+> | Stage | 原估算（multi-session daemon）| Pivot 后估算（per-session daemon + orchestrator）|
+> |---|---|---|
+> | Stage 1 | ~1 周 | **~1 周（已由 PR#3889 ~95% 完成 ✅）**——pivot 让 PR#3889 的 child-process-per-session 模型直接成为终态架构，无需重构 |
+> | Stage 2 | ~3 周（重写 ACP agent 为 multi-session HTTP）| **~1-2 周**（不需要 AsyncLocalStorage Instance ctx / per-session resource managers / Effect-TS LocalContext 等价物）|
+> | Stage 3 | ~2 月（对标 OpenCode）| **~1 月**（orchestrator 路由 + multi-daemon 管理 + cross-daemon aggregate UI 比"daemon 内 multi-session 路由"简单）|
+>
+> **核心原因**：pivot 把"daemon 内 N 个 session 状态隔离"这件难事**变成 OS 进程边界**——这是 5 PR subagent isolation 套路 / AsyncLocalStorage / per-session FileReadCache key isolation / Config wrapper isolation 全部消失。
+>
+> 详见 [§03 §2 状态进程模型 pivot](./03-architectural-decisions.md#2-状态进程模型pivot-后)。
+
 ## 总览
 
 ```

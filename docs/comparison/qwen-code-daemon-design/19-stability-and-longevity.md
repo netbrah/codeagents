@@ -4,6 +4,16 @@
 
 > 多租户 daemon 跑 24h+ 的稳定性设计。Node.js 长跑 7 类风险、多租户加剧的 5 类风险、qwen daemon 10 个具体泄漏点、9 项稳定性模式、6 类 native module 风险、Bun vs Node.js 长跑实测、与 §16 HA / §18 协同。
 
+> **🔄 设计 pivot 影响（2026-05-09）**：决策 §2 改为"1 Daemon Instance = 1 Session"后，长跑稳定性**显著改善**：
+>
+> - **Crash isolation 是免费的**——一 session 跑爆不影响其他 session（V8 / OS 自动）
+> - **Resource cleanup 简单**——kill daemon = 清理所有 fd / child process / memory
+> - **§四 10 个具体泄漏点中至少 5 个 vanish**：session TTL（kill daemon 替代）/ FileReadCache 累积（daemon 退出释放）/ Background task 残留（daemon 退出 reap）/ permission decision cache（daemon 内一个 session）/ subscriber queue 累积（daemon 终止释放）
+> - **新增稳定性需求**：daemon pool 管理（idle daemon hibernation / lazy spawn / 内存上限）—— 移到 orchestrator 层
+> - **本章作用对象的转变**：从"daemon 跑数月"变为"单个 daemon instance 可能只跑 session 时长"——LRU / TTL / quota 这些机制从 daemon 内移到 orchestrator
+>
+> 详见 [§03 §2 状态进程模型 pivot](./03-architectural-decisions.md#2-状态进程模型pivot-后)。本章原内容（Node.js 7 类风险 / 9 项稳定性模式 / 6 类 native module 风险等）大部分仍适用——单 daemon instance 内仍有内存增长 / 监听器累积 / native crash 等问题。
+
 ## 一、TL;DR
 
 | 维度 | 设计 |

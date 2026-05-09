@@ -4,6 +4,15 @@
 >
 > 设计目标：**~2-3 周 MVP / ~1.5-2 月对标 OpenCode**，最大化复用 Qwen Code 已有的 ACP / Channels / WebUI / SDK Transport 抽象。
 
+> **🔄 设计 pivot（2026-05-09）：1 Daemon Instance = 1 Session**。多 session 通过 orchestrator spawn 多个 daemon 实例实现。
+>
+> - **核心转变**：从原"单 daemon 多 session"（OpenCode 模式）改为"1 daemon = 1 session"，多 session 由 orchestrator 路由
+> - **与 PR#3889 一致**：PR#3889 实际就是 child-process-per-session 模型，pivot 只是重新命名（child → "Daemon Instance"，HTTP front → "Orchestrator"）
+> - **核心收益**：避开 Stage 2-3 跨 session 隔离的最大复杂度（AsyncLocalStorage Instance ctx / per-session resource managers / 5 PR subagent Config 隔离套路 / Effect-TS LocalContext 等价物**全部不需要**），节省 ~1 月工作量
+> - **代价**：cold start ~1-3s/session、内存 ~30-50MB × N session、cross-daemon 聚合 UI 复杂度移到 orchestrator
+> - **影响章节**：决策 §1+§2 大改 / [§14 entity model 简化](./14-entity-model.md) / [§06 资源共享](./06-mcp-resources.md) per-daemon 化 / 其他章节加 cross-ref note
+> - **详见**：[§03 §1+§2 决策 pivot](./03-architectural-decisions.md#1-session-是否跨-client-共享)
+
 > **🚀 Stage 1 实现**（2026-05-07）：[**PR#3889**](https://github.com/QwenLM/qwen-code/pull/3889) `feat(cli,sdk): qwen serve daemon (Stage 1)` —— OPEN，**+7698/-46 / 23 commits**（多轮 self-audit + reviewer rounds）。明确引用 [issue #3803](https://github.com/QwenLM/qwen-code/issues/3803)（本系列对应 issue），**~95% 设计决策 1:1 落地**——Express 5 server / ACP NDJSON over HTTP+SSE / Bearer + Host allowlist + 0.0.0.0 拒绝默认 / SHA-256 timing-safe compare / EventBus + ring replay + Last-Event-ID 重连 / first-responder permission vote / DaemonClient SDK / capabilities envelope 9 tags 全部已实现。详见 [§08 路线图 Stage 1 实现 audit](./08-roadmap.md#stage-1-pr3889-实现-audit2026-05-07)。
 >
 > 平行推进的 [PR#3929/3930/3931](https://github.com/QwenLM/qwen-code/pull/3929) `qwen remote-control` 3-stack（不同作者，独立开发）走 stream-json + dual-output + mobile UI 路线，不引用 issue #3803——是 daemon-design **平行参照而非实现**，未来或在 Stage 1.5/2 与 PR#3889 协调融合（mobile UI / pairing token / LAN URL 移植到 daemon）。

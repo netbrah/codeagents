@@ -1,5 +1,16 @@
 # 11 — 多租户与 Shell 沙箱
 
+> **🔄 设计 pivot 影响（2026-05-09）**：决策 §2 改为"1 Daemon Instance = 1 Session"后，多租户**显著简化**：
+>
+> - **Tenant 抽象移到 orchestrator 层**——daemon 内不感知租户（每 daemon 只服务一个 session 的一个 tenant）
+> - **不需要 daemon 内 ACL middleware**（[§11 §4.3](./11-multi-tenancy-and-sandbox.md)）—— orchestrator spawn daemon 时就绑定 tenant，daemon 进程级隔离
+> - **per-tenant quota / audit log** 仍在 orchestrator 层统计（聚合各 daemon 数据）
+> - **Sandbox 选择 5 种**仍适用——但每 daemon 一个 sandbox handle（不是 daemon 内多 session map）
+> - **Stage 4-6 路线图保留**，但 daemon 内复杂度大幅降低
+>
+> 详见 [§03 §2 状态进程模型 pivot](./03-architectural-decisions.md#2-状态进程模型pivot-后)。
+
+
 > [← 上一篇：协议兼容性](./10-protocol-compatibility.md) · [下一篇：水平越权防御 →](./12-horizontal-privilege-defense.md)
 
 > 当前设计（Stage 1-3）针对单租户。本章评估**多租户 + Shell 沙箱**的演进路径——结论：核心抽象已为多租户预留（Stage 4 是 soft launch），shell sandbox 需要 Stage 5 单独工程投入。
