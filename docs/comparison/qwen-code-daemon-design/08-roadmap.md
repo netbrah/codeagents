@@ -55,17 +55,17 @@ External Reference Architecture（外部 / 商业层，参考实现）：
 | 文档 + 示例 + e2e 测试 | 1d | |
 | **合计** | **~7-8 天 / 1 人** | ~700-1000 行新增代码 |
 
-### Stage 1 PR#3889 实现 audit（2026-05-07）
+### Stage 1 PR#3889 实现 audit（最近更新 2026-05-09）
 
-[**PR#3889**](https://github.com/QwenLM/qwen-code/pull/3889) `feat(cli,sdk): qwen serve daemon (Stage 1)` —— OPEN，**+7698/-46 / 23 commits**。
+[**PR#3889**](https://github.com/QwenLM/qwen-code/pull/3889) `feat(cli,sdk): qwen serve daemon (Stage 1)` —— OPEN，**+8883/-4 / 32 commits** —— Stage 1 GA-ready（代码 ~95% 设计落地 + 文档 100% 补全 + 多轮 multi-model audit 收敛）。
 
 #### 1️⃣ 体量与预估对比
 
-| 维度 | 预估（本节工作清单）| 实际（PR#3889）| 倍数 |
+| 维度 | 预估（本节工作清单）| 实际（PR#3889 当前）| 倍数 |
 |---|---|---|---|
-| LOC | ~700-1000 行 | **~5100 LOC**（commits 总和；剔除测试 ~3000 LOC）| **5x-7x** |
-| 工作量 | ~7-8 天 / 1 人 | 多周（含 23 commits 含多轮 audit）| 几周 vs 1 周 |
-| 提交数 | — | **23 commits**：8 实现 + 4 self-audit + 5 review rounds + 4 docs + 2 misc | — |
+| LOC | ~700-1000 行 | **+8883 / -4**（含测试 + 文档；剔除测试 + 文档 ~5100 LOC）| **5x-9x** |
+| 工作量 | ~7-8 天 / 1 人 | 多周（32 commits 跨多轮 multi-model audit + Stage 1 文档补全）| 几周 vs 1 周 |
+| 提交数 | — | **32 commits**：8 实现 + 10 self-audit / review round（claude-opus-4-7 / gpt-5.5 / deepseek 多模型）+ 4 多模型 review threads close 批次（30+ threads）+ 1 Stage 1 docs + 3 merge / lint / misc | — |
 
 **超出原因**（设计 → 实现的工程现实）：
 
@@ -75,9 +75,10 @@ External Reference Architecture（外部 / 商业层，参考实现）：
 | **Timing-safe bearer compare** | §07 设计为 Bearer，PR#3889 加 SHA-256 + `crypto.timingSafeEqual` + 401 uniform across no-header/bad-scheme/wrong-token，对应 §12 §3.5 side-channel 防御（设计在 §12 但 Stage 1 实现）|
 | **IPv6 loopback ergonomics** | `::1` / `[::1]` / `host.docker.internal` 等 LOOPBACK_BINDS 边界，原设计未具体化 |
 | **EventBus correctness** | `client_evicted` overflow / replay ring / AsyncIterable abort handling 等几百行 |
-| **Self-audit + reviewer rounds** | 23 commits 中 9 轮 audit（self-audit 1-10 + reviewer rounds 1-7）—— 这是 PR#3889 体量超出的最大来源；表明 self-review + 多模型 audit（claude-opus-4-7 / gpt-5.5）流程非常严格 |
+| **Self-audit + multi-model reviewer rounds** | 32 commits 中 ~12 轮 audit（self-audit 1-10 + reviewer rounds 1-7 + 后续 multi-model review threads close）—— 这是 PR#3889 体量超出的最大来源；多模型审（claude-opus-4-7 + gpt-5.5 + deepseek）累计 close ~30 review threads（race / leak / IPv6 / SSE / Windows / env whitelist / abort timeout 等）|
 | **DaemonClient SDK** | §04 没单独估算 SDK 端，但 sibling 同步实现 `parseSseStream` / `DaemonHttpError` |
 | **child-crash recovery** | reviewer round 4 加，原设计未含 |
+| **Stage 1 文档补全** | commit `27a164c` 补 §08 设计原计划的 1d "documentation + examples" 任务：`docs/users/qwen-serve.md`（114 行用户 quickstart）+ `docs/developers/qwen-serve-protocol.md`（287 行 HTTP 协议 reference）+ `docs/developers/examples/daemon-client-quickstart.md`（190 行 SDK ts 示例）+ README "Daemon mode" 入口；总 +591 行 docs |
 
 #### 2️⃣ 实现的 9 个 STAGE1_FEATURES（capabilities envelope）
 
@@ -114,6 +115,8 @@ External Reference Architecture（外部 / 商业层，参考实现）：
 | `a8ce5e08d` /workspace/:id/sessions + /session/:id/model + errorMessage helper | §04 §一 |
 | `ad0e6ec06` audit round 1: timing-safe bearer / coalesce spawnOrAttach / parseLastEventId / IPv6 / failOnError | §07 §1 + §12 §3.5 |
 | 后续 14 commits（self-audit 2-10 + reviewer rounds 1-7）| 持续 audit |
+| `0337f71` / `87255e1` / `11567a4` / `149999a` / `2cc2305` / `988507e` close ~30 multi-model（gpt-5.5 / claude-opus-4-7 / deepseek）review threads —— race / leak / IPv6 / SSE / Windows / env whitelist / abort timeout | §07 §1 + §12 §3.5 + §16 §五 + §18 §五 |
+| `27a164c` Stage 1 docs：用户 quickstart + HTTP 协议 reference + SDK ts 示例 + README "Daemon mode" 入口 | §04 §一 + §07 + §10 |
 
 #### 4️⃣ 设计 vs 实现对应度评估
 
@@ -130,8 +133,9 @@ External Reference Architecture（外部 / 商业层，参考实现）：
 | §16 §五 SSE Last-Event-ID 重连 | **100%**（ring + replay + 15s heartbeat）|
 | §18 §五 liveness 协议 | **75%**（heartbeat 间隔 15s vs 设计 30s——更激进；client_evicted overflow 已实现）|
 | §17 远端 CLI / Capability 反向 RPC | **0%**（Stage 1 不含；Stage 2 deferred）|
+| **Stage 1 文档**（user guide + HTTP 协议 reference + SDK 示例）| **100%**（commit `27a164c` 补全 §08 §"Documentation + examples + e2e tests" 1d 任务）|
 
-**综合**：~95% Stage 1 范畴内的设计决策 1:1 实现；少数偏差都是**设计向更严格演进**（timing-safe / 401 uniform / 15s heartbeat 比 30s 更激进 / IPv6 ergonomics），不是简化。
+**综合**：~95% Stage 1 范畴内的设计决策 1:1 实现；文档 100% 补全；少数偏差都是**设计向更严格演进**（timing-safe / 401 uniform / 15s heartbeat 比 30s 更激进 / IPv6 ergonomics），不是简化。**Stage 1 GA-ready**——可 merge 后开 Stage 1.5（Mode A `qwen --serve` ~4d）follow-up。
 
 #### 5️⃣ 经验沉淀
 
@@ -140,9 +144,10 @@ External Reference Architecture（外部 / 商业层，参考实现）：
 | **EventBus 在 Stage 1 就需要完整实现** | 原计划 Stage 6 HA 详做，但 SSE Last-Event-ID 重连是 Stage 1 用户必需，无法 deferred |
 | **Timing-safe / 401 uniform 等 side-channel 防御 Stage 1 就要做** | §12 §3.5 设计放在多租户章节，但 PR#3889 在 Stage 1 单租户也做了——开源 daemon 默认就该这么严 |
 | **IPv6 loopback ergonomics 不能省略** | 容器化 / Docker / `host.docker.internal` 是常见用例，loopback 处理细节比预想复杂 |
-| **多轮 self-audit 流程的价值** | PR#3889 用 9+ 轮 audit（含 claude-opus-4-7 / gpt-5.5 审）—— self-review 比 reviewer 抓的问题更多 |
+| **多轮 self-audit + multi-model 流程的价值** | PR#3889 用 ~12 轮 audit（claude-opus-4-7 / gpt-5.5 / deepseek 三模型）—— close ~30 review threads；不同模型抓不同类问题（race / leak / IPv6 / SSE / Windows / env whitelist / abort timeout 互补覆盖）|
 | **child-crash recovery 是必需的** | reviewer round 4 才补；spawn 子进程模式下，子进程崩溃时 daemon 必须 graceful 处理而不是把错误传播给所有 SSE clients |
-| **PR 体量 ~5x-7x 预估是常态** | 工程文档预估 vs 实际几乎总是 5x，因为 audit + 边界 + ergonomics 占大头 |
+| **PR 体量 ~5x-9x 预估是常态** | 工程文档预估 vs 实际几乎总是 5-9x，因为 audit + 边界 + ergonomics + 文档 占大头 |
+| **文档不能 deferred 到 merge 后** | 原 §08 §1 "1d Documentation + examples" 在主实现之后被推迟；commit `27a164c` 补回（591 行 docs）。教训：文档要列入 PR scope 否则 merge 后没人会回填 |
 
 #### 6️⃣ Stage 1 不含 / 推到 Stage 1.5 / Stage 2 / 外部的能力
 
