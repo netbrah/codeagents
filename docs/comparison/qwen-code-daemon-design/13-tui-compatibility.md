@@ -4,6 +4,16 @@
 
 > Qwen Code 的 TUI（基于 Ink + React）在单进程和 Daemon 两种模式下的兼容性分析。**结论：显示层 / 状态层 100% 兼容（同一组组件 + Context shape），数据源层用 HttpAcpAdapter 替换，5 类本地依赖功能需要 case-by-case fallback**。
 
+> **🆕 §03 §7 双部署模式（2026-05-09）**：Daemon 化下 TUI 实际有 **3 种数据源形态**：
+>
+> | TUI 形态 | 数据源 | 决策依据 |
+> |---|---|---|
+> | **传统单进程**（`qwen`）| in-process direct call（`Session.handleXxx()`）| 现状 |
+> | **Mode A in-process bus subscriber**（`qwen --serve`）| in-process EventBus（与 HTTP 远端 client 走同一套 fan-out） | §03 §7 |
+> | **Mode B 远端 TUI**（`qwen client --remote-url`，[§17](./17-remote-cli-mode.md)）| HTTP/SSE via HttpAcpAdapter | §17 |
+>
+> Mode A 的 TUI **不是 HTTP client**——它是 in-process subscriber，省了 HTTP 序列化成本但拿到字节级一致的事件流。本章下面的 HttpAcpAdapter 部分主要适用于 Mode B（远端 TUI）。Mode A 用 `InProcAdapter` 做同等抽象但内部直接订阅 EventBus。详见 [§03 §7](./03-architectural-decisions.md#7-daemon-部署模式cli-httpserver-vs-headless-httpserverpivot-后新增)。
+
 ## 一、TL;DR — 4 层兼容性矩阵
 
 | 层 | 单进程 TUI | Daemon TUI | 兼容性 |
@@ -604,6 +614,62 @@ class HttpAcpAdapter {
 // PR#3460 已实现 OSC 11 自动检测
 // daemon 模式下: TUI 检测自己的终端，daemon 仍传 raw text + tag，TUI 自己上色
 ```
+
+## 十一·五、在 Web 浏览器渲染 TUI 的 3 条路线（2026-05-09）
+
+**问题**：能否在浏览器里渲染 TUI？哪条路线对窄带宽最友好？
+
+### 11.5.1 三条路线
+
+| 路线 | 做法 | 视觉一致性 | 工作量 | a11y / 移动端 |
+|---|---|:---:|:---:|:---:|
+| **1. xterm.js + ANSI 流** | Ink 渲染的 ANSI 字节流通过 SSE/WS 转发；浏览器用 xterm.js 还原 | ✅ 100% | ~2-3d 单向（只读）/ +1w 加 PTY 输入 | ❌ |
+| **2. React DOM port（同组件不同 renderer）** | 同一 React 组件树用 react-dom 渲染 | ✅ | ~数月（每个 Ink primitive 都要 DOM 等价物，类似 react-native-web）| ✅ |
+| **3. 独立组件 + 共享事件流（Qwen 现状）** | `packages/web-ui/` 自己一套 React+DOM 组件，消费决策 §6 同一份 ACP 事件流 | ⚠️ 设计可不同 | 维护两套 UI（但每套独立演进）| ✅ |
+
+### 11.5.2 窄带宽对比（核心结论）
+
+**路线 3 比路线 1 节省 3-10× 带宽**。
+
+**直观对比**（1000-token LLM 响应）：
+
+| 路线 | 传输内容 | 原始大小 | gzip 后 |
+|---|---|---|---|
+| **路线 1（ANSI 流）** | 每 token 触发 Ink reconcile → 行级清除 + 重画 + 颜色码（每字符 ~50-100 bytes 包装） | ~50-100 KB | ~10-30 KB |
+| **路线 3（ACP 结构化）** | `message_part` delta event（~30 bytes 框架 + 2-10 bytes content delta） | ~10-30 KB | **~3-10 KB** |
+
+### 11.5.3 为什么 ANSI 流更胖
+
+1. **冗余**——发送的是"怎么画"（光标定位 + 清行 + 重写 + 颜色码），不是"变了什么"
+2. **Ink 流式响应触发频繁 reconcile**——每 token 一次 React 渲染 → 一次 ANSI patch 输出；如果该行变长还要换行重排
+3. **不可丢弃**——丢一个 ANSI 帧 = 屏幕错位；客户端必须严格顺序消费
+4. **聚合不友好**——SSE 中 ANSI 帧无语义边界，难做 batching / coalescing
+
+### 11.5.4 路线 3 的额外带宽优势
+
+- `message_part` delta 可被 web-ui 本地累积（不需要重发已显示的内容）
+- 大 `tool_result`（如 10MB 文件）可加 `lazy: true` 让 client 按需 fetch（路线 1 必须全部传）
+- `Last-Event-ID` 重连只补丢失的 events（路线 1 重连必须发 full screen redraw）
+- 移动端可只订阅高优先级 event（如只要 `permission_request` + 跳过 `message_part`）
+
+### 11.5.5 推荐
+
+| 场景 | 推荐路线 |
+|---|---|
+| **窄带宽 / 移动 / 流量敏感**（典型生产场景）| **路线 3（现状）**——`web-ui/` 已经走这条 |
+| **演示分享 / 投屏 / oncall 旁观**（视觉一致优先，只读为主）| 路线 1 旁路（Mode A 下让 Ink stdout tee 一份到 `event: tui_frame` SSE，浏览器用 xterm.js 只读还原；~2-3d 增量）|
+| **重度 CLI 用户想完整可交互浏览器终端** | 路线 1 + WebSocket PTY 输入协议（~+1w；但路线 3 + 终端风格 web-ui 主题更划算）|
+| **同一组件在 CLI 和 Web 100% 一致** | 路线 2——**不推荐**（每个 PR 维护两套 renderer 工程量不匹配收益）|
+
+### 11.5.6 与 §03 §7 双部署模式的关系
+
+- **Mode A（CLI + HttpServer）**：本地 TUI（in-process subscriber）+ 远端 web-ui（路线 3）共享同一 EventBus 同一 session；窄带宽友好天然成立
+- **Mode B（Headless Daemon）**：所有 client 走 HTTP/SSE；web-ui = 路线 3；如要 xterm.js 旁路（路线 1）需另开 `tui_frame` event channel
+- **路线 1 旁路最自然的位置**：Mode A 下 Ink 已经在跑 TUI 渲染，只需在 stdout 写入处 tee 一份到 SSE；Mode B 下 daemon 没跑 TUI，要专门启 headless Ink renderer，工作量翻倍
+
+详见 [§03 §7 双部署模式](./03-architectural-decisions.md#7-daemon-部署模式cli-httpserver-vs-headless-httpserverpivot-后新增)。
+
+---
 
 ## 十二、一句话总结
 

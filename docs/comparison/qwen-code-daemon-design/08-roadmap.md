@@ -16,21 +16,30 @@
 >
 > 详见 [§03 §2 状态进程模型 pivot](./03-architectural-decisions.md#2-状态进程模型pivot-后)。
 
+> **🆕 §03 §7 双部署模式（2026-05-09）**：Stage 1 PR#3889 已实现 **Mode B（Headless `qwen serve`）的 ~95%**。**Mode A（CLI + HttpServer，`qwen --serve`）增量 ~4 天**——共享同一套 Express HTTP server / EventBus / subscriber 协议，只多挂一个 in-process TUI client。建议作为 **Stage 1.5**（Stage 1 后、Stage 2 前）落地：用户立刻获得"在终端 CLI + WebUI / IDE / IM bot 同 session 协作"的最大 UX 价值。详见 [§03 §7](./03-architectural-decisions.md#7-daemon-部署模式cli-httpserver-vs-headless-httpserverpivot-后新增)。
+
 ## 总览
 
 ```
-Stage 1 (~1 周): http-bridge 实验性 flag
-  └─ 在现有 ACP agent 外加 HTTP→stdio 桥接
-  └─ 让用户先用起来 + 收集需求
+Stage 1 (~1 周, ✅ PR#3889 ~95% MERGED): Mode B headless qwen serve daemon
+  └─ Express 5 HTTP server + ACP NDJSON over HTTP+SSE
+  └─ 1 daemon instance = 1 session（pivot 后等于 PR#3889 child-process-per-session）
+  └─ 让用户先用起来（远端 client / WebUI / IDE 接入）
 
-Stage 2 (~3 周): 原生 qwen serve 多 session
-  └─ 重写 ACP agent 为多 session HTTP server
-  └─ 加 SDK HttpTransport
-  └─ Web UI 接入
+Stage 1.5 (~4d 增量, 🆕 §03 §7): Mode A CLI + HttpServer
+  └─ qwen --serve [--port N] flag
+  └─ TUI 启动后挂同一套 Express HTTP server
+  └─ TUI 作为 in-process EventBus subscriber（client #0）
+  └─ 用户在 CLI + WebUI/IDE/IM bot 同 session 协作
 
-Stage 3 (~2 月): 对标 OpenCode 完整设计
-  └─ Workspace routing + mDNS + OpenAPI
-  └─ WebSocket 双向 + 权限流深化
+Stage 2 (~1-2 周, pivot 后简化): orchestrator 雏形 + multi-daemon 管理
+  └─ qwen-coordinator (原 qwen serve HTTP front 升级)
+  └─ sessionScope routing: single / user / thread
+  └─ daemon instance discovery / spawn / cleanup
+  └─ SDK HttpTransport + Web UI cross-daemon aggregate
+
+Stage 3 (~1 月, pivot 后简化): 对标 OpenCode 完整设计
+  └─ mDNS / OpenAPI / WebSocket 双向 / 权限流深化
   └─ 多 token / 集群部署文档 / 企业鉴权
 ```
 

@@ -532,16 +532,164 @@ class PermissionRequestHandler {
 
 ---
 
+## 7. Daemon 部署模式：CLI+HttpServer vs Headless+HttpServer（pivot 后新增）
+
+**问题**：用户已经在终端跑 `qwen` 交互式 CLI 时，能否同时让 WebUI / IDE / IM bot 接入到这个进程的 session？还是必须先关掉 CLI 改用 headless `qwen serve`？
+
+### 决策
+
+**支持两种部署模式 + 共享同一 Daemon Instance 抽象**：
+
+| 模式 | 启动命令 | 包含 TUI | HTTP 端口 | 谁是 Daemon Instance | 适用场景 |
+|---|---|:---:|:---:|---|---|
+| **Mode A: CLI + HttpServer** | `qwen`（默认）或 `qwen --serve [--port N]` | ✅ 本地 TUI | ✅ 默认随机 / 显式 `--port` | **CLI 进程本身** | 单用户在终端工作 + 让 WebUI / IDE / 手机 IM bot 同时接入观察或代答 |
+| **Mode B: Headless Daemon + HttpServer** | `qwen serve [--port N]` | ❌ 无 TUI | ✅ | **`qwen serve` 进程** | 服务器 / 容器 / 远端机器；所有 client 通过 HTTP 接入 |
+
+**两种模式都遵循"1 Daemon Instance = 1 Session"语义（决策 §2）**——区别仅在于 daemon instance 是否同时承载本地 TUI 客户端。
+
+### 模式 A 拓扑：CLI + HttpServer
+
+```
+┌────────────────────────────── qwen 进程（Mode A）─────────────────────────────┐
+│                                                                              │
+│  ┌─────────────────┐           ┌─────────────────────┐                       │
+│  │  TUI（Ink）      │ ◄────►    │  Core              │ ◄──┐                  │
+│  │  本地 Client #0  │   in-proc │  - Session         │    │                  │
+│  └─────────────────┘   bus      │  - Tools           │    │                  │
+│                                 │  - LLM / MCP / LSP │    │                  │
+│  ┌─────────────────┐ HTTP/SSE   │                    │    │ subscriber       │
+│  │  Express HTTP   │ ◄───────► │                    │ ◄──┘ fan-out          │
+│  │  Server         │           └─────────────────────┘                       │
+│  └────────┬────────┘                                                         │
+│           │                                                                  │
+└───────────┼──────────────────────────────────────────────────────────────────┘
+            ↓
+        ┌───────┐  ┌────────┐  ┌─────────┐
+        │ WebUI │  │ IDE Ext│  │ IM bot  │  （远端 client 通过 HTTP 接入）
+        └───────┘  └────────┘  └─────────┘
+```
+
+**关键性质**：
+- TUI 是 **client #0**（in-process bus 直连 Core），与 HTTP 远端 client 走 §6 fan-out 同套通道
+- TUI 退出（Ctrl+C / `/quit`）= **整个 daemon instance 退出**——远端 client 同时断连（通过 SSE close + `client_evicted: shutdown`）
+- 远端 client 在 TUI 跑期间断开 / 重连不影响 TUI
+- 共享 §6 同 session prompt 串行：TUI 输入和 WebUI 输入排同一个队列；任何 client（含 TUI）都能应答 permission
+
+### 模式 B 拓扑：Headless Daemon + HttpServer
+
+```
+┌────────────────────────────── qwen serve 进程（Mode B）──────────────────────┐
+│                                                                              │
+│                                 ┌─────────────────────┐                      │
+│                                 │  Core              │ ◄──┐                  │
+│                                 │  - Session         │    │                  │
+│                                 │  - Tools           │    │ subscriber       │
+│                                 │  - LLM / MCP / LSP │    │ fan-out          │
+│  ┌─────────────────┐ HTTP/SSE   │                    │    │                  │
+│  │  Express HTTP   │ ◄───────► │                    │ ◄──┘                  │
+│  │  Server         │           └─────────────────────┘                       │
+│  └────────┬────────┘                                                         │
+└───────────┼──────────────────────────────────────────────────────────────────┘
+            ↓
+   ┌──────────┐  ┌───────┐  ┌────────┐  ┌─────────┐
+   │ 远端 CLI │  │ WebUI │  │ IDE Ext│  │ IM bot  │  （所有 client 通过 HTTP 接入）
+   └──────────┘  └───────┘  └────────┘  └─────────┘
+```
+
+**关键性质**：
+- 无 in-process TUI client；所有 client 全走 HTTP/SSE
+- daemon 进程没有终端；通过 `--detach` / systemd / pm2 / Docker 后台运行
+- 重启策略由进程管理器决定（systemd auto-restart）；session 通过 PR#3739 transcript-first fork resume 重建
+
+### 决策依据
+
+1. **Mode A 是 daemon 化最大的 UX 价值**——用户不需要"先关 CLI 再起 serve 再重连"才能让 WebUI 接入正在跑的 session；直接 `qwen --serve --port 7776` 即可
+2. **Mode B 是云 / 服务器场景必需**——容器 / 远端机器没人在终端坐着
+3. **两种模式实现成本几乎相同**——共享 Core / Express HTTP server / EventBus / subscriber 协议；区别只是 Mode A 多挂一个 in-process bus client（TUI），Mode B 不挂
+4. **PR#3889 已经实现 Mode B 雏形**（`qwen serve daemon`）；Mode A 是把同一套 HttpServer 嵌入到 `qwen` 进程内
+5. **与 pivot §2 完全自洽**——两种模式都是"1 daemon instance = 1 session"，只是 daemon instance 的"形态"（含 TUI 或不含）不同
+
+### 实现要点
+
+| 维度 | Mode A | Mode B |
+|---|---|---|
+| **入口命令** | `qwen --serve [--port N]`（CLI flag） | `qwen serve [--port N]`（独立 subcommand） |
+| **HTTP server 启动时机** | TUI 初始化后 + Core 初始化后 + listen on port | 启动即 listen on port |
+| **TUI in-process bus** | 复用 §13 BackgroundTaskViewContext / SessionContext shape，订阅 EventBus 而非 SSE | 无 |
+| **Token / 认证** | 默认 `auth: none`（loopback only）+ 显式 `--token` 启用 | 默认 `auth: bearer`（生成 token + 写 `~/.qwen/serve/token`）|
+| **CORS / Origin lock** | 默认 loopback only（`127.0.0.1`）| 配置驱动 |
+| **进程退出** | TUI Ctrl+C → graceful drain HTTP → close port → exit | SIGTERM → graceful drain → close port → exit |
+| **重启 / 持久** | 不适用（用户在终端）| systemd / pm2 / Docker auto-restart |
+| **mDNS 广播**（§17） | 可选 `--discoverable` flag | 可选配置 `discovery.mdns: true` |
+
+### Mode A 的 TUI ↔ Core 通讯
+
+复用决策 §6 的 EventBus + subscriber 协议，但 TUI client 走 in-process bus 而不是 HTTP/SSE：
+
+```ts
+// Mode A 启动序列（伪码）
+const core = await createCore({ workspace, session })       // 共享 Core
+const bus = core.eventBus
+
+// TUI client #0 - in-process subscriber
+const tuiSubscriber = bus.subscribe({ kind: 'inproc', clientId: 'local-tui' })
+renderTui(tuiSubscriber, core)                              // Ink 组件订阅 events
+
+// HTTP server - 远端 subscriber 走 SSE
+const server = await createHttpServer({ core, port })
+server.listen(port)                                         // 远端 client 通过 GET /session/:id/events 走 SSE
+```
+
+**关键**：TUI 和 HTTP client 拿到的 **事件流字节级完全一致**——都是 ACP NDJSON message_part / tool_call / tool_result / permission_request。TUI 只是省了 HTTP 序列化成本。
+
+### Mode A 用户工作流示例
+
+```bash
+# 用户场景 1：本地 CLI + 手机微信 IM bot
+$ qwen --serve --port 7776 --token-file ~/.qwen/local-token
+[CLI TUI 启动]
+> 帮我重构这个文件
+
+# 同时手机微信发消息：
+"帮我看下进度"
+# IM bot 用 token 接入 :7776，看到正在跑的 tool_call + 进度
+
+# 用户场景 2：本地 CLI + IDE 插件并存
+$ qwen --serve --port 7776
+[CLI TUI 启动]
+
+# VSCode 自动通过 mDNS 发现 :7776 + bearer token，attach
+# IDE 显示当前 session 的 tool_call 流；点 permission "批准"按钮
+# CLI TUI 同时看到"已被 IDE 批准"状态
+```
+
+### 与 PR#3889 的工作量增量
+
+PR#3889 已经实现 Mode B 的 ~95%。Mode A 的工作量增量：
+
+| 任务 | 工作量 | 文件 |
+|---|---|---|
+| `qwen --serve` flag 解析 | 0.5d | `packages/cli/src/cli/cmd/index.ts` |
+| TUI 启动后挂 HttpServer | 0.5d | `packages/cli/src/cli/main.ts` |
+| TUI 作为 in-process subscriber | 1d | `packages/cli/src/ui/services/InProcAdapter.ts`（新建）|
+| 默认 auth/CORS 区分本地 vs 远端 | 0.5d | server config 分发 |
+| 生命周期协同（Ctrl+C drain HTTP）| 0.5d | shutdown hook |
+| 文档 + e2e | 1d | |
+| **合计** | **~4 天 / 1 人** | ~300-500 行新增 |
+
+---
+
 ## 决策矩阵汇总
 
 | # | 决策 | 选择 | 关键依据 PR / 工具 |
 |---|---|---|---|
-| 1 | session 跨 client 共享 | **默认 single（共享）**，可切 user / thread | Channels SessionRouter scope 系统 |
-| 2 | 状态进程模型 | 单 daemon 进程承载全部 session | 与 OpenCode 一致 + Qwen LocalContext / `AsyncLocalStorage` |
-| 3 | MCP server 生命周期 | **per-workspace MCP state**（与 OpenCode 一致）+ Qwen 保留 in-flight coalesce + 30s 健康检查 | PR#3818 + PR#3741 健康检查 |
-| 4 | FileReadCache 共享 | **session 内私有**（终态决策）—— PR#3774 prior-read 守卫语义依赖 | PR#3717 + PR#3774 + PR#3810 invalidation 5 路径 |
+| 1 | session 跨 client 共享 | **默认共享同一 daemon instance**（pivot 后）；scope 移到 orchestrator | Channels SessionRouter scope 系统 |
+| 2 | 状态进程模型 | **1 Daemon Instance = 1 Session**（pivot 后，与 PR#3889 child-process-per-session 一致）| Node `AsyncLocalStorage`（pivot 后不需要）|
+| 3 | MCP server 生命周期 | **per-daemon MCP state**（pivot 后简化）+ in-flight coalesce + 30s 健康检查 | PR#3818 + PR#3741 健康检查 |
+| 4 | FileReadCache 共享 | **per-daemon**（pivot 后；原"session 内私有"语义不变）| PR#3717 + PR#3774 + PR#3810 invalidation 5 路径 |
 | 5 | Permission flow | 复用 PR#3723 + daemon 第 4 mode + SSE permission_request | PR#3723 evaluatePermissionFlow() |
 | 6 | 多 client 并发 | **同 session prompt 串行 + 事件 fan-out 多 client + 任何 client 可应答 permission** | ACP 协议语义 + Session task queue + subscriber set |
+| 7 | **部署模式** | **支持 Mode A（CLI+HttpServer）+ Mode B（Headless+HttpServer）双模式** | PR#3889 已实现 Mode B；Mode A ~4d 增量 |
 
 ---
 

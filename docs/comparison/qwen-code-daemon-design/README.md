@@ -13,6 +13,18 @@
 > - **影响章节**：决策 §1+§2 大改 / [§14 entity model 简化](./14-entity-model.md) / [§06 资源共享](./06-mcp-resources.md) per-daemon 化 / 其他章节加 cross-ref note
 > - **详见**：[§03 §1+§2 决策 pivot](./03-architectural-decisions.md#1-session-是否跨-client-共享)
 
+> **🆕 设计扩展（2026-05-09）：双部署模式（Mode A + Mode B）**。在 pivot 之上明确支持两种 daemon instance 形态：
+>
+> | 模式 | 命令 | TUI | 适用场景 |
+> |---|---|:---:|---|
+> | **Mode A: CLI + HttpServer** | `qwen --serve [--port N]` | ✅ 本地渲染 | 单用户在终端 + WebUI / IDE / IM bot 同时接入 |
+> | **Mode B: Headless Daemon + HttpServer** | `qwen serve [--port N]` | ❌ | 服务器 / 容器 / 远端机器 |
+>
+> - **两种模式都遵循"1 daemon instance = 1 session"**——区别仅在 daemon instance 是否同时承载本地 TUI 客户端
+> - **TUI 是 client #0**（in-process EventBus），与 HTTP 远端 client 共享同一份 message_part / tool_call / permission_request 事件流（决策 §6 fan-out）
+> - **PR#3889 已实现 Mode B 的 ~95%**；Mode A 增量 ~4 天（TUI 启动后挂 HttpServer + InProcAdapter）
+> - **详见**：[§03 §7 决策](./03-architectural-decisions.md#7-daemon-部署模式cli-httpserver-vs-headless-httpserverpivot-后新增)
+
 > **🚀 Stage 1 实现**（2026-05-07）：[**PR#3889**](https://github.com/QwenLM/qwen-code/pull/3889) `feat(cli,sdk): qwen serve daemon (Stage 1)` —— OPEN，**+7698/-46 / 23 commits**（多轮 self-audit + reviewer rounds）。明确引用 [issue #3803](https://github.com/QwenLM/qwen-code/issues/3803)（本系列对应 issue），**~95% 设计决策 1:1 落地**——Express 5 server / ACP NDJSON over HTTP+SSE / Bearer + Host allowlist + 0.0.0.0 拒绝默认 / SHA-256 timing-safe compare / EventBus + ring replay + Last-Event-ID 重连 / first-responder permission vote / DaemonClient SDK / capabilities envelope 9 tags 全部已实现。详见 [§08 路线图 Stage 1 实现 audit](./08-roadmap.md#stage-1-pr3889-实现-audit2026-05-07)。
 >
 > 平行推进的 [PR#3929/3930/3931](https://github.com/QwenLM/qwen-code/pull/3929) `qwen remote-control` 3-stack（不同作者，独立开发）走 stream-json + dual-output + mobile UI 路线，不引用 issue #3803——是 daemon-design **平行参照而非实现**，未来或在 Stage 1.5/2 与 PR#3889 协调融合（mobile UI / pairing token / LAN URL 移植到 daemon）。
