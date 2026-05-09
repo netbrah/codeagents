@@ -1,6 +1,6 @@
 # 22 — 单 Session vs 多 Session 设计优缺点深度对比
 
-> [← 上一篇：未来 multi-session 迁移成本](./21-future-multi-session-migration.md) · [回到 README](./README.md)
+> [← 上一篇：未来 multi-session 迁移成本](./21-future-multi-session-migration.md) · [下一篇：Orchestrator 多租户与配额 →](./23-orchestrator-multi-tenancy.md) · [回到 README](./README.md)
 
 > 系统对比"1 Daemon Instance = 1 Session"（当前架构）与"单 daemon 多 session"（OpenCode 模式）两种设计的 tradeoff。**本章回答"为什么选这个"——为选型决策提供数据**；§21 回答"如果未来想扩展到多 session 怎么做"——为演进留退路。
 
@@ -281,4 +281,4 @@ OpenCode daemon 进程
 
 ---
 
-[← 上一篇：未来 multi-session 迁移成本](./21-future-multi-session-migration.md) · [回到 README](./README.md)
+[← 上一篇：未来 multi-session 迁移成本](./21-future-multi-session-migration.md) · [下一篇：Orchestrator 多租户与配额 →](./23-orchestrator-multi-tenancy.md) · [回到 README](./README.md)
