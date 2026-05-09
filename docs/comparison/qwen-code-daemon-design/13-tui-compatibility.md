@@ -757,7 +757,7 @@ Qwen Code TUI 基于 Ink + React，在 daemon 进程中运行时持续消耗：
 | Ink + React + chalk + theme 模块加载 | ~10-15MB heap |
 | React component tree（components / contexts）| ~5-10MB |
 | Ink internal state（virtual DOM / reconciler）| ~5-10MB |
-| **Memory 小计** | **~20-35MB**（占 daemon baseline 30-50MB 的 ~50%）|
+| **Memory 小计（TUI 部分）** | **~20-30MB**（即 Mode A 比 Mode B 多消耗的部分）|
 | 每 token 触发 React reconcile + ANSI patch 输出 | streaming 期间持续 CPU |
 | stdin keypress 监听 + readline | 少量持续 |
 | 终端宽度检测 / resize handler | 少量 |
@@ -828,7 +828,7 @@ Mode B 多 session 部署时：
 |---|---|
 | 本地单用户终端工作 | Mode A（`qwen --serve`），TUI 已经在跑，HTTP 几乎免费 |
 | 服务器 / 容器 / 远端 daemon | Mode B（`qwen serve`），节省 daemon 端 ~30% memory |
-| 大规模 SaaS（100+ session/机）| Mode B + [§21 路径 A](./21-future-multi-session-migration.md#四路径-a资源池化推荐-23w) 资源池化 |
+| 大规模 SaaS（100+ session/机）| Mode B + [§21 路径 A](./21-future-multi-session-migration.md#四路径-a资源池化推荐-2-3w) 资源池化 |
 | 受限内存配额（k8s limit）| Mode B（必选）|
 
 **结论**：Mode B 节省 daemon 端 ~30% memory + 200-500ms cold start，是 **daemon 端的局部优化**，不是系统级节省。真正价值在于：daemon 端资源紧张 / 部署在远端 / 多 session 实例化时，让 daemon 进程更瘦、cold start 更快、能跑更多实例。

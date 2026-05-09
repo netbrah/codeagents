@@ -154,7 +154,7 @@ N 个 cold session 启动总成本：
 
 **OpenCode 已实现多 session daemon ~半年**——经验和坑都踩过，但他们的 codebase 是 Effect-first，不能直接拷代码。
 
-**结论**：保持单 session 模式 = 与已落地代码 0 改造成本对齐；改为多 session = ~2-3 月重构（详见 [§21 路径 C](./21-future-multi-session-migration.md#三路径-c纯迁移到-opencode-模式23-月最坏情况)）。
+**结论**：保持单 session 模式 = 与已落地代码 0 改造成本对齐；改为多 session = ~2-3 月重构（详见 [§21 路径 C](./21-future-multi-session-migration.md#三路径-c纯迁移到-opencode-模式2-3-月最坏情况)）。
 
 ## 四、何时选哪个：决策树
 
