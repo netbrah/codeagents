@@ -1,6 +1,6 @@
 # 20 — 与 Anthropic Managed Agents 对比
 
-> [← 上一篇：长跑稳定性](./19-stability-and-longevity.md) · [回到 README](./README.md)
+> [← 上一篇：长跑稳定性](./19-stability-and-longevity.md) · [下一篇：未来 multi-session 迁移成本 →](./21-future-multi-session-migration.md)
 
 > Qwen daemon 自托管设计 vs Anthropic 云托管 Managed Agents 平台。两种互补哲学的对照、特性映射、双向 migration path、"Managed Qwen Agents" 反向构建蓝图。
 
@@ -613,4 +613,4 @@ Anthropic Managed Agents 与 Qwen daemon 是**两种互补哲学**：
 
 ---
 
-[← 返回 README](./README.md)
+[← 上一篇：长跑稳定性](./19-stability-and-longevity.md) · [下一篇：未来 multi-session 迁移成本 →](./21-future-multi-session-migration.md) · [回到 README](./README.md)
