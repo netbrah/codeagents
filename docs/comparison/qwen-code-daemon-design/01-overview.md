@@ -17,13 +17,14 @@ Qwen Code 当前的程序化访问形态：
 每次 SDK query() / Client 实例 = 1 个 CLI 子进程
 ```
 
-引入 daemon 后（1 daemon instance = 1 session，多 session 由 orchestrator 管）：
+引入 daemon 后（1 daemon instance = 1 session；多 session 由外部 orchestrator 管，不在 qwen-code 主线范围）：
 
 ```
                                    ┌──────────────────────────────┐
-                                   │ Orchestrator（多 session 时） │
+                                   │ Orchestrator（External 实施）  │
                                    │ - sessionScope routing        │
                                    │ - daemon instance discovery   │
+                                   │ ⚠️ 项目范围外（参考 §22/§23）  │
                                    └──────────────┬───────────────┘
                                                   │ spawn / route
                                                   ↓
@@ -39,12 +40,14 @@ Qwen Code 当前的程序化访问形态：
 │ Channel adapters    │──────────▶│ ├─ LSP server（per-daemon）    │
 │ (IM / Telegram)     │           │ └─ MCP servers（per-daemon）   │
 └─────────────────────┘           └──────────────────────────────┘
+                                       qwen-code 主线 scope
+                                       （Stage 1/1.5/2，~3 周 feature complete）
 
 Mode A: daemon instance 同时含本地 TUI 客户端（qwen --serve）
 Mode B: daemon instance 无 TUI 全 HTTP（qwen serve）
 
 启动 daemon 一次 → N 个 client 共享同一 session（live collaboration）
-多 session = 多 daemon instances（orchestrator spawn / route）
+多 session = 多 daemon instances（由 External orchestrator spawn / route）
 ```
 
 ## 二、本质差异（与 OpenCode 共识 + Qwen 特色）
@@ -54,7 +57,7 @@ Mode B: daemon instance 无 TUI 全 HTTP（qwen serve）
 | 原则 | OpenCode | Qwen Daemon（本设计）|
 |---|---|---|
 | daemon 不再 spawn CLI | core 直接 import | 同样 |
-| 多 session 模型 | `Map<directory, InstanceContext>`（同进程 N session）| **1 daemon = 1 session**（orchestrator 层 spawn 多 daemon）|
+| 多 session 模型 | `Map<directory, InstanceContext>`（同进程 N session）| **1 daemon = 1 session**（多 session 由 External orchestrator spawn 多 daemon，不在 qwen-code 主线）|
 | `process.cwd()` 不变 | `AsyncLocalStorage` 上下文传播 | 同样但无需 ALS Instance ctx —— daemon 进程本身就是 session ctx（详见 [05-进程模型](./05-process-model.md)）|
 | 持久化关键状态 | SQLite + drizzle-orm（`session.sql.ts:SessionTable`）| 主线沿用 JSONL（PR#3739）；SQLite 用于外部 orchestrator 聚合 audit / permission decisions（详见 [§15](./15-persistence-and-storage.md)）|
 
@@ -107,8 +110,8 @@ OpenCode 用单一 `OPENCODE_SERVER_PASSWORD`（粗粒度访问控制）。Qwen 
 
 **核心原则**：
 - 每个 daemon 进程**只承载唯一一个 session**——daemon 内无 multi-session 路由
-- **多 session 由 orchestrator 层 spawn 多个 daemon 实例**（`qwen-coordinator` 角色）
 - **Mode A（CLI + HttpServer）/ Mode B（Headless Daemon）双部署模式**（[§03 §7](./03-architectural-decisions.md#7-daemon-部署模式clihttpserver-vs-headlesshttpserver)）—— 区别仅在 daemon 进程是否同时承载本地 TUI
+- **多 session 由 External orchestrator spawn 多 daemon 实例**（`qwen-coordinator` 角色）—— **不在 qwen-code 主线路线图**，由商业平台 / k8s operator / 云厂商基于 daemon building block 实现，参考 [§22 设计对比](./22-single-vs-multi-session-design.md) / [§23 多租户配额](./23-orchestrator-multi-tenancy.md) / [§04 §8.2 orchestrator API](./04-http-api.md#82-orchestrator-层-apiexternal-reference-architecture)
 
 ### 3.1 单 Daemon Instance 内部架构（Mode A / Mode B 共用）
 
@@ -156,11 +159,13 @@ OpenCode 用单一 `OPENCODE_SERVER_PASSWORD`（粗粒度访问控制）。Qwen 
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 3.2 多 session 场景：Orchestrator + 多 Daemon Instances
+### 3.2 多 session 场景：External Orchestrator + 多 Daemon Instances
+
+> **⚠️ 此节描述的 Orchestrator 不在 qwen-code 主线路线图**——是给外部集成方（商业平台 / k8s operator / 云厂商）的设计参考蓝图。qwen-code 主线（Stage 1/1.5/2）只交付 daemon building block；下面的多 session 拓扑由外部基于 [§04 §8.2 Orchestrator API](./04-http-api.md#82-orchestrator-层-apiexternal-reference-architecture) 实现。详见 [§22 设计对比](./22-single-vs-multi-session-design.md) + [§23 多租户配额](./23-orchestrator-multi-tenancy.md) + [§08 External Reference Architecture](./08-roadmap.md#external-reference-architecture参考实现非项目路线图)。
 
 ```
 ┌────────────────────────────────────────────────────────────────────┐
-│  Orchestrator (qwen-coordinator)                                    │
+│  External Orchestrator (qwen-coordinator) ⚠️ 项目范围外             │
 │  - sessionScope routing: single / user / thread                    │
 │  - daemon instance discovery / spawn / cleanup                     │
 │  - cross-daemon aggregate API（Web UI 跨 session 聚合视图）         │
@@ -170,8 +175,8 @@ OpenCode 用单一 `OPENCODE_SERVER_PASSWORD`（粗粒度访问控制）。Qwen 
        ┌─────────────┼─────────────┬──────────────┐
        ↓             ↓             ↓              ↓
    ┌────────┐    ┌────────┐    ┌────────┐    ┌────────┐
-   │daemon-1│    │daemon-2│    │daemon-3│    │daemon-N│
-   │sess-A  │    │sess-B  │    │sess-C  │    │  ...   │
+   │daemon-1│    │daemon-2│    │daemon-3│    │daemon-N│  ← qwen-code
+   │sess-A  │    │sess-B  │    │sess-C  │    │  ...   │     主线 scope
    │        │    │        │    │        │    │        │
    │ Mode A │    │ Mode B │    │ Mode B │    │        │
    │ (含TUI)│    │(headl) │    │(headl) │    │        │
@@ -183,22 +188,22 @@ OpenCode 用单一 `OPENCODE_SERVER_PASSWORD`（粗粒度访问控制）。Qwen 
        │             │             │              │
    ┌───┴─────────────┴─────────────┴──────────────┴───┐
    │  client 层（CLI / WebUI / IDE / IM bot）           │
-   │  - client 通过 orchestrator discovery 找到目标 daemon│
+   │  - client 通过 External orchestrator discovery 找目标 daemon│
    │  - 之后直连 daemon instance HTTP 端口（少一跳）      │
    │  - 同 session 多 client 共享同一 daemon 的 EventBus  │
    └──────────────────────────────────────────────────┘
 ```
 
 **关键性质**：
-- **Daemon instance 内 0 cross-session 复杂度**——AsyncLocalStorage Instance ctx / Map<workspaceId, Instance> / per-session resource managers 全部不需要
-- **进程级隔离免费**——一 daemon crash 只影响其 session，由 orchestrator 重启
-- **资源池化由 orchestrator 层做**（[§21](./21-future-multi-session-migration.md) 路径 A：用户级 LSP daemon / 共享 MCP / 共享 cache）—— N ≥ 50 时再投，单 session 模型 N < 50 已够用
+- **Daemon instance 内 0 cross-session 复杂度**（qwen-code 主线 scope）——AsyncLocalStorage Instance ctx / Map<workspaceId, Instance> / per-session resource managers 全部不需要
+- **进程级隔离免费**——一 daemon crash 只影响其 session，由外部 orchestrator（或 systemd / k8s 等进程管理器）重启
+- **资源池化在 External 层做**（[§21](./21-future-multi-session-migration.md) 路径 A：用户级 LSP daemon / 共享 MCP / 共享 cache）—— N ≥ 50 时再投，单 session 模型 N < 50 已够用
 
 ## 四、关键设计决策预告
 
 | # | 决策 | 选择 | 详细 |
 |---|---|---|---|
-| 1 | session 是否跨 client 共享 | **默认共享同一 daemon instance**；scope 由 orchestrator 路由 | [03 §1](./03-architectural-decisions.md#1-session-是否跨-client-共享) |
+| 1 | session 是否跨 client 共享 | **默认共享同一 daemon instance**；scope 由 External orchestrator 路由 | [03 §1](./03-architectural-decisions.md#1-session-是否跨-client-共享) |
 | 2 | 状态进程模型 | **1 Daemon Instance = 1 Session**（与 PR#3889 child-process-per-session 模型一致） | [03 §2](./03-architectural-decisions.md#2-状态进程模型) |
 | 3 | MCP server 生命周期 | **per-daemon MCP state** + PR#3818 in-flight coalesce + 30s 健康检查 | [06](./06-mcp-resources.md) |
 | 4 | FileReadCache 共享 | **per-daemon**（session 内私有语义自动成立）| [06 §2](./06-mcp-resources.md#2-filereadcache-共享策略) |
