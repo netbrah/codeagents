@@ -1,20 +1,47 @@
 # 16 — HA 高可用与故障恢复
 
-> **🚀 Stage 1 提前实现 SSE 重连子集**（2026-05-07）：本章 §五 SSE Last-Event-ID 重连协议**已在 Stage 1 由 [PR#3889](https://github.com/QwenLM/qwen-code/pull/3889) `41aa95094` 提前实现**——EventBus + ring-backed replay + 15s heartbeat + AbortController on `req.close` + 客户端按 `Last-Event-ID` 重连。原本计划 Stage 6 HA 才详做，但发现 SSE 重连是 Stage 1 用户必需（不可 deferred）。多 daemon pod / Postgres / S3 等其他 HA 设计仍是 Stage 6 范畴。详见 [§08 Stage 1 实现 audit](./08-roadmap.md#stage-1-pr3889-实现-audit2026-05-07)。
-
-> **HA 模型核心**（[§03 §2](./03-architectural-decisions.md#2-状态进程模型) "1 daemon = 1 session"下）：
->
-> - **daemon-pool with orchestrator**——每 daemon process 是独立 session 单位，failover = restart specific daemon
-> - **状态恢复**：orchestrator 检测 daemon crash → spawn 新 daemon → 用 PR#3739 transcript-first fork resume 重建
-> - **每 daemon 自己的 transcript JSONL**（不需要跨 daemon 共享 Postgres，除非聚合 audit log）
-> - **Crash isolation natural**——一 daemon 崩溃只影响其 session，不影响其他 daemon
-> - **Stage 6 多 region / S3 transcript backup**：通过 orchestrator 直接路由（不需要 pod 级 sticky session）
->
-> 本章 5 层 HA 架构 / Chaos testing / SLO 设计仍适用，路由层从"pod 级 sticky"变为"orchestrator → daemon instance 直接路由"。
-
 > [← 上一篇：持久层与外部存储](./15-persistence-and-storage.md) · [回到 README](./README.md)
 
-> 多租户 daemon 在 Stage 6 SaaS 模式下的 HA 设计：状态可恢复性分类、5 层架构、failover 时序、SSE reconnect 协议、LLM streaming 中断 7 种场景、Chaos 测试矩阵、SLO 设计。
+## 零、读法说明（两层结构）
+
+本章分两层内容：
+
+**Layer 1: qwen-code 主线 HA 模型**（§零.一，~50 行）—— 当前 1 daemon = 1 session 模型下的 HA，简单直接，由 PR#3889 + PR#3739 已基本覆盖。
+
+**Layer 2: External SaaS 部署 HA 设计参考**（§一 - §十七，~750 行）—— 商业平台 / k8s operator / 云厂商基于 daemon building block 构建 SaaS 时的 HA 蓝图。**不在 qwen-code 主线路线图**，整章作为 [External Reference Architecture](./08-roadmap.md#external-reference-architecture参考实现非项目路线图)。
+
+> **🚀 Stage 1 提前实现 SSE 重连子集**（2026-05-07）：[§五 SSE Last-Event-ID 重连协议](#五sse-reconnect-协议)**已在 Stage 1 由 [PR#3889](https://github.com/QwenLM/qwen-code/pull/3889) `41aa95094` 提前实现**——EventBus + ring-backed replay + 15s heartbeat + AbortController on `req.close` + 客户端按 `Last-Event-ID` 重连。详见 [§08 Stage 1 实现 audit](./08-roadmap.md#stage-1-pr3889-实现-audit2026-05-07)。
+
+### 0.1 qwen-code 主线 HA 模型（Layer 1）
+
+当前 1 daemon = 1 session 模型下，HA 由 **3 个简单机制**覆盖，均已在 PR#3889 + PR#3739 实现：
+
+| 机制 | 实现 | 覆盖范围 |
+|---|---|---|
+| **Daemon crash 自动重启** | 由外部进程管理器（systemd / k8s / orchestrator）负责 | 单 daemon 进程崩溃 |
+| **Transcript-first fork resume** | PR#3739 已合并；新 daemon 启动时 replay transcript JSONL 重建 session 状态 | session 状态恢复 |
+| **SSE Last-Event-ID 重连** | PR#3889 commit `41aa95094` 实现；client 自动从断点续连 | 网络抖动 / daemon 重启后 client 体验 |
+
+**Crash isolation 是免费的**——一 daemon 崩溃只影响其唯一 session，其他 daemon 不受影响（OS 进程边界天然成立）。
+
+**主线不需要**：multi-pod / Ingress sticky session / Postgres Patroni / Redis Sentinel / 跨 region 等。这些都属于 SaaS 部署的运营层关切，由外部 orchestrator / k8s operator 实现，参见下面 Layer 2 设计参考。
+
+### 0.2 何时需要 Layer 2 设计
+
+- 部署 daemon 池规模 ≥ 100（单机 / 单 region 不够）
+- 需要 99.9%+ SLO 保证
+- 多 region / 跨地理调度
+- 商业 SaaS 产品（多租户 / 配额 / 审计 / OIDC，详见 [§23](./23-orchestrator-multi-tenancy.md)）
+
+如果你只关心 qwen-code 主线 HA，**读到这里足够**。下面 §一 - §十七 是大规模 SaaS 部署的完整 HA 蓝图。
+
+---
+
+## Layer 2: External SaaS HA 设计参考
+
+> **以下内容是 External Reference Architecture**——不在 qwen-code 主线路线图，是给外部集成方（商业平台 / k8s operator / 云厂商）的 SaaS 部署 HA 设计蓝图。多租户 daemon 在 SaaS 模式下的 HA 设计：状态可恢复性分类、5 层架构、failover 时序、SSE reconnect 协议、LLM streaming 中断 7 种场景、Chaos 测试矩阵、SLO 设计。
+>
+> 章节中"daemon" 指 daemon-pool 中的单个 daemon 实例（即 1 daemon = 1 session 的 daemon process）。"pod" 是 k8s 部署形态——通常 1 daemon = 1 pod，方便 orchestrator 用 k8s native 机制做生命周期管理。
 
 ## 一、TL;DR
 
