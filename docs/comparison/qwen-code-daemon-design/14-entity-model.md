@@ -376,14 +376,15 @@ Session (runtime SetSessionConfigOptionRequest)
 
 | 章节 | 决策 | 对应实体层 |
 |---|---|---|
-| §03 §1 | sessionScope = 'single' default | Workspace ↔ Session 1:1 关系 |
-| §03 §2 | 单 daemon 进程承载全部 session | Layer 1-5 都在同一 V8 isolate |
-| §03 §3 | MCP per-workspace | MCP 资源所有权 = Workspace |
-| §03 §4 | FileReadCache per-session | FileReadCache 资源所有权 = Session |
+| §03 §1 | 默认共享同一 daemon instance（pivot 后；scope 移到 orchestrator）| Daemon Instance ≡ Session |
+| §03 §2 | **1 Daemon Instance = 1 Session**（pivot 后）| 每 daemon 一个 V8 isolate；多 daemon 由 orchestrator 管 |
+| §03 §3 | MCP per-daemon（pivot 后简化）| MCP 资源所有权 = Daemon Instance |
+| §03 §4 | FileReadCache per-daemon | FileReadCache 资源所有权 = Daemon Instance |
 | §03 §5 | Permission flow 第 4-5 mode | tool call 层 + tenant + workspace 双键决策 |
-| §03 §6 | 同 session 串行 + fan-out 多 client | Session.taskQueue + subscribers Set |
-| §05 | AsyncLocalStorage Instance | tool call 执行上下文 |
-| §11 | Tenant 抽象 | Layer 1 |
+| §03 §6 | 同 daemon 串行 + fan-out 多 client | Daemon.taskQueue + subscribers Set |
+| §03 §7 | Mode A / Mode B 双部署模式 | Daemon Instance 形态：含 TUI / 不含 |
+| §05 | pivot 后无需 ALS Instance ctx（daemon 进程本身就是 session ctx）| tool call 执行上下文 = daemon-global |
+| §11 | Tenant 抽象（移到 orchestrator 层）| Orchestrator 路由 |
 | §11 §5 | ShellSandbox interface | Tool call 层调用 |
 | §12 | 17 个攻击向量 + 5 层防御 | 跨 tenant 硬约束 + 同 session 隔离 |
 | §13 | TUI 多 client 共 session | Layer 3 多订阅者 |

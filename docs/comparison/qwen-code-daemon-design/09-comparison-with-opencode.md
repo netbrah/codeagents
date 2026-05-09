@@ -22,9 +22,9 @@
 
 | 维度 | OpenCode | Qwen Daemon（本设计）| 差异理由 |
 |---|---|---|---|
-| 进程模型 | 单 daemon 多 session 共进程 | **同款** | 已验证最优 |
+| 进程模型 | 单 daemon 多 session 共进程 | **1 Daemon Instance = 1 Session**（pivot 后；多 session 由 orchestrator spawn 多 daemon）| 与 PR#3889 child-process-per-session 模型对齐；进程级隔离免费、避开跨 session 隔离复杂度 |
 | `process.cwd()` | 永不改变 | **同款** | OpenCode 已验证 |
-| 上下文传播 | Effect-TS `LocalContext` | **AsyncLocalStorage 直接** | Qwen 不引入 Effect 重依赖 |
+| 上下文传播 | Effect-TS `LocalContext` | **pivot 后无需**（daemon 进程本身就是 session ctx）| Qwen 不引入 Effect 重依赖；pivot 后连 ALS Instance ctx 也不需要 |
 | HTTP 框架 | Hono | **Express 5（默认，复用 vscode-ide-companion 已有依赖）/ Hono 可选（Stage 6 高并发）** | 不强行对齐——Express 5 + zod 校验已够用，Hono 是性能 trigger 后再切 |
 | 协议 schema | OpenAPI codegen（13525 行）| **复用 ACP NDJSON zod schema** | Qwen 已有 838 行 ACP agent，0 设计成本 |
 | 多 channel 支持 | 仅 SDK / TUI / Web | **+ IM / IDE 全走 SessionRouter** | Qwen 已有 Channels 包 |

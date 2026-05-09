@@ -773,10 +773,10 @@ SLI 3: Session resume 正确性
 
 | 决策 | HA 影响 |
 |---|---|
-| §1 sessionScope='single' | 多 client 共 session → sticky 必须按 sessionId 而非 client |
-| §2 单 daemon 进程承载全部 session | HA 通过多 pod，每 pod 内部仍单进程多 session |
-| §3 MCP per-workspace | 新 pod 重启 MCP（1-3s 启动延迟）|
-| §4 FileReadCache per-session | 新 pod 重建（首次 read 需重 stat → 命中率短期下降）|
+| §1 默认共享同一 daemon instance（pivot 后；scope 移到 orchestrator）| 多 client 共 session → sticky 必须按 sessionId 路由到对应 daemon instance |
+| §2 **1 Daemon Instance = 1 Session**（pivot 后）| HA 通过 daemon-pool + orchestrator 路由；每 daemon crash 只影响自己一个 session |
+| §3 MCP per-daemon | 新 daemon 重启 MCP（1-3s 启动延迟）|
+| §4 FileReadCache per-daemon | 新 daemon 重建（首次 read 需重 stat → 命中率短期下降）|
 | §5 Permission 第 4-5 mode | failover 后未决 permission 请求需重发 |
 | §6 多 client fan-out + first responder | Redis pub/sub 跨 pod 同步 subscribers + first responder lock 用 Redis SETNX |
 | §11 多租户 + sandbox | sandbox 子进程不可跨 pod 迁移，failover 后重建 |

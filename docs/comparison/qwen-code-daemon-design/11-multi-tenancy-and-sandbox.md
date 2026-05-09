@@ -754,9 +754,10 @@ token-bucket throttling、`MonitorRegistry` 等机制不变。
 
 ```
 [已设计 Stage 1-3]
-└─ Stage 1 (~1 周) http-bridge MVP
-└─ Stage 2 (~3 周) 原生 daemon
-└─ Stage 3 (~1.5-2 月) 对标 OpenCode
+└─ Stage 1 (~1 周, ✅ PR#3889 ~95% 实现) Mode B headless daemon
+└─ Stage 1.5 (~4d 增量, pivot 后新增) Mode A CLI + HttpServer
+└─ Stage 2 (~1-2 周, pivot 后简化) orchestrator 雏形 + multi-daemon
+└─ Stage 3 (~1 月, pivot 后简化) 对标 OpenCode 完整设计
 
 [新增 Stage 4-6]
 ├─ Stage 4 (~1-2 周) 多租户共 daemon 进程

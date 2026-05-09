@@ -48,8 +48,8 @@ Qwen Code 当前的程序化访问形态：
 | 原则 | OpenCode | Qwen Daemon（本设计）|
 |---|---|---|
 | daemon 不再 spawn CLI | core 直接 import | 同样 |
-| 多 session 共享主进程 | `Map<directory, InstanceContext>` | 同样（`Map<workspaceId, Instance>`）|
-| `process.cwd()` 不变 | `AsyncLocalStorage` 上下文传播 | 同样（详见 [05-进程模型](./05-process-model.md)）|
+| ~~多 session 共享主进程~~（pivot 后分歧）| `Map<directory, InstanceContext>` | **1 daemon = 1 session**（pivot 后；orchestrator 层 spawn 多 daemon）|
+| `process.cwd()` 不变 | `AsyncLocalStorage` 上下文传播 | 同样但 pivot 后无需 ALS Instance ctx（daemon 进程本身就是 session ctx；详见 [05-进程模型](./05-process-model.md)）|
 | 持久化关键状态 | SQLite + drizzle-orm（`session.sql.ts:SessionTable`）| Stage 1-2 沿用 JSONL（PR#3739）+ Stage 3 引入 SQLite 装 permission/audit/tokens（§15）|
 
 ### 2.2 Qwen 独有的 3 条特色
@@ -155,12 +155,13 @@ OpenCode 用单一 `OPENCODE_SERVER_PASSWORD`（粗粒度访问控制）。Qwen 
 
 | # | 决策 | 选择 | 详细 |
 |---|---|---|---|
-| 1 | session 是否跨 client 共享 | **默认 `single`（同 workspace 多 client 共享）—— 匹配单用户多 client 真实场景** | [03 §1](./03-architectural-decisions.md#1-session-是否跨-client-共享) |
-| 2 | 状态进程模型 | **单 daemon 进程承载全部 session** | [03 §2](./03-architectural-decisions.md#2-状态进程模型) |
-| 3 | MCP server 生命周期 | **per-workspace MCP state（与 OpenCode 一致）+ Qwen 保留 PR#3818 in-flight coalesce + 30s 健康检查 2 项独有优化** | [06](./06-mcp-resources.md) |
-| 4 | FileReadCache 共享 | **session 内私有，绝不跨 session**（PR#3774 prior-read 守卫语义依赖此）| [06 §2](./06-mcp-resources.md#2-filereadcache-共享策略) |
+| 1 | session 是否跨 client 共享 | **默认共享同一 daemon instance**（pivot 后；scope 概念移到 orchestrator） | [03 §1](./03-architectural-decisions.md#1-session-是否跨-client-共享) |
+| 2 | 状态进程模型 | **1 Daemon Instance = 1 Session**（pivot 后；与 PR#3889 child-process-per-session 模型一致） | [03 §2](./03-architectural-decisions.md#2-状态进程模型pivot-后) |
+| 3 | MCP server 生命周期 | **per-daemon MCP state**（pivot 后简化）+ Qwen 保留 PR#3818 in-flight coalesce + 30s 健康检查 | [06](./06-mcp-resources.md) |
+| 4 | FileReadCache 共享 | **per-daemon**（pivot 后；原 session 内私有语义自动成立） | [06 §2](./06-mcp-resources.md#2-filereadcache-共享策略) |
 | 5 | Permission flow | **复用 PR#3723，daemon 是第 4 种 mode + 任何 client 都能应答** | [07](./07-permission-auth.md) |
 | 6 | 多 client 并发请求 | **同 session prompt 串行 + 事件 fan-out 多 client 协作观察** | [03 §6](./03-architectural-decisions.md#6-多-client-并发请求) |
+| 7 | 部署模式（pivot 后新增）| **Mode A（CLI + HttpServer）+ Mode B（Headless Daemon + HttpServer）双模式** | [03 §7](./03-architectural-decisions.md#7-daemon-部署模式cli-httpserver-vs-headless-httpserverpivot-后新增) |
 
 ## 五、最终用户体验
 
