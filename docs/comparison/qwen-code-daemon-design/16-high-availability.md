@@ -26,7 +26,7 @@
 | Pod failover | **graceful shutdown 90s drain → client SSE 自动重连 → 新 pod 重建 session** |
 | LLM streaming 中断 | **不自动续接**（避免重复计费），client UI 显示 "session interrupted, retry?" |
 | Postgres failover | **Patroni 自动选主 30-60s**，daemon 进 degraded mode 缓冲 audit log |
-| SLO | **99.9% (43m/月) for Stage 6 起步 / 99.99% (4.3m/月) 企业 SLA** |
+| SLO | **99.9% (43m/月) for External Phase 4 起步 / 99.99% (4.3m/月) 企业 SLA** |
 | 跨 region | **DNS failover + S3 cross-region rep + Postgres logical rep**（可选）|
 
 ## 二、HA vs DR 概念
@@ -599,7 +599,7 @@ SIGTERM 接收 (k8s 滚动升级 / scale down)
 qwen-aff = base64( HMAC-SHA256(sessionId, server-secret) )
 ```
 
-server-secret 通过 k8s Secret 注入，定期 rotate（Stage 6 SaaS 90 天）。
+server-secret 通过 k8s Secret 注入，定期 rotate（External Phase 4 SaaS 90 天）。
 
 ### 9.3 cookie 生命周期
 
@@ -719,7 +719,7 @@ groups:
 | 级别 | Availability | RTO | RPO | 月度允许停机 |
 |---|---|---|---|---|
 | 个人 / OSS | 99% (best effort) | N/A | N/A | 7.2h |
-| **Stage 6 SaaS 起步** | **99.9%** | 5min | 5s | **43min** |
+| **External Phase 4 SaaS 起步** | **99.9%** | 5min | 5s | **43min** |
 | 企业 SLA | 99.95% | 1min | 5s | 22min |
 | 金融 / 医疗 | 99.99% | 30s | 1s | 4.3min |
 
@@ -783,7 +783,7 @@ SLI 3: Session resume 正确性
 
 ## 十五、与 OpenCode / Claude Code HA 对比
 
-| 维度 | OpenCode | Claude Code | qwen daemon Stage 6 |
+| 维度 | OpenCode | Claude Code | qwen daemon External Phase 4 |
 |---|---|---|---|
 | daemon HA 设计 | ❌ 单进程 | ❌ 无 daemon | ✓ 5 层架构 |
 | Sticky session | N/A | N/A | ✓ sessionId cookie |
@@ -797,18 +797,18 @@ SLI 3: Session resume 正确性
 
 **Claude Code** 是 CLI，无 daemon，HA 不在范畴。
 
-**qwen daemon** Stage 6 SaaS 模式直接对标云原生 HA 实践。
+**qwen daemon** External Phase 4 SaaS 模式直接对标云原生 HA 实践。
 
-## 十六、Stage 6 → Stage 7+ 演进
+## 十六、External Phase 4 → 跨 region 演进
 
 ```
-Stage 6  起步：3 pod / 1 region / 99.9% SLO
+External Phase 4  起步：3 pod / 1 region / 99.9% SLO
             ├─ 多 AZ 部署
             ├─ Postgres Patroni
             ├─ Redis Sentinel
             └─ 基础 Chaos testing
 
-Stage 6.5 加 region：跨 AZ + DR region
+External Phase 5 加 region：跨 AZ + DR region
             ├─ Cross-region S3 replication
             ├─ Postgres logical rep
             └─ DNS failover
@@ -827,7 +827,7 @@ Stage 8   全球：edge daemon + 区域中心
 
 ## 十七、一句话总结
 
-**Qwen daemon HA = 5 层架构（Edge DNS → Ingress sticky-by-sessionId → StatefulSet pod N≥3 → Postgres Patroni + Redis Sentinel + S3 多 AZ）+ SSE Last-Event-ID 重连协议（复用 PR#3739 transcript 持久化作为 event store）+ LLM streaming 中断 7 类场景明确处理（核心：不自动续接避免重复计费）+ 90s graceful drain（80s 等待 in-flight + 10s buffer）+ degraded mode（依赖失败降级而非全停）+ 15 项 Chaos 测试每周 + 99.9% SLO 起步。关键设计哲学：daemon 高度有状态 → HA 不是任意切，而是 sticky + transcript-first 重建（PR#3739 是 HA 的隐藏基础设施）。**
+**Qwen daemon HA = 5 层架构（Edge DNS → orchestrator session-to-daemon route → daemon pool → Postgres Patroni + Redis Sentinel + S3 多 AZ）+ SSE Last-Event-ID 重连协议（复用 PR#3739 transcript 持久化作为 event store）+ LLM streaming 中断 7 类场景明确处理（核心：不自动续接避免重复计费）+ 90s graceful drain（80s 等待 in-flight + 10s buffer）+ degraded mode（依赖失败降级而非全停）+ 15 项 Chaos 测试每周 + 99.9% SLO 起步。关键设计哲学：daemon 高度有状态 → HA 不是任意切，而是 sticky + transcript-first 重建（PR#3739 是 HA 的隐藏基础设施）。**
 
 ---
 

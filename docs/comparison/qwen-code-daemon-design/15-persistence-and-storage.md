@@ -8,7 +8,7 @@
 >
 > - **Daemon 内**：transcript JSONL（每 daemon 自己一份），不引入 SQLite
 > - **Orchestrator 层**：SQLite/Postgres 做 cross-daemon 聚合（audit log / cross-daemon metadata / permission decisions 全局视图）
-> - **Stage 6 Postgres**：orchestrator 层管理，daemon transcript 异步 sync 到 Postgres
+> - **External Phase 4 SaaS Postgres**：orchestrator 层管理，daemon transcript 异步 sync 到 Postgres
 > - **Storage Adapter 抽象**：分别在 daemon 内（JSONL）和 orchestrator 内（SQLite/Postgres）使用
 
 ## 一、TL;DR
@@ -26,8 +26,8 @@
 - **MVP 不引入新依赖**：Stage 1 沿用现有 JSON/JSONL 路线，验证 daemon 架构本身
 - **数据形态决定存储**，不是阶段早晚：append-only 大 blob → 文件；并发频写 + 索引查询 → SQLite；多 daemon 共享 → Postgres
 - **不是所有数据都要进 RDBMS**：transcript / settings.json / skills 永远文件
-- **Storage Adapter 抽象**：Stage 3 引入接口，Stage 6 切 Postgres 时业务代码 0 改动
-- **ORM 选 drizzle-orm**：在它真正引入时（Stage 3）选——和 OpenCode 同栈，跨 SQLite/Postgres/MySQL 三 dialect
+- **Storage Adapter 抽象**：External Phase 1 引入接口，External Phase 4 切 Postgres 时业务代码 0 改动
+- **ORM 选 drizzle-orm**：在它真正引入时（External Phase 1）选——和 OpenCode 同栈，跨 SQLite/Postgres/MySQL 三 dialect
 
 ## 二、当前 Qwen Code 持久化栈（事实基线）
 
@@ -57,7 +57,7 @@
 - 按 hash 查 token 需要全表扫
 - quota counter 原子 increment 困难
 
-## 三、引入 SQLite 的边界（Stage 3 才发生）
+## 三、引入 SQLite 的边界（External Phase 1 orchestrator 层）
 
 ### 3.1 决策原则：让数据形态决定存储
 
@@ -69,14 +69,14 @@
 | Session transcript | 中（每条消息）| 顺序读 / fork resume | **JSONL** | 永远（沿用 PR#3739）|
 | Skill registry | 启动时一次 | 内存 lookup | **内存 + JSON 索引** | 永远 |
 | OAuth credentials | 低 | key 直接读 | **JSON + 加密** | 永远 |
-| **permission_decisions** | 高（多 client 并发）| 复合键查询 | **SQLite** | **Stage 3** |
-| **audit_log** | 极高（每 tool call）| 按 tenant + time 范围 | **SQLite** | **Stage 3** |
-| **tokens** | 低写 / 高读 | hash lookup + 索引 | **SQLite** | **Stage 3** |
-| **background_tasks meta** | 中 | 按 status / session 过滤 | **SQLite** | **Stage 3** |
-| **workspaces meta** | 低写 | UNIQUE 约束防 race | **SQLite** | **Stage 4**（多租户起）|
-| **tenant_quotas** | 极高（每次 tool call increment）| 原子 +1 | **SQLite** → Redis | **Stage 4** |
+| **permission_decisions** | 高（多 client 并发）| 复合键查询 | **SQLite** | **External Phase 1** |
+| **audit_log** | 极高（每 tool call）| 按 tenant + time 范围 | **SQLite** | **External Phase 1** |
+| **tokens** | 低写 / 高读 | hash lookup + 索引 | **SQLite** | **External Phase 1** |
+| **background_tasks meta** | 中 | 按 status / session 过滤 | **SQLite** | **External Phase 1** |
+| **workspaces meta** | 低写 | UNIQUE 约束防 race | **SQLite** | **External Phase 1+**（多租户起）|
+| **tenant_quotas** | 极高（每次 tool call increment）| 原子 +1 | **SQLite** → Redis | **External Phase 1+** |
 
-### 3.2 4 类数据为什么必须升级到 SQLite（Stage 3）
+### 3.2 4 类数据为什么必须升级到 SQLite（External Phase 1）
 
 **a) `permission_decisions` —— 文件 race condition**
 
@@ -133,24 +133,24 @@ SQLite `idx_audit_tenant_ts` 复合索引 → ms 级。
 | 关系查询 | ✓ | ✗（KV）| ✓✓ OLAP | ✓✓ | ✗ |
 | ACID | ✓ | ✓ | ✓ | ✓ | ✗ |
 | 跨 SQLite/PG ORM | drizzle ✓ | drizzle ✗ | drizzle ✗ | drizzle ✓ | N/A |
-| Stage 6 切 Postgres 平滑 | ✓ | 重写 | 重写 | 已是 | 重写 |
+| External Phase 4 切 Postgres 平滑 | ✓ | 重写 | 重写 | 已是 | 重写 |
 | Bundle size 增量 | ~2MB（better-sqlite3 native）| 小 | ~30MB | 0 | 0 |
 | 测试友好 | `:memory:` | partial | ✓ | 需 testcontainers | ✓ |
-| 与 OpenCode 同栈 | ✓ | ✗ | ✗ | (Stage 6 同) | ✗ |
+| 与 OpenCode 同栈 | ✓ | ✗ | ✗ | (External Phase 4 同) | ✗ |
 
-**SQLite 胜在**：跨阶段平滑（Stage 3 SQLite → Stage 6 Postgres，drizzle 同 ORM 仅切 dialect）、与 OpenCode 同栈降低生态学习成本、bundle size 可接受。
+**SQLite 胜在**：跨阶段平滑（External Phase 1 SQLite → External Phase 4 Postgres，drizzle 同 ORM 仅切 dialect）、与 OpenCode 同栈降低生态学习成本、bundle size 可接受。
 
 **为什么不直接跳过 SQLite 上 Postgres**：
-- Stage 3 单 daemon 部署，Postgres 是过度工程
+- External Phase 1 单 orchestrator 部署，Postgres 是过度工程
 - 个人 / 小团队 self-host 不该被强制装数据库
 - SQLite `:memory:` 单元测试比 Postgres testcontainers 快 100x
 
-### 3.5 Stage 3 数据迁移（从文件到 SQLite）
+### 3.5 External Phase 1 数据迁移（从文件到 SQLite）
 
-升级到 Stage 3 时一次性 import：
+升级到 External Phase 1 orchestrator 时一次性 import：
 
 ```ts
-// scripts/migrate-to-sqlite.ts (Stage 3 升级工具)
+// scripts/migrate-to-sqlite.ts (External Phase 1 升级工具)
 async function migrateFromFiles() {
   const db = drizzle(new Database('/var/lib/qwen/qwen.db'))
   
@@ -172,9 +172,9 @@ async function migrateFromFiles() {
 }
 ```
 
-迁移可逆——保留原 JSON 文件，SQLite 仅作为运行时 mirror。**Stage 3 → Stage 4 切回纯文件**只需 SQL `SELECT * INTO json_export.json` + 删 db 文件。
+迁移可逆——保留原 JSON 文件，SQLite 仅作为运行时 mirror。**External Phase 1 → 切回纯文件**只需 SQL `SELECT * INTO json_export.json` + 删 db 文件。
 
-## 四、SQLite 选型理由（Stage 3-5 适用）
+## 四、SQLite 选型理由（External Phase 1-3 适用）
 
 ### 4.1 优点
 
@@ -196,12 +196,12 @@ async function migrateFromFiles() {
 ### 4.3 适用边界
 
 ```
-Stage 1-2 (HTTP-bridge / 原生单租户): JSON 文件足够，不引入
-Stage 3 (完整 daemon 多 client):       SQLite 引入（permission/audit/tokens）
-Stage 4 多租户单 daemon:               SQLite 撑万级 tenant + 百万级 audit log
-Stage 5 + sandbox:                     同上
+Stage 1 / 1.5 / 2 (qwen-code 主线): JSON / JSONL 文件足够，不引入
+External Phase 1 (orchestrator + 多租户):       SQLite 引入（permission/audit/tokens）
+External Phase 1 多租户:               SQLite 撑万级 tenant + 百万级 audit log
+External Phase 2-3 + sandbox:                     同上
 ─────────────────────────────────────────────
-Stage 6 多 daemon 实例:                SQLite 不够，必须升级 Postgres
+External Phase 4 多 daemon 实例:                SQLite 不够，必须升级 Postgres
 ```
 
 ## 五、何时需要外部 RDBMS
@@ -210,7 +210,7 @@ Stage 6 多 daemon 实例:                SQLite 不够，必须升级 Postgres
 
 | 触发 | 详细 | 推荐方案 |
 |---|---|---|
-| **多 daemon 实例（Stage 6 SaaS）** | k8s 部署多 daemon worker pod 共享状态 | Postgres / MySQL + sticky session |
+| **多 daemon 实例（External Phase 4 SaaS）** | k8s 部署多 daemon worker pod 共享状态 | Postgres / MySQL + sticky session |
 | **跨数据中心 / 灾备** | 主从复制 / 异地容灾 | Postgres streaming replication |
 | **企业合规（PII 不落本地）** | 审计日志必须写入 SOC2 合规存储 | 外部 Postgres + TDE 加密 |
 | **Analytics（跨 tenant BI 查询）** | 数据分析师查跨 tenant 用量趋势 | Postgres + read replica |
@@ -227,7 +227,7 @@ Stage 6 多 daemon 实例:                SQLite 不够，必须升级 Postgres
 ### 6.1 Interface
 
 ```ts
-// packages/server/src/storage/StorageAdapter.ts (Stage 6 新增)
+// packages/server/src/storage/StorageAdapter.ts (External Phase 4 新增)
 export interface StorageAdapter {
   // 启动 / 关闭
   init(): Promise<void>
@@ -256,13 +256,13 @@ export interface StorageAdapter {
 }
 
 // 4 个实现
-class SqliteAdapter implements StorageAdapter {  // Stage 3-5 默认
+class SqliteAdapter implements StorageAdapter {  // External Phase 1-3 默认
   constructor(path: string) { ... }
 }
-class PostgresAdapter implements StorageAdapter {  // Stage 6 推荐
+class PostgresAdapter implements StorageAdapter {  // External Phase 4 推荐
   constructor(connectionString: string) { ... }
 }
-class MysqlAdapter implements StorageAdapter {  // Stage 6 可选
+class MysqlAdapter implements StorageAdapter {  // External Phase 4 可选
   constructor(connectionString: string) { ... }
 }
 class InMemoryAdapter implements StorageAdapter {  // 单元测试用
@@ -514,7 +514,7 @@ export const tenantQuotas = sqliteTable('tenant_quotas', {
 
 SQLite 的 `sessions.transcript_path` 字段保存路径；daemon 读 transcript 时直接 open file（不通过 ORM）。
 
-**S3 / OSS 长期归档**（Stage 6+）：
+**S3 / OSS 长期归档**（External Phase 4+）：
 
 ```ts
 // 老 transcript 自动迁移到 S3
@@ -542,7 +542,7 @@ async function archiveOldTranscripts() {
 }
 ```
 
-## 九、Stage 6 多 daemon 共享状态架构
+## 九、External Phase 4 多 daemon 共享状态架构
 
 ### 9.1 架构图
 
@@ -597,7 +597,7 @@ metadata:
 
 ### 9.3 Redis 加速
 
-可选优化（Stage 6+），不是必须：
+可选优化（External Phase 4+），不是必须：
 
 | 数据 | 何时进 Redis |
 |---|---|
@@ -605,7 +605,7 @@ metadata:
 | **quota counters** | 高频 increment，避免 Postgres 写阻塞 |
 | **permission decision cache** | LRU 1000 条热点 pattern 命中 |
 
-**Stage 6.5+ 加 Redis** —— 不是 Stage 6 起步必需。
+**External Phase 4+ later 加 Redis** —— 不是 External Phase 4 起步必需。
 
 ### 9.4 多 daemon 配置
 
@@ -665,7 +665,7 @@ packages/server/src/storage/migrations/
 ### 10.2 SQLite → Postgres 迁移工具
 
 ```bash
-# Stage 5 → Stage 6 升级
+# External Phase 3 → Phase 4 升级
 $ qwen-migrate sqlite-to-postgres \
     --from /var/lib/qwen/qwen.db \
     --to "postgres://..." \
@@ -755,18 +755,18 @@ REVOKE ALL ON pg_catalog FROM qwen_app;
 
 ## 十三、与 OpenCode / Claude Code 对比
 
-| 维度 | OpenCode | Claude Code | Qwen Daemon Stage 6 |
+| 维度 | OpenCode | Claude Code | Qwen Daemon External Phase 4 |
 |---|---|---|---|
 | ORM | drizzle-orm | N/A（local files）| **drizzle-orm（同 OpenCode）** |
-| 默认存储 | SQLite | local files | JSON Stage 1-2 / SQLite Stage 3-5 / Postgres Stage 6 |
+| 默认存储 | SQLite | local files | JSON 主线 / SQLite External Phase 1-3 / Postgres External Phase 4 |
 | 多 daemon 共享状态 | ❌ | ❌ | **✓ Postgres + S3** |
 | Transcript 存储 | SQLite blob | local files | **JSONL 文件 + S3 归档** |
 | 配置 | settings.json | `~/.claude` | settings cascade（4 层 + tenant）|
 | 加密敏感字段 | ❌ | minimal | **✓ AES-GCM + KMS** |
 | Migration 工具 | drizzle-kit | N/A | **drizzle-kit** |
-| 跨 region 支持 | ❌ | ❌ | **✓ Stage 6 multi-region** |
+| 跨 region 支持 | ❌ | ❌ | **✓ External Phase 4 multi-region** |
 
-## 十四、Stage 1 → Stage 6 渐进路径
+## 十四、Stage 1 → External Phase 4 渐进路径
 
 ```
 当前 Qwen Code (无 daemon): JSON + JSONL 文件
@@ -780,19 +780,19 @@ Stage 1.5 / Stage 2 (Mode A + daemon 完善): + 内存 cache
   └─ FileReadCache / Subscriber Set / EventBus 都在内存（per-daemon singleton）
   └─ 持久化仍是 JSON / JSONL（daemon 主线不引入 SQLite）
 
-Stage 3 (完整 daemon 多 client): 首次引入 SQLite
+External Phase 1 (orchestrator + 多租户): 首次引入 SQLite
   └─ 新依赖：better-sqlite3 + drizzle-orm
   └─ permission_decisions / audit_log / tokens / background_tasks 入 SQLite
   └─ transcript 仍 JSONL / settings 仍 JSON
   └─ Storage Adapter 接口定义（仅 SqliteAdapter 实现）
 
-Stage 4-5 (多租户 + sandbox): + tenant 抽象 + 加密
+External Phase 1-3 (多租户 + sandbox): + tenant 抽象 + 加密
   └─ tenants[] / tenant_quotas 表
   └─ per-tenant transcript 子目录
   └─ 敏感字段 AES-GCM 加密
   └─ 仍是 SQLite
 
-Stage 6 (SaaS HA): + Postgres + S3 + 可选 Redis
+External Phase 4 (SaaS HA): + Postgres + S3 + 可选 Redis
   └─ 引入 PostgresAdapter（drizzle 同 ORM 切 dialect）
   └─ Transcript 迁到 S3
   └─ 多 daemon 实例 + sticky session
@@ -815,7 +815,7 @@ Stage 6 (SaaS HA): + Postgres + S3 + 可选 Redis
 
 ## 十六、一句话总结
 
-**Qwen Code 当前持久化是 JSON + JSONL 文件（无 SQLite / 无 ORM），daemon 化的 Stage 1-2 沿用此栈不引入新依赖；Stage 3 完整 daemon 时首次引入 SQLite（better-sqlite3 + drizzle-orm）解决多 client 并发写 / audit_log 索引查询 / tokens hash lookup / background_tasks 状态机查询四类痛点；Stage 4-5 在 SQLite 上扩多租户 + 加密；Stage 6 SaaS 通过 drizzle 切 dialect 平滑升级 Postgres + S3 + 可选 Redis。Transcript 大 blob 永远走文件（不入 RDBMS），settings.json / skill registry 永远人工编辑友好的 JSON。Storage Adapter 抽象层让阶段切换业务代码 0 改动。schema 设计 8 张核心表（tenants / tokens / workspaces / sessions / permission_decisions / audit_log / background_tasks / tenant_quotas）+ drizzle-kit migration + 跨 SQLite/Postgres/MySQL 一致 API。设计哲学：让数据形态决定存储，不是按阶段早晚切换；MVP 优先沿用现状，新依赖按真实痛点引入。**
+**Qwen Code 当前持久化是 JSON + JSONL 文件（无 SQLite / 无 ORM），daemon 化的主线（Stage 1 / 1.5 / 2）沿用此栈不引入新依赖；External Phase 1（orchestrator）首次引入 SQLite（better-sqlite3 + drizzle-orm）解决多 daemon 聚合 audit / tokens / quota 等四类痛点；External Phase 2-3 在 SQLite 上扩多租户 + 加密；External Phase 4 通过 drizzle 切 dialect 平滑升级 Postgres + S3 + 可选 Redis。Transcript 大 blob 永远走文件（每 daemon 自己一份 JSONL，不入 RDBMS），settings.json / skill registry 永远人工编辑友好的 JSON。Storage Adapter 抽象层让阶段切换业务代码 0 改动。schema 设计 8 张核心表（tenants / tokens / workspaces / sessions / permission_decisions / audit_log / background_tasks / tenant_quotas）+ drizzle-kit migration + 跨 SQLite/Postgres/MySQL 一致 API。设计哲学：让数据形态决定存储，不是按阶段早晚切换；qwen-code 主线 daemon 优先沿用现状，External 集成按真实痛点引入。**
 
 ---
 

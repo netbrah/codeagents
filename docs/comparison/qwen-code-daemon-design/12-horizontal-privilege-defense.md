@@ -732,11 +732,11 @@ External 多租户实施必做的 16 项安全防御：
   ├─ D3 Audit log WHERE tenant_id
   └─ D4 Per-tenant resource limits
 
-Stage 5 (sandbox) 加的 5 项：
+External Phase 2-3 (sandbox) 加的 5 项：
   ├─ F3-F4 Mount / hard link 防御（依赖 sandbox capability drop）
   ├─ S1-S4 Sandbox escape / cgroups / network / tmp 隔离
 
-Stage 6 (SaaS) 加的:
+External Phase 4 (SaaS) 加的:
   ├─ A1 Token rotation + anomaly detection
   ├─ Container 严格 capability drop + AppArmor / SELinux
   └─ 红队渗透测试基线

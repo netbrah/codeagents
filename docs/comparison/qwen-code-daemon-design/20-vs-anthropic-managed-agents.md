@@ -213,7 +213,7 @@ GET /v1/session/{sid}/subscribers
 | Last-Event-ID 重连 | partial（standard SSE）| ✓ + transcript-first 重建（[§16 §五](./16-high-availability.md)）|
 | Reverse RPC | 不支持 | ✓ Client Capability（[§17](./17-remote-cli-mode.md)）|
 | Schema 演进 | Anthropic 主导 | ACP 社区共识 + Qwen 贡献 |
-| OpenAPI 自动生成 | ❌（推测）| ✓ 可选（Stage 3+）|
+| OpenAPI 自动生成 | ❌（推测）| ✓ 可选（External Phase 1+）|
 
 ## 六、双向 Migration（理论可行）
 
@@ -254,7 +254,7 @@ GET /v1/session/{sid}/subscribers
 
 ### 8.2 中型企业内部工具
 
-**推荐**：混合（Qwen daemon Stage 3 + Anthropic API）
+**推荐**：混合（Qwen daemon 主线（Stage 1/1.5/2）+ Anthropic API）
 
 **原因**：
 - 几百用户内部使用

@@ -84,7 +84,7 @@ Editor / clipboard / browser ←─── via SSE event ─────
 ```
 
 **适用**：
-- Stage 6 SaaS（云端 dev container）
+- External Phase 4 SaaS（云端 dev container）
 - GitHub Codespaces / Coder 风格 cloud workspace
 - 工程师笔记本性能弱 / 跨机器开发
 - 团队共享 dev environment（同一 daemon 多人接入不同 session）
@@ -104,7 +104,7 @@ Editor / clipboard / browser ←─── via SSE event ─────
 | 沙箱 / 子进程 | 简单 | 极复杂 | 简单 |
 | 网络要求 | 无 | 高 | 中 |
 | 适用人群 | 单人 | 特殊 | SaaS / 团队 |
-| 官方支持 | ✓ Stage 1+ | ✗ | ✓ Stage 3+ |
+| 官方支持 | ✓ Stage 1+ | ✗ | ✓ External Phase 1+ |
 
 ## 三、Client Capability Request 协议
 
@@ -543,8 +543,8 @@ HttpOnly + Secure + SameSite=Strict
 |---|---|---|
 | Bearer token | 默认 | Stage 1+ |
 | + TLS server cert | 默认 | Stage 1+ |
-| + mTLS client cert | 加固 | Stage 5+ 企业 |
-| + IP allowlist | 加固 | Stage 5+ 企业 |
+| + mTLS client cert | 加固 | External Phase 2-3+ 企业 |
+| + IP allowlist | 加固 | External Phase 2-3+ 企业 |
 | + Time-based OTP（capability_request 二次确认）| 高敏感 | 可选 |
 
 ## 六、NAT 穿透方案
@@ -612,7 +612,7 @@ spec:
     http: ...
 ```
 
-**Stage 6 SaaS 默认**。
+**External Phase 4 SaaS 默认**。
 
 ### 6.5 方案选择决策
 
@@ -620,7 +620,7 @@ spec:
 |---|---|
 | 个人 / 单人开发 / 家庭 NAS daemon | Tailscale |
 | 团队 / 公司内网 daemon | Cloudflare Tunnel / Tailscale |
-| Stage 6 SaaS（公网 daemon）| Ingress + Let's Encrypt |
+| External Phase 4 SaaS（公网 daemon）| Ingress + Let's Encrypt |
 | 临时测试 / 演示 | Cloudflare quick tunnel |
 | 安全要求高 | mTLS + Tailscale + IP allowlist |
 
@@ -876,7 +876,7 @@ $ qwen profile add team \
 $ qwen --profile team chat
 ```
 
-### 12.3 Stage 6 SaaS
+### 12.3 External Phase 4 SaaS
 
 ```bash
 # === 用户首次登录 ===
@@ -960,7 +960,7 @@ CLI 端必须验证收到的 SSE event `session_id` 与自己订阅的 sessionId
 
 ## 十七、一句话总结
 
-**Qwen daemon CLI 远端连接 = HTTP/SSE+TLS+Bearer token 设计天然支持，推荐拓扑 C（workspace 与 daemon 同机），通过 Client Capability 反向 RPC 协议（5 类：editor/clipboard/browser/notification/file_picker）让 daemon 可"调起"本地 editor 等本机依赖。NAT 穿透 Cloudflare Tunnel / Tailscale / SSH reverse tunnel 三选一。Local echo 抹平 keystroke RTT，LLM streaming 50ms 几乎无感。SSE Last-Event-ID 自动重连让笔记本网络抖动无感（继承 §16 协议）。`--daemon-or-local` flag 支持离线降级到本地子进程模式。Stage 6 SaaS 部署模式默认就是 Remote-Remote。与 VSCode Remote-SSH 设计哲学一致但更进一步：多 client 共 session 的 live collaboration 是 Remote 模式下的杀手级特性。**
+**Qwen daemon CLI 远端连接 = HTTP/SSE+TLS+Bearer token 设计天然支持，推荐拓扑 C（workspace 与 daemon 同机），通过 Client Capability 反向 RPC 协议（5 类：editor/clipboard/browser/notification/file_picker）让 daemon 可"调起"本地 editor 等本机依赖。NAT 穿透 Cloudflare Tunnel / Tailscale / SSH reverse tunnel 三选一。Local echo 抹平 keystroke RTT，LLM streaming 50ms 几乎无感。SSE Last-Event-ID 自动重连让笔记本网络抖动无感（继承 §16 协议）。`--daemon-or-local` flag 支持离线降级到本地子进程模式。External Phase 4 SaaS 部署模式默认就是 Remote-Remote。与 VSCode Remote-SSH 设计哲学一致但更进一步：多 client 共 session 的 live collaboration 是 Remote 模式下的杀手级特性。**
 
 ---
 

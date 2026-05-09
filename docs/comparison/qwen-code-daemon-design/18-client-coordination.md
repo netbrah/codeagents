@@ -558,7 +558,7 @@ T=30    新 CLI 添加成功，返回 200
 10000 active sessions × 33KB/s = 330MB/s 出栈带宽
 ```
 
-中型 SaaS（10k session）已经是十 Gbps 数据中心级别。所以 `maxTotal=20` 是个合理保护。**实际 Stage 6 SaaS 可调高到 100**，看运维容量。
+中型 SaaS（10k session）已经是十 Gbps 数据中心级别。所以 `maxTotal=20` 是个合理保护。**实际 External Phase 4 SaaS 可调高到 100**，看运维容量。
 
 ## 十、UI 协调 mockup
 

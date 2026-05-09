@@ -32,7 +32,7 @@ Tenant (进入下方 hierarchy)
 - 1 user 可持有多 token（laptop / CI / SDK / 不同设备各一）
 - 1 token 仅属一 tenant（清晰归属）
 - "1 user 属多 tenant" 是外部 IDP 的事实，**不在 daemon 实体模型内**
-- Stage 6 加 OIDC 时把 `oidc_subject` 写到 `tokens` 表，但仍不引入 user 实体
+- External Phase 4 加 OIDC 时把 `oidc_subject` 写到 `tokens` 表，但仍不引入 user 实体
 
 ### Daemon 实体 hierarchy（5 层）
 
@@ -88,7 +88,7 @@ Provider/Skill/Model registry — daemon 全局只读单例
 - 1 tenant 拥有 N token（每 token 一对一属于本 tenant）
 - 1 tenant 拥有 N workspace（[§23 §三 WorkspaceAccess](./23-orchestrator-multi-tenancy.md) 不跨 tenant 共享 workspace）
 
-**Stage 4 加入此层** —— Stage 1-3 单租户模式下相当于"虚拟单 tenant"。
+**External Phase 1 加入此层** —— Stage 1-3 单租户模式下相当于"虚拟单 tenant"。
 
 ### Layer 2: Workspace（工作区）
 
@@ -224,7 +224,7 @@ Provider/Skill/Model registry — daemon 全局只读单例
 
 | 实体 | 创建时机 | 销毁时机 | 持久化？ |
 |---|---|---|---|
-| Token | 显式 admin API / settings.json | revoke / TTL 过期 | Stage 3+ SQLite（之前 settings.json）|
+| Token | 显式 admin API / settings.json | revoke / TTL 过期 | External Phase 1+ SQLite（之前 settings.json）|
 | Tenant | settings 加 entry / `qwen tenant create` | settings 移除 | SQLite + tenants/&lt;id&gt;.json |
 | Workspace | **Lazy**：第一次访问 directory 时 | 显式 `Workspace.dispose()` / daemon 重启 | SQLite + 内存 Map |
 | Session | 显式 `POST /session` | TTL（默认 7 天空闲）/ 显式 DELETE | JSONL（transcript）+ SQLite（meta）|
@@ -383,7 +383,7 @@ Session (runtime SetSessionConfigOptionRequest)
 | §03 §7 | Mode A / Mode B 双部署模式 | Daemon Instance 形态：含 TUI / 不含 |
 | §05 | 不需要 ALS Instance ctx（daemon 进程本身就是 session ctx）| tool call 执行上下文 = daemon-global |
 | §11 §二 | ShellSandbox interface | Tool call 层调用 |
-| §11 §五 | 远程 sandbox（daemon 与 shell 不同机）| Stage 5.5+ |
+| §11 §五 | 远程 sandbox（daemon 与 shell 不同机）| External Phase 3+ |
 | §23 | Tenant 抽象 + AuthN/AuthZ + Quota + Audit | Orchestrator 层 |
 | §12 | 17 个攻击向量 + 5 层防御 | 跨 tenant 硬约束 + 同 session 隔离 |
 | §13 | TUI 多 client 共 session | Layer 3 多订阅者 |
@@ -439,7 +439,7 @@ Token "alice-mobile" via Telegram ─┐
 Token "alice-laptop" via SDK     ──┘     (transcript-first fork resume PR#3739)
 ```
 
-**注意**：daemon 不知道这两个 token 是"同一个人"——'user' scope 的实现是 token 上挂的 `userScopeKey` 属性（Stage 6 OIDC 场景下可由 `oidc_subject` 提供），而非外部 User 实体。
+**注意**：daemon 不知道这两个 token 是"同一个人"——'user' scope 的实现是 token 上挂的 `userScopeKey` 属性（External Phase 4 OIDC 场景下可由 `oidc_subject` 提供），而非外部 User 实体。
 
 ## 十二、一句话总结
 

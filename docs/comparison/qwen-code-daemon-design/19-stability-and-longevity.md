@@ -13,7 +13,7 @@
 > - **基础稳定性需求**：Node.js 长跑 7 类风险（heap / GC / fd / zombie / exception / native crash / ALS 链表，本章 §二）+ 6 类 native module 风险（本章 §六）+ 基础 health check（本章 §十）—— 单 daemon instance 内仍可能遇到，主线参考本章相应小节
 > - **Daemon pool 管理**（idle daemon hibernation / lazy spawn / 内存上限）在 orchestrator 层
 >
-> **只关心主线稳定性**：读上面要点 + 本章 §二（Node.js 7 类风险）+ §六（native module 风险）+ §十（基础 health check / metrics 概念）就够；其他章节（§三 多租户加剧 / §五 9 稳定性模式 / §七 per-tenant memory budget / §九 Worker thread isolation / §十一 30 天 Soak / Chaos / §十四 Stage 3-6 实施）是 External SaaS 部署蓝图。
+> **只关心主线稳定性**：读上面要点 + 本章 §二（Node.js 7 类风险）+ §六（native module 风险）+ §十（基础 health check / metrics 概念）就够；其他章节（§三 多租户加剧 / §五 9 稳定性模式 / §七 per-tenant memory budget / §九 Worker thread isolation / §十一 30 天 Soak / Chaos / §十四 External Phase 1-4 实施）是 External SaaS 部署蓝图。
 
 ## 一、TL;DR
 
@@ -478,7 +478,7 @@ session.skills = skillRegistry  // 同一引用
 
 按落地阶段顺序：
 
-### 5.1 Stage 3 必做（5 项）
+### 5.1 External Phase 1 必做（5 项）
 
 #### 5.1.1 TTL 强制清理
 
@@ -521,7 +521,7 @@ const cache = new Map<K, V>()  // 无上限
 
 完整端点设计见 §十.
 
-### 5.2 Stage 4 多租户（4 项）
+### 5.2 External Phase 1 多租户（4 项）
 
 #### 5.2.1 Per-tenant 资源 quota
 
@@ -619,7 +619,7 @@ app.post('/debug/heapdump', requireAdminToken, (c) => {
 
 仅 admin token 可访问，避免 DoS（heap snapshot 期间 stop-the-world）。
 
-### 5.3 Stage 6 SaaS 增强（3 项）
+### 5.3 External Phase 4 SaaS 增强（3 项）
 
 #### 5.3.1 Worker thread 隔离
 
@@ -827,7 +827,7 @@ resources:
     memory: "2Gi"
 ```
 
-**多租户硬隔离要 worker thread / process**——单 V8 isolate 内不能给 tenant 设 heap quota。Stage 6+ 可考虑：
+**多租户硬隔离要 worker thread / process**——单 V8 isolate 内不能给 tenant 设 heap quota。External Phase 4+ 可考虑：
 - worker_threads 一 worker 一 tenant
 - child_process 一 process 一 tenant 子集
 
@@ -1064,7 +1064,7 @@ Chaos 测试: 主动注入故障，验证防御机制
 **结论**：
 - **dev / 单元测试** 用 Bun（启动快、HTTP 快）
 - **prod 长跑** 用 Node.js v22+（生态成熟、监控工具多）
-- **Stage 6 SaaS** 强烈推荐 Node.js
+- **External Phase 4 SaaS** 强烈推荐 Node.js
 
 ## 十三、与 §16 HA / §18 协同
 
@@ -1079,29 +1079,29 @@ Chaos 测试: 主动注入故障，验证防御机制
 
 **核心洞察**：稳定性 = §16 HA 设计的应用层补充。HA 让重启成本接近 0，§19 让 leak 可观测可管理。两者结合达到"长跑 12-72h + 重启可预期"的目标。
 
-## 十四、Stage 3-6 实施
+## 十四、External Phase 1-4 实施
 
 | Stage | 必做 | 应做 |
 |---|---|---|
-| Stage 3（完整 daemon）| 5.1.1-5.1.5（TTL/bounded/drain/exception 处理/healthz）| native module supervisor |
-| Stage 4（多租户）| 5.2.1-5.2.4（quota/breaker/threshold/heapdump）| memory profiler |
-| Stage 5（sandbox）| 同 Stage 4 + sandbox crash 隔离 | worker pool sandbox |
-| Stage 6（SaaS HA）| 5.3.1-5.3.3（worker/scheduled restart/profiler）| 完整 Soak/Chaos 矩阵 |
+| External Phase 1（orchestrator + 多租户）| 5.1.1-5.1.5（TTL/bounded/drain/exception 处理/healthz）| native module supervisor |
+| External Phase 1（多租户）| 5.2.1-5.2.4（quota/breaker/threshold/heapdump）| memory profiler |
+| External Phase 2-3（sandbox）| 同 External Phase 1+ + sandbox crash 隔离 | worker pool sandbox |
+| External Phase 4（SaaS HA）| 5.3.1-5.3.3（worker/scheduled restart/profiler）| 完整 Soak/Chaos 矩阵 |
 
 ## 十五、与 OpenCode / Claude Code 对比
 
-| 维度 | OpenCode | Claude Code | qwen daemon Stage 6 |
+| 维度 | OpenCode | Claude Code | qwen daemon External Phase 4 |
 |---|---|---|---|
 | 设计目标长跑 | dev tool（重启即可）| CLI（不持久）| **multi-day** |
 | TTL 清理 | minimal | N/A | ✓ 全面 |
 | Memory threshold restart | ❌ | N/A | ✓ |
 | Heap dump on demand | ❌ | N/A | ✓ |
-| Circuit breaker per tenant | ❌ | N/A | ✓ Stage 4+ |
-| Worker thread 隔离 | ❌ | N/A | ✓ Stage 6 |
+| Circuit breaker per tenant | ❌ | N/A | ✓ External Phase 1+ |
+| Worker thread 隔离 | ❌ | N/A | ✓ External Phase 4 |
 | Soak / chaos testing | minimal | N/A | ✓ 30 天矩阵 |
 | Bun runtime | ✓ | N/A | dev only |
 
-**OpenCode** 设计目标是单机短跑，长跑稳定性不是优先级；**Claude Code** 是 CLI 启动即跑完即退，无长跑场景；**qwen daemon Stage 6** 直接对标云原生 SaaS，长跑稳定性是核心需求。
+**OpenCode** 设计目标是单机短跑，长跑稳定性不是优先级；**Claude Code** 是 CLI 启动即跑完即退，无长跑场景；**qwen daemon External Phase 4** 直接对标云原生 SaaS，长跑稳定性是核心需求。
 
 ## 十六、一句话总结
 

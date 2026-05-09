@@ -526,7 +526,7 @@ OpenCode 也有 TUI（参考 `packages/opencode/src/server/routes/instance/tui.t
 ## 九、3 阶段路线图
 
 ```
-Stage 1 (Stage 1 daemon http-bridge): TUI 不动，仍单进程跑 ACP agent
+Stage 1 (Mode B headless qwen serve, PR#3889): TUI 不动，仍单进程跑 ACP agent
   └─ TUI 体验与现状 100% 一致
   └─ daemon 在 ACP agent 子进程外面包了 HTTP 桥接，TUI 不感知
 
@@ -537,7 +537,7 @@ Stage 1.5 / Stage 2 (Mode A + daemon 完善): 新增 qwen tui --connect 命令
   └─ 多 TUI 共同一 daemon instance 的唯一 session（决策 §1 默认 single）
   └─ 本地 fast path（同 host 文件补全 / git）
 
-Stage 3 (对标 OpenCode): TUI 默认 daemon mode
+External Phase 1 (对标 OpenCode): TUI 默认 daemon mode
   └─ qwen 命令优先尝试连本地 daemon
   └─ 失败回退到单进程
   └─ Daemon 自动启动机制（同 OpenCode createOpencodeServer）
@@ -838,7 +838,7 @@ Mode B 多 session 部署时：
 
 ## 十二、一句话总结
 
-**TUI 的 Ink 组件 / React Context shape 单进程与 daemon 100% 兼容**（共用同一组 `packages/cli/src/ui/components/` + `contexts/`）—— 仅数据源层用 `HttpAcpAdapter` 替换 in-process Provider。**5 类本地依赖功能**（文件补全 / 编辑器 / 剪贴板 / 键盘 / git status）通过 client-side 处理 + 同 host fast path + 跨 host RPC 三层 fallback 优雅降级。**多 TUI 客户端共 session 是 daemon 模式的免费红利**（决策 §1 默认 `single` + §6 fan-out + first responder permission 自动启用）。**用户视角**：保留单进程命令兼容，daemon mode opt-in；Stage 3 默认连 daemon 但失败回退单进程，与 OpenCode `createOpencodeServer` 同款。
+**TUI 的 Ink 组件 / React Context shape 单进程与 daemon 100% 兼容**（共用同一组 `packages/cli/src/ui/components/` + `contexts/`）—— 仅数据源层用 `HttpAcpAdapter` 替换 in-process Provider。**5 类本地依赖功能**（文件补全 / 编辑器 / 剪贴板 / 键盘 / git status）通过 client-side 处理 + 同 host fast path + 跨 host RPC 三层 fallback 优雅降级。**多 TUI 客户端共 session 是 daemon 模式的免费红利**（决策 §1 默认 `single` + §6 fan-out + first responder permission 自动启用）。**用户视角**：保留单进程命令兼容，daemon mode opt-in；Stage 2 后默认连 daemon 但失败回退单进程，与 OpenCode `createOpencodeServer` 同款。
 
 ---
 

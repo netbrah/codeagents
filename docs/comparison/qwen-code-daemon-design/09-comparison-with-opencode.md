@@ -81,11 +81,11 @@
 | HTTP 框架 | Hono | **Express 5（默认）** / Hono（External SaaS 可选） |
 | Runtime | Bun 优先 / Node fallback | **Node.js 优先（prod 长跑稳）/ Bun dev** |
 | WebSocket | `Bun.serve` + `createBunWebSocket` | 默认 `express-ws`（备选 `ws` 直挂）+ SSE 兜底 |
-| OpenAPI 生成 | `hono-openapi` | `@asteasolutions/zod-to-openapi`（Stage 3）|
+| OpenAPI 生成 | `hono-openapi` | `@asteasolutions/zod-to-openapi`（Stage 2 引入）|
 | Schema 验证 | Effect Schema | **zod**（与现有 ACP 一致）|
 | 上下文传播 | Effect `Context.Service` | **`AsyncLocalStorage` 直接** |
-| 服务发现 | mDNS Bonjour（默认开启）| Stage 3 可选（默认关）|
-| 持久化 | SQLite via drizzle-orm | JSON+JSONL → Stage 3 SQLite（[§15](./15-persistence-and-storage.md)）|
+| 服务发现 | mDNS Bonjour（默认开启）| Stage 2 可选（默认关）|
+| 持久化 | SQLite via drizzle-orm | JSON+JSONL → External Phase 1 SQLite（[§15](./15-persistence-and-storage.md)）|
 | 鉴权 | `OPENCODE_SERVER_PASSWORD` env | bearer token + PR#3723 |
 
 ## 四、API 命名对比

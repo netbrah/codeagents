@@ -84,7 +84,7 @@ daemon 与外部世界对话的协议层、daemon 进程内部的运行时机制
 | # | 文档 | 一句话 |
 |---|---|---|
 | 14 | [实体模型与层级关系](./14-entity-model.md) | **5 层 hierarchy**（Tenant → Workspace → Session → Background Task → Tool Execution）+ 横切层（Client subscription）+ 认证侧 sidebar（External User / Token：不算 hierarchy）+ 关系矩阵 + 资源所有权层级表 + 生命周期表 + ER 图 |
-| 15 | [持久层与外部存储](./15-persistence-and-storage.md) | **当前 Qwen Code 是纯 JSON+JSONL（无 SQLite / 无 ORM）** → Stage 1-2 沿用现状 → **Stage 3 首次引入 SQLite**（4 类痛点驱动）→ Storage Adapter 抽象 → **Stage 6 切 Postgres + S3**。drizzle-orm 选型 + 8 张核心表 schema + 替代方案对比 |
+| 15 | [持久层与外部存储](./15-persistence-and-storage.md) | **当前 Qwen Code 是纯 JSON+JSONL（无 SQLite / 无 ORM）** → qwen-code 主线 (Stage 1/1.5/2) 沿用现状 → External Phase 1 首次引入 SQLite (orchestrator 多租户)→ External Phase 4 切 Postgres + S3。drizzle-orm 选型 + 8 张核心表 schema + 替代方案对比 |
 
 ### Part V — 平台层能力（External Reference Architecture）
 
@@ -106,7 +106,7 @@ daemon 与外部世界对话的协议层、daemon 进程内部的运行时机制
 |---|---|---|
 | 08 | [路线图](./08-roadmap.md) | qwen-code 主线 ~3 周内 feature complete：Stage 1（~1 周 ✅ Mode B headless PR#3889）/ Stage 1.5（~4d Mode A）/ Stage 2（~1-2 周 mDNS+OpenAPI+WebSocket+多 token+metrics）。**Orchestrator / 多租户 / 沙箱 / SaaS 部署作为 External Reference Architecture**（参考设计 §22 / §23 / §11 / §16），由外部商业平台 / k8s operator 实现 |
 | 09 | [与 OpenCode 详细对比](./09-comparison-with-opencode.md) | 路由 / 技术栈 / 设计哲学逐项对照 |
-| 20 | [与 Anthropic Managed Agents 对比](./20-vs-anthropic-managed-agents.md) | **5 层架构对照**（client / agent runtime / tool / sandbox / persistence）+ **内置工具映射** + **协议层差异**（Anthropic 私有 vs ACP 标准）+ **双向 migration path**（Anthropic→Qwen / Qwen→Anthropic 兼容 API）+ **6 类客户场景推荐** + **决策树 6 问选型** + **3 种混合部署模式** + **"Managed Qwen Agents" 产品蓝图**（基于 Stage 6 包装，6 月可建）|
+| 20 | [与 Anthropic Managed Agents 对比](./20-vs-anthropic-managed-agents.md) | **5 层架构对照**（client / agent runtime / tool / sandbox / persistence）+ **内置工具映射** + **协议层差异**（Anthropic 私有 vs ACP 标准）+ **双向 migration path**（Anthropic→Qwen / Qwen→Anthropic 兼容 API）+ **6 类客户场景推荐** + **决策树 6 问选型** + **3 种混合部署模式** + **"Managed Qwen Agents" 产品蓝图**（基于 External Reference Architecture 完整实施 (External Phase 1-4) 包装，6 月可建）|
 | 21 | [扩展到 multi-session daemon 的演进路径](./21-future-multi-session-migration.md) | 单 session 模型上限触发后的演进选项 —— 路径 A 资源池化（~2-3w 拿 ~80% OpenCode 经济性）/ 路径 B Worker threads hybrid（~3-4w）/ 路径 C 纯迁移到 OpenCode 模式（~2-3 月）+ YAGNI 触发条件清单 + 推荐演进路径 + 关键不变量（现有代码不会白做）|
 | 22 | [单 vs 多 Session 设计深度对比](./22-single-vs-multi-session-design.md) | **22 维对比矩阵 + 6 项关键 tradeoff 深度分析**（隔离昂贵性 / cold start 平方根 / 内存 baseline 建模 / 隔离失败代价 / 复杂度守恒原理 / PR#3889 现实约束）+ **决策树 N≤5/50/100/500/500+** + 与 §21 互补（§22 决策入口 / §21 演进退路）|
 
