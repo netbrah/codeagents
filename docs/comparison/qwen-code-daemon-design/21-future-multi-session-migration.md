@@ -1,6 +1,6 @@
 # 21 — 未来回到 multi-session daemon 的迁移成本评估
 
-> [← 上一篇：与 Anthropic Managed Agents 对比](./20-vs-anthropic-managed-agents.md) · [回到 README](./README.md)
+> [← 上一篇：与 Anthropic Managed Agents 对比](./20-vs-anthropic-managed-agents.md) · [下一篇：单 vs 多 Session 设计深度对比 →](./22-single-vs-multi-session-design.md) · [回到 README](./README.md)
 
 > Pivot 后（[§03 §2](./03-architectural-decisions.md#2-状态进程模型pivot-后)）Qwen daemon 走"1 Daemon Instance = 1 Session"路线。本章评估**未来如想切到 OpenCode 那样的 single-process multi-session 模式的工程成本、触发条件、推荐演进路径**——避免现在为可能不会到来的 scale 付永久工程债，同时保留未来可演进的退路。
 
@@ -235,4 +235,4 @@ Stage 6   ❌ 纯 OpenCode 模式迁移 路径 C  ~2-3m
 
 ---
 
-[← 上一篇：与 Anthropic Managed Agents 对比](./20-vs-anthropic-managed-agents.md) · [回到 README](./README.md)
+[← 上一篇：与 Anthropic Managed Agents 对比](./20-vs-anthropic-managed-agents.md) · [下一篇：单 vs 多 Session 设计深度对比 →](./22-single-vs-multi-session-design.md) · [回到 README](./README.md)
