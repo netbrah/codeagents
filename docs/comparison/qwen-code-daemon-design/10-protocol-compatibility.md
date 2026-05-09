@@ -242,9 +242,9 @@ for await (const msg of q) {
 
 | Stage | 实现方式 | 与 stdio 兼容性 |
 |---|---|---|
-| **Stage 1**（`--http-bridge` flag）| daemon spawn 现有 ACP agent 子进程 + HTTP↔stdio 桥接 | **业务逻辑 100% 同源** —— 实际就是同一个 ACP agent，仅外面包了层 HTTP 翻译 |
-| **Stage 2**（原生 daemon）| daemon 内 in-process Session + HttpAcpAdapter 翻译 | **业务逻辑同源** —— `Session.handleXxx()` 复用 ACP agent 调用的同样代码路径 |
-| **Stage 3**（对标 OpenCode 完整设计）| 同上 + workspace router + mDNS + OpenAPI | 同 Stage 2，加企业能力（不影响 SDK 兼容性）|
+| **Stage 1**（`qwen serve` headless，PR#3889）| daemon spawn `qwen --acp` 子进程 + HTTP↔stdio 桥接 | **业务逻辑 100% 同源** —— 实际就是同一个 ACP agent，仅外面包了层 HTTP 翻译 |
+| **Stage 1.5**（Mode A `qwen --serve`）| TUI + HTTP server 同进程 + in-process EventBus | **业务逻辑同源** —— TUI 是 client #0，与远端 client 共享同一事件流 |
+| **Stage 2**（daemon 完善：mDNS / OpenAPI / WebSocket bidi / 多 token）| daemon protocol surface 锁定 | 同 Stage 1，加增强能力（不影响 SDK 兼容性）|
 
 **Stage 1 是最强兼容性保证**——daemon 进程内的 ACP agent 子进程**没有任何改动**，所以行为绝对一致。
 
@@ -403,7 +403,7 @@ const adapter = new HttpAcpAdapter({
 })
 ```
 
-VSCode 的 ide-server.ts 在 Stage 3 可考虑弃用（保留兼容期）。
+VSCode 的 ide-server.ts 在 daemon GA 后可逐步弃用（保留兼容期）。
 
 ### 9.4 IM Channels（Telegram / 微信 / 钉钉）
 

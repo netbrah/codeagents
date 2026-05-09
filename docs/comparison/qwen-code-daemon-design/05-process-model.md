@@ -18,7 +18,7 @@
 ```
 qwen serve daemon 进程（唯一长期主进程，process.cwd() 启动后不变）
 │
-├─ Express 5 HTTP server / WebSocket（Hono 可选 Stage 6+）
+├─ Express 5 HTTP server / WebSocket（Hono 可选 External SaaS 高并发）
 ├─ 全局状态：providers / config / Database (SQLite) / GlobalBus
 │
 ├─ Workspace Map（按 directory 路径缓存）

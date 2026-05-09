@@ -283,7 +283,7 @@ function isWithin(child: string, parent: string): boolean {
 **关键**：Sandbox 内**禁用 `CAP_SYS_ADMIN`** capability：
 
 ```yaml
-# 容器配置（Stage 5+）
+# 容器配置（External sandbox 实施）
 securityContext:
   capabilities:
     drop:
@@ -723,7 +723,7 @@ class Tenant {
 ## 七、推荐实施顺序
 
 ```
-Stage 4 (多租户) 必做的 16 项安全防御：
+External 多租户实施必做的 16 项安全防御：
   ├─ A1-A4 Auth/ACL 层（最优先）：token 强随机 + ACL middleware + unguessable ID
   ├─ F1-F2 Path traversal + symlink（基础）
   ├─ F5 Workspace race condition (SQLite UNIQUE)

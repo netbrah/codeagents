@@ -19,6 +19,13 @@
 
 **项目 scope**：qwen-code 只承诺 daemon building block（Stage 1 / 1.5 / 2，~3 周内 feature complete）。多 session orchestrator / 多租户 / 沙箱 / SaaS 部署等"平台层"作为 [External Reference Architecture](./08-roadmap.md#external-reference-architecture参考实现非项目路线图) 由外部实现，详见 [§22](./22-single-vs-multi-session-design.md) / [§23](./23-orchestrator-multi-tenancy.md) / [§11](./11-multi-tenancy-and-sandbox.md) / [§16](./16-high-availability.md) 设计参考。
 
+> **关于 Stage 编号约定**：本系列文档中的 Stage 编号有两个语境：
+> - **qwen-code 主线路线图**（[§08](./08-roadmap.md)）：Stage 1 / 1.5 / 2，三档锁定，~3 周内 feature complete
+> - **External Reference Architecture 实施 Phase**（[§23 §七](./23-orchestrator-multi-tenancy.md#七saas-实施-4-个-phaseexternal-reference)）：Phase 1-4 SaaS 实施
+> - **平台层章节内"Stage 3 / 4 / 5 / 6"标签**（§15 / §16 / §17 / §18 / §19 / §20 / §14 等中出现）：作为外部 SaaS 演进阶段的非正式渐进标签，与上面 External Phase 对应（不属于 qwen-code 主线 Stage）
+>
+> 简记：**主线 Stage 1/1.5/2 = qwen-code 项目路线图；其他 Stage 编号 = External Reference 演进阶段**。
+
 > **🚀 Stage 1 实现**（2026-05-07）：[**PR#3889**](https://github.com/QwenLM/qwen-code/pull/3889) `feat(cli,sdk): qwen serve daemon (Stage 1)` —— OPEN，**+7698/-46 / 23 commits**（多轮 self-audit + reviewer rounds）。明确引用 [issue #3803](https://github.com/QwenLM/qwen-code/issues/3803)（本系列对应 issue），**~95% 设计决策 1:1 落地**——Express 5 server / ACP NDJSON over HTTP+SSE / Bearer + Host allowlist + 0.0.0.0 拒绝默认 / SHA-256 timing-safe compare / EventBus + ring replay + Last-Event-ID 重连 / first-responder permission vote / DaemonClient SDK / capabilities envelope 9 tags 全部已实现。详见 [§08 路线图 Stage 1 实现 audit](./08-roadmap.md#stage-1-pr3889-实现-audit2026-05-07)。
 >
 > 平行推进的 [PR#3929/3930/3931](https://github.com/QwenLM/qwen-code/pull/3929) `qwen remote-control` 3-stack（不同作者，独立开发）走 stream-json + dual-output + mobile UI 路线，不引用 issue #3803——是 daemon-design **平行参照而非实现**，未来或在 Stage 1.5/2 与 PR#3889 协调融合（mobile UI / pairing token / LAN URL 移植到 daemon）。

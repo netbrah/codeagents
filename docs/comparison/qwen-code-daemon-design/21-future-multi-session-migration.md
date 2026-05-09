@@ -205,7 +205,7 @@ Stage 6   ❌ 纯 OpenCode 模式迁移 路径 C  ~2-3m
 | [§03 §2 状态进程模型](./03-architectural-decisions.md#2-状态进程模型) | 单 session 决策本身——本章是该决策的"未来退路评估" |
 | [§05 进程模型](./05-process-model.md) | AsyncLocalStorage / LocalContext / Map<workspaceId, Instance> 章节作为路径 C 实施参考 |
 | [§06 MCP / 资源共享](./06-mcp-resources.md) | per-workspace MCP / per-session FileReadCache 章节作为路径 A 池化设计参考 |
-| [§08 路线图](./08-roadmap.md) | Stage 1-3 是默认路径；本章是 Stage 4-6 的"如果生产瓶颈出现"分支 |
+| [§08 路线图](./08-roadmap.md) | qwen-code 主线（Stage 1/1.5/2）；本章是 External Reference Architecture 的演进路径之一 |
 | [§09 与 OpenCode 对比](./09-comparison-with-opencode.md) | 路径 C 等价于"完全对齐 OpenCode 模型" |
 | [§16 HA](./16-high-availability.md) | 资源池化 / Worker threads 都改变 HA 模型——daemon-pool → Worker-pool |
 | [§19 长跑稳定性](./19-stability-and-longevity.md) | 路径 C 把跨 session 稳定性挑战重新带回（单 session 模型天然规避）|

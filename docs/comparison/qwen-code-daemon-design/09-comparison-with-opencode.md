@@ -11,7 +11,7 @@
 | 进程模型 | 单 daemon 多 session 共进程 | **1 Daemon Instance = 1 Session**（多 session 由 orchestrator spawn 多 daemon）| 与 PR#3889 child-process-per-session 模型对齐；进程级隔离免费、避开跨 session 隔离复杂度 |
 | `process.cwd()` | 永不改变 | **同款** | OpenCode 已验证 |
 | 上下文传播 | Effect-TS `LocalContext` | **不需要**（daemon 进程本身就是 session ctx）| Qwen 不引入 Effect 重依赖；连 ALS Instance ctx 也不需要 |
-| HTTP 框架 | Hono | **Express 5（默认，复用 vscode-ide-companion 已有依赖）/ Hono 可选（Stage 6 高并发）** | 不强行对齐——Express 5 + zod 校验已够用，Hono 是性能 trigger 后再切 |
+| HTTP 框架 | Hono | **Express 5（默认，复用 vscode-ide-companion 已有依赖）/ Hono 可选（External SaaS 高并发）** | 不强行对齐——Express 5 + zod 校验已够用，Hono 是性能 trigger 后再切 |
 | 协议 schema | OpenAPI codegen（13525 行）| **复用 ACP NDJSON zod schema** | Qwen 已有 838 行 ACP agent，0 设计成本 |
 | 多 channel 支持 | 仅 SDK / TUI / Web | **+ IM / IDE 全走 SessionRouter** | Qwen 已有 Channels 包 |
 | 鉴权 | 单密码 `OPENCODE_SERVER_PASSWORD` | **bearer token + PR#3723 应用层权限流** | Qwen 已有 PR#3723 |
@@ -78,7 +78,7 @@
 
 | 组件 | OpenCode | Qwen Daemon |
 |---|---|---|
-| HTTP 框架 | Hono | **Express 5（默认）** / Hono（Stage 6 可选） |
+| HTTP 框架 | Hono | **Express 5（默认）** / Hono（External SaaS 可选） |
 | Runtime | Bun 优先 / Node fallback | **Node.js 优先（prod 长跑稳）/ Bun dev** |
 | WebSocket | `Bun.serve` + `createBunWebSocket` | 默认 `express-ws`（备选 `ws` 直挂）+ SSE 兜底 |
 | OpenAPI 生成 | `hono-openapi` | `@asteasolutions/zod-to-openapi`（Stage 3）|

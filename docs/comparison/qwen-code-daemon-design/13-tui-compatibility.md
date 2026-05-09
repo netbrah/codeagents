@@ -403,7 +403,7 @@ TUI process (lightweight)              daemon process
 └─ 文件补全（如果同 host）              └─ LLM 调用
 ```
 
-### 5.3 Daemon 自动启动（Stage 3）
+### 5.3 Daemon 自动启动（External 增强 / Stage 2 后）
 
 参考 OpenCode 的 `createOpencodeServer()` 模式：
 
@@ -485,7 +485,7 @@ OpenCode 也有 TUI（参考 `packages/opencode/src/server/routes/instance/tui.t
 | 多 TUI 共 session | 支持 | **支持（决策 §1 默认 single）** |
 | 单进程 mode 兼容 | ❌（OpenCode 无非 daemon mode）| ✅ **完全兼容**（保留 stdio ACP / process mode）|
 | 文件补全 fast path | ❌（总走 daemon）| ✅ **同 host 走本地 fs** |
-| Daemon 自动启动 | ✓ `createOpencodeServer()` | Stage 3 加 |
+| Daemon 自动启动 | ✓ `createOpencodeServer()` | External 增强 / Stage 2 后可加 |
 
 **Qwen TUI 独有 2 项优势**：
 
@@ -503,9 +503,10 @@ OpenCode 也有 TUI（参考 `packages/opencode/src/server/routes/instance/tui.t
 
 新（默认仍单进程，daemon opt-in）:
   $ qwen                           # 仍单进程，零改动
-  $ qwen serve                     # 显式启 daemon
-  $ qwen --daemon                  # 启 TUI 连本地 daemon (Stage 2 起)
-  $ qwen --daemon=remote.com:8080  # 跨 host 连 (Stage 3 起)
+  $ qwen serve                     # 显式启 daemon (Mode B headless)
+  $ qwen --serve                   # CLI + HttpServer (Mode A, Stage 1.5)
+  $ qwen --daemon=local            # 启 TUI 连本地 daemon (External 自动启动)
+  $ qwen --daemon=remote.com:8080  # 跨 host 连 (External 远端 client)
   $ qwen tui --connect ...         # 仅 TUI 模式
 ```
 

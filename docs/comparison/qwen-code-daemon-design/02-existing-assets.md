@@ -190,7 +190,7 @@ const IDE_SERVER_PORT_ENV_VAR = 'QWEN_CODE_IDE_SERVER_PORT';
 this.server = app.listen(0, '127.0.0.1', async () => { ... });
 ```
 
-**daemon 设计直接复用 Express 5 栈**（vscode-ide-companion 已有依赖，0 新包；CORS / Bearer / Origin lock 模板 ide-server.ts:154-200 拷贝即用）。Hono 是 Stage 6 高并发场景的可选切换。
+**daemon 设计直接复用 Express 5 栈**（vscode-ide-companion 已有依赖，0 新包；CORS / Bearer / Origin lock 模板 ide-server.ts:154-200 拷贝即用）。Hono 是 External SaaS 高并发场景的可选切换。
 
 ### 2.7 WebUI ACPAdapter
 
@@ -241,7 +241,7 @@ VSCode 当前自起 express server 给 IDE 用。daemon 推出后，**VSCode 直
 - VSCode 的"打开多 workspace 各自独立"语义是否能在 daemon 的 multi-workspace router 下复现 ✓
 - ide-server 当前的特殊功能（代码补全提示等）是否在 daemon HTTP 路由有等价物 —— 需逐项核对
 
-**建议**：Stage 2 把 VSCode companion 切到 daemon，Stage 3 弃用 ide-server.ts（保留兼容性 deprecation 期）。
+**建议**：Stage 2 把 VSCode companion 切到 daemon；ide-server.ts 在 daemon GA 后逐步弃用（保留兼容性 deprecation 期）。
 
 ## 五、PR#3723 / PR#3717 / PR#3739 的 daemon 化加成
 

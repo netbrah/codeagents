@@ -18,7 +18,7 @@
 | **Container（Docker / Podman）** | 完整 container 隔离 | 200-2000ms | 高 | 跨平台 | 完全不信任 / SaaS production |
 | **远程 sandbox**（独立机器）| 物理机隔离 | 50-3000ms | 高 | 取决于实现 | SaaS / GPU 节点 / 合规边界 |
 
-**核心抽象**：`ShellSandbox` interface 把 shell 执行从 `spawn` 抽象出来，实现可换。Stage 5 上线 4 种本地 sandbox + Monitor tool 走相同接口。Stage 6 SaaS 默认 RemoteSandbox（gRPC + Container 双隔离）。
+**核心抽象**：`ShellSandbox` interface 把 shell 执行从 `spawn` 抽象出来，实现可换。本章作为 [External Reference Architecture](./08-roadmap.md#external-reference-architecture参考实现非项目路线图)（不在 qwen-code 主线路线图）；下面"Stage 5 / 5.5 / 6"指外部实施的渐进路线，不是 qwen-code 主线 Stage（主线只到 Stage 2）。
 
 ## 二、ShellSandbox 抽象接口
 
@@ -392,18 +392,18 @@ class RemoteSandboxedProcess {
 └──────────────────────────────────────────────────────────┘
 ```
 
-### 5.5 与本地 sandbox 的渐进路线
+### 5.5 与本地 sandbox 的渐进路线（External 实施阶段）
 
 ```
-Stage 5 (本地 sandbox):
+Phase 1 (本地 sandbox):
   └─ Bash tool 走 sandbox interface
      （NoSandbox / OsUser / Namespace / Container 4 选 1）
 
-Stage 5.5 (本地 + 远程并存):
+Phase 2 (本地 + 远程并存):
   └─ + RemoteSandbox 实现（仅 SSH-based，最简单）
      用于"我想把 shell 跑到办公室服务器"的个人场景
 
-Stage 6 (SaaS 远程优先):
+Phase 3 (SaaS 远程优先):
   └─ 默认 RemoteSandbox + k8s 调度
      │ 本地 sandbox 仅 self-host 模式保留
      └─ Mixed mode: 简单命令走本地，复杂命令走远程
@@ -415,7 +415,7 @@ Stage 6 (SaaS 远程优先):
 |---|---|
 | PR#3684 Phase C event monitor | monitor 工具同样需要走 sandbox 抽象——远程 sandbox 实现可复用 |
 | PR#3471 task_stop / send_message | 远程进程的 cancel 通过 `task_stop` 工具入口 → `RemoteSandbox.kill()` RPC |
-| PR#3717 FileReadCache | 与远程 sandbox **正交**：FileReadCache 在 daemon 进程内，sandbox 是子进程层；但 sandbox 写文件后 daemon 的 cache invalidation 必须考虑（Stage 5+ audit）|
+| PR#3717 FileReadCache | 与远程 sandbox **正交**：FileReadCache 在 daemon 进程内，sandbox 是子进程层；但 sandbox 写文件后 daemon 的 cache invalidation 必须考虑（External sandbox 实施时 audit）|
 | PR#3820 unescape shell-escaped paths | 远程 sandbox 同样需要处理（path translation 时 escape 处理）|
 | PR#3818 MCP coalesce | 不影响（MCP 仍在 daemon 内）|
 
@@ -453,10 +453,10 @@ token-bucket throttling、`MonitorRegistry` 等机制不变。
 |---|---|---|---|
 | 默认 sandbox | NoSandbox（信任部署）| Linux PID namespace + env scrub | NoSandbox（默认）/ 配置可换 |
 | Sandbox 抽象 | 无显式接口（直接 spawn）| `SCRIPT_CAPS` + namespace | `ShellSandbox` interface（可换实现）|
-| 远程 sandbox | 无 | 无 | ✅ 设计支持（Stage 5.5+）|
+| 远程 sandbox | 无 | 无 | ✅ 设计支持（External Phase 2）|
 | Monitor tool | 不存在 | 不存在 | ✅ 走同 `ShellSandbox` 接口 |
-| Container 支持 | 无 | 无 | ✅ Stage 6 |
-| k8s native | 无 | 无 | ✅ Stage 6 RemoteSandbox + k8s Job |
+| Container 支持 | 无 | 无 | ✅ External Phase 3 |
+| k8s native | 无 | 无 | ✅ External Phase 3 RemoteSandbox + k8s Job |
 
 ## 九、关键权衡
 
@@ -493,13 +493,13 @@ token-bucket throttling、`MonitorRegistry` 等机制不变。
 | 合规分区 | ❌ | ✅ |
 | 成本 | 0 | 网络 + 调度 + 多机器 |
 
-**核心判断**：本地 sandbox 适合个人 / 小团队，远程 sandbox 是 Stage 6 SaaS 必需。
+**核心判断**：本地 sandbox 适合个人 / 小团队，远程 sandbox 是 SaaS 必需（External Phase 3）。
 
 ## 十、一句话总结
 
 **Shell 是 daemon 最危险的攻击面**——即使单 daemon = 单用户，shell 命令是 LLM 行为不可信，必须 sandbox。  
-**`ShellSandbox` interface 在 Stage 5 上线**，4 种本地实现按 `none → os-user → namespace → container` 隔离强度递增；Monitor tool 走相同接口。  
-**远程 sandbox 是 Stage 6 SaaS 关键架构**——把 shell 调度到独立 worker pool（弹性 + 合规 + 跨地理 + GPU 节点）；支持 SSH / gRPC / k8s Job / containerd over TCP 4 种实现，推荐 gRPC + Container 双隔离。  
+**`ShellSandbox` interface 在 External Phase 1 上线**（4 种本地实现按 `none → os-user → namespace → container` 隔离强度递增；Monitor tool 走相同接口）。  
+**远程 sandbox 是 SaaS 关键架构**（External Phase 3）——把 shell 调度到独立 worker pool（弹性 + 合规 + 跨地理 + GPU 节点）；支持 SSH / gRPC / k8s Job / containerd over TCP 4 种实现，推荐 gRPC + Container 双隔离。  
 **多租户 ACL / 配额 / OIDC** 在 orchestrator 层（[§23](./23-orchestrator-multi-tenancy.md)），不在本章范围。
 
 ---

@@ -413,7 +413,7 @@ Tenant alice
       └─ Web UI Client                 ┘
 ```
 
-### 11.3 多租户 SaaS（Stage 4-6）
+### 11.3 多租户 SaaS（External Reference / [§23](./23-orchestrator-multi-tenancy.md)）
 
 ```
 Tenant alice                       Tenant bob

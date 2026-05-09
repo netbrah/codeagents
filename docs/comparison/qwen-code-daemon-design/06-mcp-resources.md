@@ -230,7 +230,7 @@ PR#3774（已合并 2026-05-06）实现的两个错误码语义如下：
 - `miss` 失去 "当前 session 未读过" 含义（其他 session 可能读过但当前没读过）
 - PR#3774 的 prior-read 守卫**整套语义失效**
 
-**结论**：FileReadCache 必须保持 session 内私有，**不评估 Stage 3 升级**——这是与 PR#3774 已落地实现的硬约束。
+**结论**：FileReadCache 必须保持 session 内私有，**不评估升级到跨 session 共享**——这是与 PR#3774 已落地实现的硬约束。
 
 ### 2.6 跨 session 重复 read 的实际代价
 

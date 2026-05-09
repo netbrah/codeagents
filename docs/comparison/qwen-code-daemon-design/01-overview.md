@@ -56,7 +56,7 @@ Mode B: daemon instance 无 TUI 全 HTTP（qwen serve）
 | daemon 不再 spawn CLI | core 直接 import | 同样 |
 | 多 session 模型 | `Map<directory, InstanceContext>`（同进程 N session）| **1 daemon = 1 session**（orchestrator 层 spawn 多 daemon）|
 | `process.cwd()` 不变 | `AsyncLocalStorage` 上下文传播 | 同样但无需 ALS Instance ctx —— daemon 进程本身就是 session ctx（详见 [05-进程模型](./05-process-model.md)）|
-| 持久化关键状态 | SQLite + drizzle-orm（`session.sql.ts:SessionTable`）| Stage 1-2 沿用 JSONL（PR#3739）+ Stage 3 引入 SQLite 装 permission/audit/tokens（§15）|
+| 持久化关键状态 | SQLite + drizzle-orm（`session.sql.ts:SessionTable`）| 主线沿用 JSONL（PR#3739）；SQLite 用于外部 orchestrator 聚合 audit / permission decisions（详见 [§15](./15-persistence-and-storage.md)）|
 
 ### 2.2 Qwen 独有的 3 条特色
 
@@ -164,7 +164,7 @@ OpenCode 用单一 `OPENCODE_SERVER_PASSWORD`（粗粒度访问控制）。Qwen 
 │  - sessionScope routing: single / user / thread                    │
 │  - daemon instance discovery / spawn / cleanup                     │
 │  - cross-daemon aggregate API（Web UI 跨 session 聚合视图）         │
-│  - daemon pool / warm pool（Stage 4+ 资源池化优化，详见 §21）        │
+│  - daemon pool / warm pool（External 资源池化优化，详见 §21）        │
 └────────────────────┬───────────────────────────────────────────────┘
                      │ spawn / route
        ┌─────────────┼─────────────┬──────────────┐
@@ -257,7 +257,7 @@ Channels（IM / Telegram / 微信）用法：保持不变（ChannelAdapter → A
 
 | 维度 | OpenCode | Qwen Daemon（本设计）|
 |---|---|---|
-| **HTTP 框架** | Hono | **Express 5（复用 vscode-ide-companion 已有栈）**——不强行对齐；Hono 是 Stage 6 高并发场景的可选项 |
+| **HTTP 框架** | Hono | **Express 5（复用 vscode-ide-companion 已有栈）**——不强行对齐；Hono 是 External SaaS 高并发场景的可选项 |
 | **Schema 来源** | 自创 OpenAPI（13525 行 codegen）| **复用 ACP NDJSON zod schema** |
 | **多 channel 支持** | 仅 SDK / TUI / Web | **SDK / TUI / Web / IM / IDE 全走 SessionRouter** |
 | **认证** | 单密码 `OPENCODE_SERVER_PASSWORD` | **bearer token + 应用层 PR#3723 权限流** |

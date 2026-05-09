@@ -21,7 +21,7 @@
 | 授权 | tenant → workspaces 映射 + scope 路由策略 |
 | 配额 | per-tenant LLM token quota + 并发 daemon 数 |
 | 审计 | 每 daemon spawn / kill / shell 调用都写 audit log（聚合到 orchestrator）|
-| SaaS 路线图 | Stage 4（多租户）→ Stage 5（沙箱）→ Stage 6（SaaS）|
+| SaaS 实施 Phase | Phase 1（多租户）→ Phase 2/3（沙箱）→ Phase 4（完整 SaaS）|
 
 ## 二、为什么 multi-tenancy 在 orchestrator 而非 daemon
 
@@ -321,10 +321,12 @@ auditChannels:
 | 数据驻留 | per-tenant 配置 audit 写到哪个 region 的存储 |
 | 加密 | audit channel 必须 TLS（syslog → TLS / kafka → TLS）|
 
-## 七、Stage 4-6 SaaS 路线图
+## 七、SaaS 实施 4 个 Phase（External Reference）
+
+> 本节描述外部集成方实施 SaaS 平台层的渐进路径。**不是 qwen-code 主线 Stage**——qwen-code 主线只做 Stage 1/1.5/2（[§08](./08-roadmap.md)）；下面 Phase 是给商业平台 / k8s operator / 云厂商的实施参考。
 
 ```
-Stage 4 (~1-2 周)：Orchestrator 多租户基础
+Phase 1 (~1-2 周)：Orchestrator 多租户基础
   └─ Tenant 抽象 + 配置加载
   └─ Bearer token 认证 + 单 token 多 user
   └─ 基础 quota（concurrent daemons + llm tokens）
@@ -332,17 +334,17 @@ Stage 4 (~1-2 周)：Orchestrator 多租户基础
   └─ workspace allowlist
   └─ 适合：同公司团队 trusted multi-user
 
-Stage 5 (~2-3 周)：+ Shell sandbox
+Phase 2 (~2-3 周)：+ Shell sandbox
   └─ §11 ShellSandbox 4 种本地实现
   └─ Monitor tool 走 sandbox 接口
   └─ 适合：半信任多用户（学校 / 大型团队 / consulting）
 
-Stage 5.5 (~2 周)：+ 远程 sandbox
+Phase 3 (~2 周)：+ 远程 sandbox
   └─ RemoteSandbox（SSH-based 起步）
   └─ Workspace 同步策略（NFS / rsync）
   └─ 适合：daemon vs shell 不同机器场景
 
-Stage 6 (~1-2 月)：完整 SaaS
+Phase 4 (~1-2 月)：完整 SaaS
   └─ OIDC / SSO 集成
   └─ Quota engine（Redis + Lua 原子）+ 优雅降级
   └─ Audit channels（syslog / opentelemetry / kafka）
@@ -357,12 +359,12 @@ Stage 6 (~1-2 月)：完整 SaaS
 
 | 维度 | OpenCode | Claude Code | Qwen daemon |
 |---|---|---|---|
-| 多租户支持 | ❌（单用户）| ❌（单用户）| ✅ Stage 4+ |
+| 多租户支持 | ❌（单用户）| ❌（单用户）| ✅ External Phase 1+ |
 | 认证模式 | 单 password | API key | Bearer / OIDC / mTLS |
 | Quota | ❌ | Anthropic API rate-limit（被动）| 主动 quota engine |
 | Audit | ❌ | Anthropic console | 4 通道可选 |
 | Sandbox | ❌ | Linux PID namespace | 4 本地 + 4 远程方案（§11）|
-| SaaS 模式 | ❌ | Anthropic Managed Agents（闭源）| Stage 6 自托管 SaaS |
+| SaaS 模式 | ❌ | Anthropic Managed Agents（闭源）| External Phase 4 自托管 SaaS |
 
 ## 九、关键权衡
 
@@ -397,7 +399,7 @@ orchestrator 是 SaaS 部署的关键路径——挂了所有用户无法 spawn 
 
 [§03 §2](./03-architectural-decisions.md#2-状态进程模型) "1 daemon = 1 session" 模型把 multi-tenancy 从 daemon 内挤出到 orchestrator 层——daemon 进程级隔离消除 daemon 内 cross-tenant 问题，daemon 代码 0 tenant 感知。  
 **Orchestrator 承担 4 件事**：(1) 认证（Bearer / OIDC / mTLS）+ 授权（tenant → workspace 映射）；(2) Quota 引擎（reservation 模式 + Redis 原子）；(3) Audit log（4 通道）；(4) Daemon 生命周期 + sandbox 配置 spawn。  
-**Stage 4-6 SaaS 路线图**：Stage 4 多租户基础（~1-2w）→ Stage 5 加沙箱（~2-3w）→ Stage 5.5 远程沙箱（~2w）→ Stage 6 完整 SaaS（~1-2m）。  
+**SaaS 实施 4 Phase（External）**：Phase 1 多租户基础（~1-2w）→ Phase 2 加沙箱（~2-3w）→ Phase 3 远程沙箱（~2w）→ Phase 4 完整 SaaS（~1-2m）。  
 **与 OpenCode / Claude Code 差异**：本设计是唯一原生支持多租户 SaaS 的架构（OpenCode / Claude Code 均单用户）。
 
 ---
