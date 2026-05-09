@@ -85,7 +85,7 @@
 | Schema 验证 | Effect Schema | **zod**（与现有 ACP 一致）|
 | 上下文传播 | Effect `Context.Service` | **`AsyncLocalStorage` 直接** |
 | 服务发现 | mDNS Bonjour（默认开启）| Stage 2 可选（默认关）|
-| 持久化 | SQLite via drizzle-orm | JSON+JSONL → External Phase 1 SQLite（[§19 持久化栈](./19-orchestrator-multi-tenancy.md#八引入-sqlite-的边界external-phase-1-orchestrator-层)）|
+| 持久化 | SQLite via drizzle-orm | JSON+JSONL → External Phase 1 SQLite（[§19 持久化栈](./19-orchestrator-multi-tenancy.md#四持久化栈大致方向)）|
 | 鉴权 | `OPENCODE_SERVER_PASSWORD` env | bearer token + PR#3723 |
 
 ## 四、API 命名对比

@@ -21,7 +21,7 @@
 
 > **关于 Stage 编号约定**：本系列文档中的 Stage 编号有两个语境：
 > - **qwen-code 主线路线图**（[§08](./08-roadmap.md)）：Stage 1 / 1.5 / 2，三档锁定，~3 周内 feature complete
-> - **External Reference Architecture 实施 Phase**（[§19 §七](./19-orchestrator-multi-tenancy.md#七saas-实施-4-个-phaseexternal-reference)）：Phase 1-4 SaaS 实施
+> - **External Reference Architecture 实施 Phase**（[§19](./19-orchestrator-multi-tenancy.md#五4-个-phase演进路径)）：Phase 1-4 SaaS 实施
 > - **平台层章节内"Stage 3 / 4 / 5 / 6"标签**（§19 / External SaaS HA / §14 / §15 / §16 / §17 / §13 等中出现）：作为外部 SaaS 演进阶段的非正式渐进标签，与上面 External Phase 对应（不属于 qwen-code 主线 Stage）
 >
 > 简记：**主线 Stage 1/1.5/2 = qwen-code 项目路线图；其他 Stage 编号 = External Reference 演进阶段**。
@@ -92,7 +92,7 @@ daemon 与外部世界对话的协议层、daemon 进程内部的运行时机制
 | # | 文档 | 一句话 |
 |---|---|---|
 | 11 | [Shell 沙箱与远程执行](./11-multi-tenancy-and-sandbox.md) | `ShellSandbox` interface + 4 种本地沙箱（NoSandbox / OS user / Linux namespace / Container）+ **远程 sandbox**（SSH / gRPC / k8s Job / containerd over TCP 4 种实现 + 工作流同步 / stdout 流式 / 取消 / 网络容错 / 延迟 5 大挑战）+ Monitor tool 走相同接口 + 与 Claude Code v2.1.98 SCRIPT_CAPS 对齐 |
-| 19 | [Orchestrator 多租户 + 持久化栈](./19-orchestrator-multi-tenancy.md) | **multi-tenancy 在 orchestrator 层** —— Tenant 抽象 / AuthN 4 模式（Bearer / OIDC / mTLS / cookie）/ AuthZ workspace 映射 / Quota engine（Redis 原子 + reservation 模式）/ Audit log 4 通道（jsonl / syslog / OpenTelemetry / Kafka）+ **持久化栈完整设计**（SQLite 边界 / drizzle-orm 选型 / 8 张核心表 schema / Storage Adapter 抽象 / External Phase 4 多 daemon 共享 / 迁移 / 安全 / 性能基准）|
+| 19 | [Orchestrator 多租户与配额](./19-orchestrator-multi-tenancy.md) | **External Reference Architecture，给 qwen-code 开发者的"大致方向"指引** —— Layer 模型 + orchestrator 4 件事（AuthN / AuthZ / Quota / Audit）+ 持久化栈渐进路径（SQLite → Postgres + Redis + drizzle）+ 4 个 Phase 演进 ~10-14w 完整 SaaS 蓝图 |
 | 16 | [长跑稳定性与可观测性](./16-stability-and-longevity.md) | **接受"重启不可避免"** —— Node.js 长跑 7 类风险（heap / GC / fd / zombie / exception / native crash / ALS 链表）+ 多租户加剧 5 类 + qwen daemon 10 个具体泄漏点（含修复代码）+ **9 项稳定性模式**（TTL / bounded / quota / circuit breaker / memory threshold restart / heap dump / liveness / native supervisor / worker isolation）+ 6 类 native module 风险 + 22 项 Prometheus 指标 + 30 天 Soak/Chaos 测试矩阵 + Bun vs Node.js 长跑实测 |
 
 ### Part VI — 路线图与外部对比
@@ -120,7 +120,7 @@ Qwen Code 已有 ACP agent 838 行 + Channels 多路由设施 + WebUI 包 + SDK 
 - daemon 内部不再 spawn CLI 子进程；core 通过 import 加载到 daemon 进程内
 - **1 Daemon Instance = 1 Session = 1 Workspace**——daemon 进程级隔离，无 multi-session 路由层；多 session 由外部 orchestrator spawn 多 daemon 实现
 - LSP / MCP server / PTY 才是真正的子进程（per-daemon · 不跨 daemon 共享）
-- 持久化：每 daemon 自己的 transcript JSONL；外部 orchestrator 可选 SQLite/Postgres 做 cross-daemon 聚合（详见 [§19 持久化栈](./19-orchestrator-multi-tenancy.md#八引入-sqlite-的边界external-phase-1-orchestrator-层)）
+- 持久化：每 daemon 自己的 transcript JSONL；外部 orchestrator 可选 SQLite/Postgres 做 cross-daemon 聚合（详见 [§19 持久化栈](./19-orchestrator-multi-tenancy.md#四持久化栈大致方向)）
 
 **与 OpenCode 不同的地方**：
 - **进程模型分歧**：OpenCode 走 single-process multi-session；qwen-code 走 multi-process single-session（OS 进程边界天然 isolation，避开应用层 ALS / Effect-TS / per-session resource managers 复杂度）

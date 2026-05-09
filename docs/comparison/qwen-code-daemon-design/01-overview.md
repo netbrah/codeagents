@@ -59,7 +59,7 @@ Mode B: daemon instance 无 TUI 全 HTTP（qwen serve）
 | daemon 不再 spawn CLI | core 直接 import | 同样 |
 | 多 session 模型 | `Map<directory, InstanceContext>`（同进程 N session）| **1 daemon = 1 session**（多 session 由 External orchestrator spawn 多 daemon，不在 qwen-code 主线）|
 | `process.cwd()` 不变 | `AsyncLocalStorage` 上下文传播 | 同样但无需 ALS Instance ctx —— daemon 进程本身就是 session ctx（详见 [05-进程模型](./05-process-model.md)）|
-| 持久化关键状态 | SQLite + drizzle-orm（`session.sql.ts:SessionTable`）| 主线沿用 JSONL（PR#3739）；SQLite 用于外部 orchestrator 聚合 audit / permission decisions（详见 [§19 持久化栈](./19-orchestrator-multi-tenancy.md#八引入-sqlite-的边界external-phase-1-orchestrator-层)）|
+| 持久化关键状态 | SQLite + drizzle-orm（`session.sql.ts:SessionTable`）| 主线沿用 JSONL（PR#3739）；SQLite 用于外部 orchestrator 聚合 audit / permission decisions（详见 [§19 持久化栈](./19-orchestrator-multi-tenancy.md#四持久化栈大致方向)）|
 
 ### 2.2 Qwen 独有的 3 条特色
 

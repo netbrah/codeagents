@@ -202,8 +202,8 @@ Provider/Skill/Model registry — daemon 全局只读单例
 | 资源 | 所有者层级 | 引用 / PR |
 |---|---|---|
 | Token | Tenant（External orchestrator）| §07 |
-| Quota tracker | **Tenant**（在 orchestrator）| [§19 §五](./19-orchestrator-multi-tenancy.md#五per-tenant-quota-引擎) |
-| Audit log | **Tenant**（在 orchestrator）| [§19 §六](./19-orchestrator-multi-tenancy.md#六audit-log) |
+| Quota tracker | **Tenant**（在 orchestrator）| [§19](./19-orchestrator-multi-tenancy.md#二orchestrator-4-件事) |
+| Audit log | **Tenant**（在 orchestrator）| [§19](./19-orchestrator-multi-tenancy.md#二orchestrator-4-件事) |
 | Sandbox factory | **Daemon Instance** | [§11 §四](./11-multi-tenancy-and-sandbox.md#四sandbox-选择逻辑) |
 | LSP server | **Daemon Instance**（per-daemon · 在 1 daemon = 1 workspace 模型下等价 per-workspace）| §06 §3 |
 | MCP server | **Daemon Instance**（per-daemon · 决策 §3）| §06 §1 |

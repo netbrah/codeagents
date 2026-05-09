@@ -292,9 +292,9 @@ IM bot       ─────│  - Mode B (headless)      │
 | 组件 | 工作量参考 | 设计文档 |
 |---|---|---|
 | Tenant 抽象 + Workspace ACL | ~3-5d | [§19 §三 Tenant 抽象](./19-orchestrator-multi-tenancy.md) |
-| AuthN 4 模式（Bearer / OIDC / mTLS / cookie）| ~5-7d | [§19 §四](./19-orchestrator-multi-tenancy.md#四authentication--authorization) |
-| Quota engine（Redis sliding-window + reservation）| ~5-7d | [§19 §五](./19-orchestrator-multi-tenancy.md#五per-tenant-quota-引擎) |
-| Audit log 4 通道（jsonl / syslog / OpenTelemetry / Kafka）| ~3-5d | [§19 §六](./19-orchestrator-multi-tenancy.md#六audit-log) |
+| AuthN 4 模式（Bearer / OIDC / mTLS / cookie）| ~5-7d | [§19](./19-orchestrator-multi-tenancy.md#二orchestrator-4-件事) |
+| Quota engine（Redis sliding-window + reservation）| ~5-7d | [§19](./19-orchestrator-multi-tenancy.md#二orchestrator-4-件事) |
+| Audit log 4 通道（jsonl / syslog / OpenTelemetry / Kafka）| ~3-5d | [§19](./19-orchestrator-multi-tenancy.md#二orchestrator-4-件事) |
 | **合计参考** | **~3-4 周 / 1-2 人** | |
 
 详见 [§19 Orchestrator 多租户与配额](./19-orchestrator-multi-tenancy.md)。
