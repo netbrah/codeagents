@@ -18,7 +18,7 @@
 | **Container（Docker / Podman）** | 完整 container 隔离 | 200-2000ms | 高 | 跨平台 | 完全不信任 / SaaS production |
 | **远程 sandbox**（独立机器）| 物理机隔离 | 50-3000ms | 高 | 取决于实现 | SaaS / GPU 节点 / 合规边界 |
 
-**核心抽象**：`ShellSandbox` interface 把 shell 执行从 `spawn` 抽象出来，实现可换。本章作为 [External Reference Architecture](./08-roadmap.md#external-reference-architecture参考实现非项目路线图)（不在 qwen-code 主线路线图）；下面"Stage 5 / 5.5 / 6"指外部实施的渐进路线，不是 qwen-code 主线 Stage（主线只到 Stage 2）。
+**核心抽象**：`ShellSandbox` interface 把 shell 执行从 `spawn` 抽象出来，实现可换。本章作为 [External Reference Architecture](./08-roadmap.md#external-reference-architecture参考实现非项目路线图)（不在 qwen-code 主线路线图）；下面"Phase 1 / 2 / 3"指外部 sandbox 实施的渐进路线，不是 qwen-code 主线 Stage（主线只到 Stage 2）。
 
 ## 二、ShellSandbox 抽象接口
 

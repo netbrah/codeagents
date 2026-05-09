@@ -55,7 +55,9 @@ External Reference Architecture（外部 / 商业层，参考实现）：
 | 文档 + 示例 + e2e 测试 | 1d | |
 | **合计** | **~7-8 天 / 1 人** | ~700-1000 行新增代码 |
 
-### Stage 1 PR#3889 实现 audit（最近更新 2026-05-09）
+### Stage 1 PR#3889 实现 audit（2026-05-07）
+
+> 最近更新 2026-05-09：commits 23 → 32 / +7698/-46 → +8883/-4 / Stage 1 docs 已补全（commit `27a164c`）/ multi-model audit 累计 close ~30 review threads。
 
 [**PR#3889**](https://github.com/QwenLM/qwen-code/pull/3889) `feat(cli,sdk): qwen serve daemon (Stage 1)` —— OPEN，**+8883/-4 / 32 commits** —— Stage 1 GA-ready（代码 ~95% 设计落地 + 文档 100% 补全 + 多轮 multi-model audit 收敛）。
 
@@ -65,7 +67,7 @@ External Reference Architecture（外部 / 商业层，参考实现）：
 |---|---|---|---|
 | LOC | ~700-1000 行 | **+8883 / -4**（含测试 + 文档；剔除测试 + 文档 ~5100 LOC）| **5x-9x** |
 | 工作量 | ~7-8 天 / 1 人 | 多周（32 commits 跨多轮 multi-model audit + Stage 1 文档补全）| 几周 vs 1 周 |
-| 提交数 | — | **32 commits**：8 实现 + 10 self-audit / review round（claude-opus-4-7 / gpt-5.5 / deepseek 多模型）+ 4 多模型 review threads close 批次（30+ threads）+ 1 Stage 1 docs + 3 merge / lint / misc | — |
+| 提交数 | — | **32 commits**：7 实现 + 13 self-audit / review round（claude-opus-4-7 / gpt-5.5 / deepseek 多模型）+ 2 e2e/doc-note + 5 多模型 review threads close 批次（30+ threads）+ 1 Stage 1 docs + 4 merge / lint | — |
 
 **超出原因**（设计 → 实现的工程现实）：
 

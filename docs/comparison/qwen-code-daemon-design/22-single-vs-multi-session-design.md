@@ -145,12 +145,12 @@ N 个 cold session 启动总成本：
 
 ### 3.6 与现实约束的对齐
 
-**PR#3889 已实现 child-process-per-session**（+7698/-46，~95% 设计落地）—— 这是单 session 模型的事实标准。
+**PR#3889 已实现 child-process-per-session**（+8883/-4 / 32 commits，~95% 设计落地 + 文档 100% 补全）—— 这是单 session 模型的事实标准。
 
 | 选择 | PR#3889 改造 | 与 PR#3889 一致性 |
 |---|---|---|
 | 单 session 模式（当前架构）| ~0 行 | ✅ 100%（PR#3889 child-process = 当前 daemon instance）|
-| 多 session 模式 | retrofit ~7700 行（拆分 child-process 为 in-process router）| ❌ 大改 |
+| 多 session 模式 | retrofit ~8800+ 行（拆分 child-process 为 in-process router）| ❌ 大改 |
 
 **OpenCode 已实现多 session daemon ~半年**——经验和坑都踩过，但他们的 codebase 是 Effect-first，不能直接拷代码。
 
