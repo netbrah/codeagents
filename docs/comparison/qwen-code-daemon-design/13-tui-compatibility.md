@@ -615,7 +615,7 @@ class HttpAcpAdapter {
 // daemon 模式下: TUI 检测自己的终端，daemon 仍传 raw text + tag，TUI 自己上色
 ```
 
-## 十一·五、在 Web 浏览器渲染 TUI 的 3 条路线（2026-05-09）
+## 十一·五、在 Web 浏览器渲染 TUI 的 3 条路线
 
 **问题**：能否在浏览器里渲染 TUI？哪条路线对窄带宽最友好？
 
@@ -668,6 +668,79 @@ class HttpAcpAdapter {
 - **路线 1 旁路最自然的位置**：Mode A 下 Ink 已经在跑 TUI 渲染，只需在 stdout 写入处 tee 一份到 SSE；Mode B 下 daemon 没跑 TUI，要专门启 headless Ink renderer，工作量翻倍
 
 详见 [§03 §7 双部署模式](./03-architectural-decisions.md#7-daemon-部署模式clihttpserver-vs-headlesshttpserver)。
+
+## 十一·六、现有 dual-output 与 Mode A 的对比
+
+> Qwen Code 已有 [dual-output 功能](https://qwenlm.github.io/qwen-code-docs/zh/users/features/dual-output/)（`qwen --json-file <events.jsonl> --input-file <input.jsonl>`）—— TUI 在终端正常渲染，同时把所有事件写到 JSONL 文件、监控另一个 JSONL 文件读入命令。是否能用它做"多端共享同一 session"？
+
+### 11.6.1 dual-output 机制
+
+```bash
+qwen --json-file /tmp/events.jsonl --input-file /tmp/input.jsonl
+```
+
+- **Sidecar 模式**：TUI 在终端正常渲染（stdout）；同时把 ACP 事件 JSONL 流式写到 `events.jsonl`
+- **bidi 文件 I/O**：监控 `input.jsonl`，外部程序 append-only 写命令，TUI 读取执行
+- **不是 server**——纯文件级 stdio bridging
+- 事件类型：`session_start` / `stream_event` / `user` / `assistant` / `control_request` / `control_response`
+- 命令类型：`submit` / `confirmation_response`
+
+### 11.6.2 dual-output 能做到的"多端共享"
+
+| 能力 | dual-output | 说明 |
+|---|---|---|
+| 多个外部程序同时读 events.jsonl | ✅ | Chat UI / VSCode / web 前端可并行 tail |
+| 多个外部程序同时写 input.jsonl | ✅ | 任一端都能发 prompt / approve permission |
+| Tool approval 抢答 | ⚠️ | 文档说"whichever approves first wins"——靠 file write 顺序，非协议保证 |
+| 同步同一 session 状态 | ✅ | events.jsonl 是 canonical transcript |
+
+### 11.6.3 dual-output 缺的协调能力（vs Mode A daemon HTTP/SSE）
+
+| 能力 | dual-output | Mode A（[§03 §7](./03-architectural-decisions.md#7-daemon-部署模式clihttpserver-vs-headlesshttpserver)）|
+|---|---|---|
+| 跨机器（远端 client）| ❌ 仅同机本地文件 | ✅ HTTP 走任何网络 |
+| Bearer token / 认证 | ❌ 任何能读文件的进程都能加入 | ✅（[§07](./07-permission-auth.md)）|
+| First-responder permission vote 协议 | ❌ 文件 race | ✅ 协议级抢答 + 防双 approve（[§03 §6](./03-architectural-decisions.md#6-多-client-并发请求)）|
+| Last-Event-ID 重连补漏 | ❌ 只能重读整个 jsonl | ✅ EventBus + ring replay（[§16](./16-high-availability.md)）|
+| Fan-out backpressure / bounded queue | ❌ 文件无限追加 | ✅ subscriber bounded queue + evict（[§18](./18-client-coordination.md)）|
+| 多端输入串行 / 排队 | ❌ 多 writer append 无原子保证 | ✅ session task queue 串行 |
+| Heartbeat / 断连检测 | ❌ 文件读者断开 TUI 不知 | ✅ 15s heartbeat + AbortController |
+| 跨 client capability 反向 RPC | ❌ | ✅（[§17](./17-remote-cli-mode.md)）|
+| 多 session 路由 | ❌ 一对文件路径 = 一 session | ✅ orchestrator |
+
+### 11.6.4 定位
+
+**dual-output ≈ Mode A 的"穷人版"**：
+- 提供"同机多端观察 + 输入同一 session"的最小可行实现
+- 适合演示分享 / 同机 IDE 集成 / 测试自动化（jq pipeline）
+- **不适合**真正的"多端协作"（手机 + 电脑 + 团队成员）
+
+**Mode A HTTP/SSE**：
+- 提供**协议级**的多端协作（fan-out + 抢答 + 重连 + 认证 + 跨网络）
+- live collaboration 模型（与 Google Docs 多人编辑同构）
+
+### 11.6.5 升级 dual-output 到真正多端共享 = 重写为 HTTP server
+
+| 升级项 | 等价改动 |
+|---|---|
+| File I/O → HTTP/SSE | = Mode A 启动 Express server |
+| 加 bearer token | = [§07 §1](./07-permission-auth.md) 鉴权 |
+| 加 fan-out + bounded queue | = [§03 §6](./03-architectural-decisions.md#6-多-client-并发请求) EventBus |
+| 加 Last-Event-ID 重连 | = [§16 §五](./16-high-availability.md) SSE 重连协议 |
+
+→ 直接做 Mode A 即可，不需要"先升级 dual-output"。
+
+### 11.6.6 互补而非替代
+
+dual-output 和 Mode A 是**互补**关系：
+
+| 场景 | 推荐方案 |
+|---|---|
+| 嵌入到现有 ChatUI（PTY 套壳）/ 测试自动化 / jq pipeline | **dual-output**（轻量、文件级、无新依赖）|
+| 多端协作（手机 + 电脑 + WebUI 同时跑）| **Mode A**（`qwen --serve`）|
+| 远端 daemon（服务器 / 容器）| **Mode B**（`qwen serve`）|
+
+dual-output 的 `events.jsonl` 格式与 Mode A SSE 流的事件 schema 高度同源（都是 ACP 事件），**未来可考虑 dual-output 升级为"file 端口 + HTTP 端口"双输出**——保留文件路径给老用法，HTTP 端口给新用法，零迁移成本。
 
 ---
 
