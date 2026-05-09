@@ -207,6 +207,45 @@ daemon → client: SSE { type: 'tool_result', ... }
                  (response body 是 PromptResponse)
 ```
 
+### SSE Last-Event-ID 重连协议
+
+PR#3889 已实现 [HTML5 EventSource](https://html.spec.whatwg.org/multipage/server-sent-events.html) `Last-Event-ID` 标准——每帧带单调递增 `id`，客户端断线后用 `Last-Event-ID` header 重连，daemon 重放 missed events：
+
+```
+id: evt-12345
+event: message_part
+data: {"type":"text","content":"..."}
+
+id: evt-12346
+event: tool_call_request
+data: {"tool":"Bash","args":{"cmd":"ls"}}
+```
+
+```http
+GET /session/:id/events HTTP/1.1
+Last-Event-ID: evt-12345
+```
+
+```ts
+// daemon 端：用 transcript 行号当 event id（复用 PR#3739 持久化，无需额外 event store）
+app.get('/session/:sid/events', async (req, res) => {
+  const lastEventId = req.header('Last-Event-ID')
+  if (lastEventId) {
+    const transcript = await loadTranscript(sessionId)
+    const startIdx = transcript.findIndex(e => e.id === lastEventId) + 1
+    for (const evt of transcript.slice(startIdx)) sendSse(res, evt)
+  }
+  session.subscribe(evt => sendSse(res, evt))   // EventBus 实时 fan-out
+})
+```
+
+| 关键点 | 说明 |
+|---|---|
+| event id = transcript 行号 | 复用 PR#3739 transcript 持久化，无需额外 event store |
+| TTL 重放窗口 | 仅保留最近 24h（旧 session 不无限 replay）|
+| Back-pressure | client 慢消费 → daemon buffer 满 → 主动断连 + 让 client 重连 |
+| 跨 daemon 重连 | 不支持——sessionId 绑定 daemon instance；orchestrator 路由保证 client 连回原 daemon |
+
 ## 四、典型请求/响应示例
 
 ### 4.1 创建 session + 发 prompt
@@ -401,7 +440,7 @@ GET / HTTP/1.1
 
 ## 八、API 总览：Daemon 层 vs Orchestrator 层
 
-> 1 Daemon Instance = 1 Session 模型下（[§03 §2](./03-architectural-decisions.md#2-状态进程模型) + [§20 设计对比](./20-single-vs-multi-session-design.md)），HTTP API 分两层：**daemon 层**（PR#3889 已落地，主线）+ **orchestrator 层**（External Reference Architecture，由外部实施）。
+> 1 Daemon Instance = 1 Session 模型下（[§03 §2](./03-architectural-decisions.md#2-状态进程模型) + [§18 设计对比](./18-single-vs-multi-session-design.md)），HTTP API 分两层：**daemon 层**（PR#3889 已落地，主线）+ **orchestrator 层**（External Reference Architecture，由外部实施）。
 
 ### 8.1 Daemon 层路由（主线）
 

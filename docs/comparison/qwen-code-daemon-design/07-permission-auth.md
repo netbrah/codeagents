@@ -1,6 +1,6 @@
 # 07 — 权限流与认证
 
-> **🚀 Stage 1 实现状态**（2026-05-07）：本章 Bearer token / Host allowlist / 0.0.0.0 拒绝默认 + first-responder permission vote 全部由 [PR#3889](https://github.com/QwenLM/qwen-code/pull/3889) 实现（commits `61f2f59a1` auth scaffold + `6ee655f0a` permission vote + `ad0e6ec06` timing-safe SHA-256+timingSafeEqual + 401 uniform）。Stage 1 实测加了原 §12 §3.5 才有的 side-channel 防御（401 在 no-header/bad-scheme/wrong-token 三情况返回完全一致）。详见 [§08 Stage 1 实现 audit](./08-roadmap.md#stage-1-pr3889-实现-audit2026-05-07)。
+> **🚀 Stage 1 实现状态**（2026-05-07）：本章 Bearer token / Host allowlist / 0.0.0.0 拒绝默认 + first-responder permission vote 全部由 [PR#3889](https://github.com/QwenLM/qwen-code/pull/3889) 实现（commits `61f2f59a1` auth scaffold + `6ee655f0a` permission vote + `ad0e6ec06` timing-safe SHA-256+timingSafeEqual + 401 uniform）。Stage 1 实测加了原 §07 才有的 side-channel 防御（401 在 no-header/bad-scheme/wrong-token 三情况返回完全一致）。详见 [§08 Stage 1 实现 audit](./08-roadmap.md#stage-1-pr3889-实现-audit2026-05-07)。
 
 > **双部署模式认证默认值**（[§03 §7](./03-architectural-decisions.md#7-daemon-部署模式clihttpserver-vs-headlesshttpserver)）：
 >
@@ -184,7 +184,7 @@ function handleAskInDaemonHttp(
 | B：仅 primary client 能审批 | 需要"主控端 + 观察端"角色概念 → 增加 client 类型 ✗ 用户额外管理负担 |
 | C：majority vote | 多人协作场景才有意义；单用户多 client 反而不便 |
 
-主线选 A；B（primary client）作为外部多用户企业部署的可选 UX 增强（[§21](./21-orchestrator-multi-tenancy.md) External Reference）。
+主线选 A；B（primary client）作为外部多用户企业部署的可选 UX 增强（[§19](./19-orchestrator-multi-tenancy.md) External Reference）。
 
 ### 3.3 审批响应 schema
 
