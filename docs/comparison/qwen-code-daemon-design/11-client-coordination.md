@@ -2,7 +2,7 @@
 
 > [← 上一篇：远端 CLI 模式](./10-remote-cli-mode.md) · [回到 README](./README.md)
 
-> **🚀 Stage 1 部分实现**（2026-05-07）：[PR#3889](https://github.com/QwenLM/qwen-code/pull/3889) commit `41aa95094` 实现了本章 §五 liveness 协议子集——15s heartbeat（比设计 30s 更激进）+ bounded subscriber queues + `client_evicted` overflow（设计 §五.4 子连接超时差异化的简化版）+ AbortController on `req.close`（即时剔除断开 client）。多端协调的 active typer / takeover / kind 限额 / IM bot 一对多用户等高级特性 Stage 1 不含——Stage 2/3 才做。详见 [§06 Stage 1 实现 audit](./06-roadmap.md#stage-1-pr3889-实现-audit2026-05-07)。
+> **🚀 Stage 1 部分实现**（2026-05-07）：[PR#3889](https://github.com/QwenLM/qwen-code/pull/3889) commit `41aa95094` 实现了本章 §五 liveness 协议子集——server-push 15s SSE keepalive 帧（与设计 15s 一致）+ bounded subscriber queues + `client_evicted` overflow（消息队列满即 evict 慢消费 client，§九 数量上限的细粒度版）+ AbortController on `req.close`（即时剔除断开 client）。多端协调的 active typer / takeover / kind 限额 / IM bot 一对多用户等高级特性 Stage 1 不含——Stage 2 + External 才做。详见 [§06 Stage 1 实现 audit](./06-roadmap.md#stage-1-pr3889-实现-audit2026-05-07)。
 
 > **多端协调要点**（[§02 §2](./02-architectural-decisions.md#2-状态进程模型) "1 daemon = 1 session"下）：
 >
@@ -16,9 +16,10 @@
 
 | 维度 | 默认 | 可选（企业）|
 |---|---|---|
-| Subscriber 数量 | 不限（max_subscribers=20 防滥用）| 限制可配 |
+| Subscriber 数量 | 默认 maxTotal=20 防滥用（不在 §1 collaboration 哲学下过早 hard-limit）| tenant config 调整 |
 | 同类型多个（CLI×N / WebUI×N）| ✓ 允许 | exclusive_per_type 模式拒绝 |
-| Liveness 协议 | **15s heartbeat**（PR#3889 实际）/ 90s 超时 / TCP RST 即时剔除 | 弱网可调 30/60s |
+| Liveness（Stage 1）| server-push 15s SSE keepalive + TCP RST 即时剔除 | 同 |
+| Liveness（Stage 2+）| + 90s heartbeat 超时兜底 + 子连接超时差异化 | 弱网调 30/60s |
 | Active Typer 协调 | "X is typing..." 提示 + 5s 让出 | 同 |
 | Takeover | 显式 `--takeover` flag | 同 |
 | Exclusive 模式 | ✗ | tenant config 启用 |
@@ -103,7 +104,7 @@ ClientId = <kind>-<host>-<unguessable-random-base32>
         = im_bot-wechat-x9k4n1...
 ```
 
-unguessable 防猜测（ 同款）。
+unguessable 防猜测（与 OpenCode `instance.id` 同款）。
 
 ### 3.3 Subscriber 列表 API
 
@@ -210,14 +211,18 @@ daemon 校验 + 加入 subscribers + 返回 SSE 流的 endpoint。
 
 ### 5.1 Heartbeat 频率
 
-| 间隔 | 用于 |
-|---|---|
-| **15s 标准（PR#3889 实际）** | 默认 client heartbeat 间隔；EventBus 端推送 keepalive 帧 |
-| **10s 加密** | mTLS / 高敏感场景，更快检测 stale |
-| **60s 弱网** | 移动网络 / IM bot，省流量 |
+PR#3889 Stage 1 实际机制：**server-push SSE keepalive 帧**，每 15s daemon 主动向所有 SSE subscriber 发一条空注释帧（`:keepalive\n\n`），保持 TCP 连接 + 让 client `EventSource` 检测断连。Client 端**不需要**主动 POST 心跳。
+
+| 机制 | 间隔 | 主动方 | Stage |
+|---|---|---|---|
+| **SSE keepalive 帧（PR#3889 实际）** | 15s | daemon → client（push）| Stage 1 |
+| TCP RST `req.close` 监听 | 即时 | OS / client | Stage 1 |
+| Client-POST `/session/:id/heartbeat`（含 state / ssePosition）| 设计可调 30/60s | client → daemon | Stage 2+（设计扩展，含 active typer 状态上报）|
+
+Stage 2+ 设计扩展（含 active typer state / ssePosition 上报）：
 
 ```ts
-// CLI 端（间隔可配，默认 15s 与 PR#3889 一致）
+// CLI 端（Stage 2+ 设计扩展；Stage 1 PR#3889 不依赖此 endpoint）
 setInterval(async () => {
   try {
     await fetch(`${daemonUrl}/session/${sid}/heartbeat`, {
@@ -232,13 +237,15 @@ setInterval(async () => {
   } catch {
     // 网络不通，下次重试
   }
-}, 15_000)
+}, 30_000)   // Stage 2+ 默认；弱网可调 60s
 ```
 
-### 5.2 超时与剔除
+### 5.2 超时与剔除（Stage 2+ 设计扩展）
+
+> Stage 1 PR#3889 不需要 SessionCleaner——靠 §5.3 TCP RST `req.close` 即时剔除即可。下面 cleanup loop 是 Stage 2+ 引入 client-POST heartbeat 后的兜底逻辑（防止 NAT 表过期 / 长 TCP 连接挂死等场景）。
 
 ```ts
-// daemon 端 cleanup loop（每 30s）
+// daemon 端 cleanup loop（每 30s · Stage 2+）
 class SessionCleaner {
   cleanup() {
     for (const session of allSessions) {
@@ -288,7 +295,9 @@ sseStream.on('close', () => {
 
 通过 `client_kind` 决定超时阈值。
 
-## 六、Active Typer 协调
+## 六、Active Typer 协调（Stage 2+）
+
+> Stage 1 PR#3889 不实现 active typer——多 client 并发输入时仅依赖决策 §6 prompt FIFO 串行排队（先到先得）。下面是 Stage 2+ 引入的 UX 协调机制。
 
 ### 6.1 状态机
 
@@ -385,7 +394,7 @@ UI 显示队列：
 
 可能出现：Alice 在 typing prompt，但 Bob（IM bot 里的）抢答了 Bash 权限请求。这是合理的——分工。
 
-## 七、Takeover 显式接管
+## 七、Takeover 显式接管（Stage 2+）
 
 ### 7.1 何时需要
 
@@ -443,7 +452,7 @@ data: {
 
 主线 daemon 把 takeover 事件追加到本地 transcript JSONL（不写 RDBMS）；External orchestrator 接管后通过 audit channel（jsonl / syslog / OpenTelemetry / Kafka，详见 [§14 §二 Orchestrator 4 件事](./14-orchestrator-multi-tenancy.md#二orchestrator-4-件事)）汇聚到 audit_log 表 + 企业 tenant 可订阅 audit webhook 实时告警 takeover 事件。
 
-## 八、Exclusive 模式（可选 / tenant config）
+## 八、Exclusive 模式（External Phase 1 / 企业 tenant config）
 
 ### 8.1 启用
 
@@ -510,7 +519,9 @@ T=30    新 CLI 添加成功，返回 200
 兜底: liveness 60s 已标 stale；exclusive 模式下 stale 视为可强制 kick
 ```
 
-## 九、Subscriber 数量上限
+## 九、Subscriber 数量上限（Stage 2+）
+
+> Stage 1 PR#3889 实现的 `client_evicted` overflow 是单 SSE subscriber 队列层面的 bounded queue（消费慢即 evict），不是本节的 `maxTotal` / `maxPerKind` session 级数量上限。
 
 ### 9.1 默认上限
 
@@ -599,7 +610,7 @@ Active subscribers
 [Reconnect] [View transcript] [Quit]
 ```
 
-## 十一、IM Bot 多用户特殊处理
+## 十一、IM Bot 多用户特殊处理（External Reference）
 
 ### 11.1 问题
 
@@ -703,7 +714,7 @@ T=30   client 应该发 heartbeat → 失败
 T=30-60 client 退避重连
 T=60   重连成功 → 新 SSE 流（同 ClientId 复用）
 T=60   daemon 端：老 SSE 正在 timeout 中，新连接来了
-       → 端老的（同 ClientId 视为重连），用新连接
+       → 断老的（同 ClientId 视为重连），用新连接
        → activeTyper 保持（同 client 复用）
 T=60+  events from Last-Event-ID 续接
 ```
@@ -789,7 +800,7 @@ T=120  之前正在编辑的 prompt 内容 lost? → 不一定
 
 | Stage / Phase | 本章实施 |
 |---|---|
-| Stage 1 (Mode B headless, PR#3889) | minimal: 仅 add/remove subscriber + 15s heartbeat（已实现）|
+| Stage 1 (Mode B headless, PR#3889) | minimal: subscriber add/remove via SSE connect/close + server-push 15s SSE keepalive + bounded subscriber queue + client_evicted overflow（已实现）|
 | Stage 1.5 (Mode A) | + TUI in-process subscriber 同 EventBus 协议 |
 | Stage 2 (daemon 完善) | + active typer + subscribers list UI + takeover + maxTotal/maxPerKind |
 | External Phase 1 (orchestrator + 多租户)| + exclusive mode tenant config |
@@ -798,7 +809,7 @@ T=120  之前正在编辑的 prompt 内容 lost? → 不一定
 
 ## 十七、一句话总结
 
-**Qwen daemon 多端协调 = 默认 shared 模式（不限制 client 数量，保住 §1+§6 collaboration 哲学）+ 6 类 client kind 分桶上限（cli/webui/ide/im_bot/sdk/mobile）+ 30s heartbeat + 90s 超时 + TCP RST 即时剔除 + active typer 协调（5s 让出，"X is typing"）+ 显式 takeover API（带 audit）+ 可选 exclusive_per_type 模式（企业 tenant config 启用，kick_oldest 行为带 30s grace + cancel takeover）+ IM bot kind 一对多用户特殊处理（多 IM 渠道并存 + 消息去重 + 任意人 first responder permission）。设计哲学：协调 > 排斥，默认让 collaboration 工作，企业有需要可加约束，不把 hard limit 作为全局默认。**
+**Qwen daemon 多端协调 = 默认 shared 模式（不限制 client 数量，保住 §1+§6 collaboration 哲学）+ 6 类 client kind 分桶上限（cli/webui/ide/im_bot/sdk/mobile）+ 15s heartbeat（PR#3889 server-push SSE keepalive）+ 90s 超时 + TCP RST 即时剔除 + active typer 协调（5s 让出，"X is typing"）+ 显式 takeover API（带 audit）+ 可选 exclusive_per_type 模式（企业 tenant config 启用，kick_oldest 行为带 30s grace + cancel takeover）+ IM bot kind 一对多用户特殊处理（多 IM 渠道并存 + 消息去重 + 任意人 first responder permission）。设计哲学：协调 > 排斥，默认让 collaboration 工作，企业有需要可加约束，不把 hard limit 作为全局默认。**
 
 ---
 

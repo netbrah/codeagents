@@ -72,7 +72,7 @@ daemon 与外部世界对话的协议层、daemon 进程内部的运行时机制
 |---|---|---|
 | 09 | [TUI 单进程 vs Daemon 兼容性](./09-tui-compatibility.md) | 4 层兼容性矩阵（显示层 100% / 状态层 100% / 数据源层替换 / 本地依赖 5 类 fallback）+ 多 TUI 共 session + 同 host fast path vs 跨 host RPC + 12 项兼容性测试 |
 | 10 | [远端 CLI 模式与 Client Capability 协议](./10-remote-cli-mode.md) | 3 类拓扑（Local-Local / Local-Remote 不推荐 / **Remote-Remote 推荐**）+ Client Capability 反向 RPC 协议 + 5 类 capability + TLS/mTLS auth + NAT 穿透 + Local echo + VSCode Remote-SSH 对比 |
-| 11 | [多端协调策略](./11-client-coordination.md) | 不限同类型 client 数量（保 collaboration 哲学）+ 6 类 client kind 分桶上限 + liveness（30s heartbeat / 90s 超时 / TCP RST 即时剔除）+ active typer 协调 + 显式 takeover + 可选 exclusive_per_type 模式 + IM bot 一对多用户 |
+| 11 | [多端协调策略](./11-client-coordination.md) | 不限同类型 client 数量（保 collaboration 哲学）+ 6 类 client kind 分桶上限 + liveness（PR#3889 server-push 15s SSE keepalive + 90s 超时 + TCP RST 即时剔除）+ active typer 协调 + 显式 takeover + 可选 exclusive_per_type 模式 + IM bot 一对多用户 |
 
 ### Part IV — 数据与状态
 

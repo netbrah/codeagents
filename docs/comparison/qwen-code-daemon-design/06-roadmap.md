@@ -135,11 +135,11 @@ External Reference Architecture（外部 / 商业层，参考实现）：
 | §05 §6.1 0.0.0.0 拒绝默认 | **100%** ✓ |
 | §08 capabilities envelope | **100%**（9 tags 实现）|
 | §03 §三 SSE Last-Event-ID 重连 | **100%**（ring + replay + 15s heartbeat）|
-| §11 §五 liveness 协议 | **100%+**（heartbeat 实现 15s 比设计 30s 更激进；client_evicted overflow 已实现）|
+| §11 §五 liveness 协议（Stage 1 子集）| **100%**（server-push 15s SSE keepalive + req.close TCP RST 即时剔除 + client_evicted overflow 全部实现；client-POST heartbeat / SessionCleaner 是 Stage 2+ 范畴）|
 | §10 远端 CLI / Capability 反向 RPC | **0%**（Stage 1 不含；External 范畴）|
 | **Stage 1 文档**（user guide + HTTP 协议 reference + SDK 示例）| **100%**（commit `27a164c` 补全 §06 §"Documentation + examples + e2e tests" 1d 任务）|
 
-**综合**：100% Stage 1 范畴内的设计决策 1:1 实现；文档 100% 补全；少数偏差都是**设计向更严格演进**（timing-safe / 401 uniform / 15s heartbeat 比 30s 更激进 / IPv6 ergonomics），不是简化。**Stage 1 GA-ready**——可 merge 后开 Stage 1.5（Mode A `qwen --serve` ~4d）follow-up。
+**综合**：100% Stage 1 范畴内的设计决策 1:1 实现；文档 100% 补全；少数偏差都是**设计向更严格演进**（timing-safe SHA-256 + crypto.timingSafeEqual / 401 uniform across no-header/bad-scheme/wrong-token / IPv6 loopback ergonomics），不是简化。**Stage 1 GA-ready**——可 merge 后开 Stage 1.5（Mode A `qwen --serve` ~4d）follow-up。
 
 #### 5️⃣ 经验沉淀
 
