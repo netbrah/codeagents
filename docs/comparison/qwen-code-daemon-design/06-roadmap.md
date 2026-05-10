@@ -23,23 +23,7 @@ External Reference Architecture（外部 / 商业层，参考实现）：
 
 **核心判断**：qwen-code 是 building block，不是 SaaS 平台。Stage 1 + Stage 1.5 + Stage 2 完成后 daemon 协议表面 100% 稳定，外部集成方（如阿里云 DashScope / 自建团队 / 用户）可基于此自由实现 orchestrator + 多租户 + SaaS。这与 OpenCode（端到端 SaaS 路线）的设计哲学相反——后者绑定平台决策，前者保持 Unix 风格的可组合性。
 
----
-
-## Stage 0：前置 PR 完成度（确认已就绪）
-
-进入 Stage 1 前确认以下 PR 已合并：
-
-| PR | 状态 | 必要性 |
-|---|---|---|
-| PR#3717 FileReadCache | ✅ 已合并 | session-scoped cache 是 daemon 必备 |
-| PR#3810 FileReadCache 5 路径 invalidation | ✅ 已合并 | 长 session 正确性 |
-| PR#3723 共享 permission flow | ✅ 已合并 | daemon 加第 4 mode 的基础 |
-| PR#3739 Background agent resume + transcript-first fork | ✅ 已合并 | daemon 重启 / 跨 client 续行 |
-| PR#3642 `/tasks` + background shell pool | ✅ 已合并 | 跨 session 任务调度 |
-| PR#3818 MCP rediscovery coalesce | ✅ 已合并 | MCP pool 共享 |
-| PR#3836 Kind framework 4 消费者 | ✅ 已合并 | 跨 client 任务可见性 |
-
-✓ **全部 PR 在 2026-05-06 之前已合并**——daemon 化的所有前置基础已就绪。
+> **前置 PR 全部已合并**（2026-05-06 之前）：PR#3717 FileReadCache + PR#3810 5 路径 invalidation + PR#3723 共享 permission flow + PR#3739 transcript-first fork + PR#3642 `/tasks` + PR#3818 MCP rediscovery coalesce + PR#3836 Kind framework——daemon 化前置基础就绪。
 
 ---
 
