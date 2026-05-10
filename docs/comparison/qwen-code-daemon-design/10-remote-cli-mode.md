@@ -1,6 +1,6 @@
-# 11 — 远端 CLI 模式与 Client Capability 协议
+# 10 — 远端 CLI 模式与 Client Capability 协议
 
-> [← 上一篇：TUI 兼容性](./10-tui-compatibility.md) · [回到 README](./README.md)
+> [← 上一篇：TUI 兼容性](./09-tui-compatibility.md) · [回到 README](./README.md)
 
 > **远端 client 接入流程**（[§02 §2](./02-architectural-decisions.md#2-状态进程模型) "1 daemon = 1 session"下）：
 >
@@ -37,7 +37,7 @@ Laptop / Workstation
 **适用**：
 - 单人开发（最常见）
 - Stage 1-3 默认部署
-- 同 host 多 client（CLI 1 + CLI 2 + IDE 同 session，[§10](./10-tui-compatibility.md)）
+- 同 host 多 client（CLI 1 + CLI 2 + IDE 同 session，[§09](./09-tui-compatibility.md)）
 
 **特点**：
 - 无网络层 latency
@@ -782,11 +782,11 @@ CLI 可缓存少量数据本地：
 
 CLI 重连时传 `Last-Event-ID`：daemon 通过 PR#3739 transcript-first fork resume 重建 session（如果命中其他 pod）→ 拉 events from Last-Event-ID + 1 → 客户端 UI 无缝续接。
 
-## 十、与 §10 TUI 兼容性的关系
+## 十、与 §09 TUI 兼容性的关系
 
-[§10](./10-tui-compatibility.md) 讨论了 TUI 在单进程 vs daemon 下的兼容性，**Local-Local 拓扑（§10 主题）**已覆盖；**本章补充 Remote-Remote 拓扑**。
+[§09](./09-tui-compatibility.md) 讨论了 TUI 在单进程 vs daemon 下的兼容性，**Local-Local 拓扑（§09 主题）**已覆盖；**本章补充 Remote-Remote 拓扑**。
 
-| 维度 | §10 Local | §11 Remote |
+| 维度 | §09 Local | §10 Remote |
 |---|---|---|
 | Ink 组件 | 共用 | 共用 |
 | HttpAcpAdapter | 同 host fast path | 跨 host RPC + TLS |
@@ -795,7 +795,7 @@ CLI 重连时传 `Last-Event-ID`：daemon 通过 PR#3739 transcript-first fork r
 | Local echo | 不需要 | **必需** |
 | 离线降级 | 通常不需要（同机不会断）| **必需** |
 
-§10 + §11 合起来构成完整的 TUI 部署矩阵。
+§09 + §10 合起来构成完整的 TUI 部署矩阵。
 
 ## 十一、与 VSCode Remote-SSH 的对比借鉴
 
@@ -943,7 +943,6 @@ CLI 端必须验证收到的 SSE event `session_id` 与自己订阅的 sessionId
 | §4 FileReadCache per-session | session-private 跨设备共享时仍正确（cache 在 daemon 端）|
 | §5 Permission 第 4 mode 'daemon-http' | Remote 是 daemon-http 的常见使用场景 |
 | §6 多 client fan-out + first responder | Remote 多端协作的核心 |
-| §09 多租户 + sandbox | Remote 是多租户的常见部署 |
 | §05 越权防御 | Remote 加固：cookie HMAC + mTLS + IP allowlist |
 | External SaaS HA | Remote SSE 重连协议（Last-Event-ID）必需 |
 
@@ -964,4 +963,4 @@ CLI 端必须验证收到的 SSE event `session_id` 与自己订阅的 sessionId
 
 ---
 
-[← 返回 README](./README.md) · [下一篇：多端协调策略 →](./12-client-coordination.md)
+[← 返回 README](./README.md) · [下一篇：多端协调策略 →](./11-client-coordination.md)

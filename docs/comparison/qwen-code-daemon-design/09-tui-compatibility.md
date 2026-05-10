@@ -1,6 +1,6 @@
-# 10 — TUI 单进程 vs Daemon 兼容性
+# 09 — TUI 单进程 vs Daemon 兼容性
 
-> [← 上一篇：Shell 沙箱与远程执行](./09-multi-tenancy-and-sandbox.md) · [回到 README](./README.md)
+> [← 上一篇：协议兼容性](./08-protocol-compatibility.md) · [回到 README](./README.md)
 
 > Qwen Code 的 TUI（基于 Ink + React）在单进程和 Daemon 两种模式下的兼容性分析。**结论：显示层 / 状态层 100% 兼容（同一组组件 + Context shape），数据源层用 HttpAcpAdapter 替换，5 类本地依赖功能需要 case-by-case fallback**。
 
@@ -10,7 +10,7 @@
 > |---|---|---|
 > | **传统单进程**（`qwen`）| in-process direct call（`Session.handleXxx()`）| 现状 |
 > | **Mode A in-process bus subscriber**（`qwen --serve`）| in-process EventBus（与 HTTP 远端 client 走同一套 fan-out） | §02 §7 |
-> | **Mode B 远端 TUI**（`qwen client --remote-url`，[§11](./11-remote-cli-mode.md)）| HTTP/SSE via HttpAcpAdapter | §11 |
+> | **Mode B 远端 TUI**（`qwen client --remote-url`，[§10](./10-remote-cli-mode.md)）| HTTP/SSE via HttpAcpAdapter | §10 |
 >
 > Mode A 的 TUI **不是 HTTP client**——它是 in-process subscriber，省了 HTTP 序列化成本但拿到字节级一致的事件流。本章下面的 HttpAcpAdapter 部分主要适用于 Mode B（远端 TUI）。Mode A 用 `InProcAdapter` 做同等抽象但内部直接订阅 EventBus。详见 [§02 §7](./02-architectural-decisions.md#7-daemon-部署模式clihttpserver-vs-headlesshttpserver)。
 
@@ -703,10 +703,10 @@ qwen --json-file /tmp/events.jsonl --input-file /tmp/input.jsonl
 | Bearer token / 认证 | ❌ 任何能读文件的进程都能加入 | ✅（[§05](./05-permission-auth.md)）|
 | First-responder permission vote 协议 | ❌ 文件 race | ✅ 协议级抢答 + 防双 approve（[§02 §6](./02-architectural-decisions.md#6-多-client-并发请求)）|
 | Last-Event-ID 重连补漏 | ❌ 只能重读整个 jsonl | ✅ EventBus + ring replay（）|
-| Fan-out backpressure / bounded queue | ❌ 文件无限追加 | ✅ subscriber bounded queue + evict（[§12](./12-client-coordination.md)）|
+| Fan-out backpressure / bounded queue | ❌ 文件无限追加 | ✅ subscriber bounded queue + evict（[§11](./11-client-coordination.md)）|
 | 多端输入串行 / 排队 | ❌ 多 writer append 无原子保证 | ✅ session task queue 串行 |
 | Heartbeat / 断连检测 | ❌ 文件读者断开 TUI 不知 | ✅ 15s heartbeat + AbortController |
-| 跨 client capability 反向 RPC | ❌ | ✅（[§11](./11-remote-cli-mode.md)）|
+| 跨 client capability 反向 RPC | ❌ | ✅（[§10](./10-remote-cli-mode.md)）|
 | 多 session 路由 | ❌ 一对文件路径 = 一 session | ✅ orchestrator |
 
 ### 11.6.4 定位
@@ -842,4 +842,4 @@ Mode B 多 session 部署时：
 
 ---
 
-[← 回到 README](./README.md) · [下一篇：远端 CLI 模式 →](./11-remote-cli-mode.md)
+[← 回到 README](./README.md) · [下一篇：远端 CLI 模式 →](./10-remote-cli-mode.md)
