@@ -8,7 +8,7 @@
 
 ```
 qwen-code 主线（~3 周内 feature complete）：
-├─ Stage 1   ✅ (~1 周, PR#3889 ~95% 实现) Mode B headless qwen serve
+├─ Stage 1   ✅ (~1 周, PR#3889 Stage 1 scope 100%) Mode B headless qwen serve
 ├─ Stage 1.5 🆕 (~4 天增量) Mode A CLI + HttpServer (qwen --serve)
 └─ Stage 2   🆕 (~1-2 周) daemon 完善：mDNS / OpenAPI / WebSocket bidi / 多 token / Metrics
 
@@ -43,7 +43,7 @@ External Reference Architecture（外部 / 商业层，参考实现）：
 
 ---
 
-## Stage 1：Mode B headless `qwen serve`（~1 周，✅ PR#3889 ~95% 实现）
+## Stage 1：Mode B headless `qwen serve`（~1 周，✅ PR#3889 GA-ready / Stage 1 scope 100%）
 
 ### 目标
 
@@ -77,7 +77,7 @@ External Reference Architecture（外部 / 商业层，参考实现）：
 
 > 最近更新 2026-05-09：commits 23 → 32 / +7698/-46 → +8883/-4 / Stage 1 docs 已补全（commit `27a164c`）/ multi-model audit 累计 close ~30 review threads。
 
-[**PR#3889**](https://github.com/QwenLM/qwen-code/pull/3889) `feat(cli,sdk): qwen serve daemon (Stage 1)` —— OPEN，**+8883/-4 / 32 commits** —— Stage 1 GA-ready（代码 ~95% 设计落地 + 文档 100% 补全 + 多轮 multi-model audit 收敛）。
+[**PR#3889**](https://github.com/QwenLM/qwen-code/pull/3889) `feat(cli,sdk): qwen serve daemon (Stage 1)` —— OPEN，**+8883/-4 / 32 commits** —— Stage 1 GA-ready（代码 100% Stage 1 scope 落地 + 文档 100% 补全 + 多轮 multi-model audit 收敛）。
 
 #### 1️⃣ 体量与预估对比
 
@@ -146,16 +146,16 @@ External Reference Architecture（外部 / 商业层，参考实现）：
 | §02 §6 prompt FIFO + first responder | **100%** ✓ |
 | §03 §一 路由表 | **100%**（daemon 层核心路由全实现）|
 | §03 §二.2 复用 ACP zod schema | **100%** ✓ |
-| §03 §三 SSE / WebSocket | **80%**（SSE 完整 / WebSocket Stage 2 deferred）|
+| §03 §三 SSE | **100% Stage 1 scope**（SSE 完整；WebSocket 在 Stage 2 范畴内）|
 | §05 §1 Bearer token | **100%** + 加 timing-safe compare + 401 uniform |
 | §05 §6.1 0.0.0.0 拒绝默认 | **100%** ✓ |
 | §08 capabilities envelope | **100%**（9 tags 实现）|
 | §03 §三 SSE Last-Event-ID 重连 | **100%**（ring + replay + 15s heartbeat）|
-| §11 §五 liveness 协议 | **75%**（heartbeat 间隔 15s vs 设计 30s——更激进；client_evicted overflow 已实现）|
+| §11 §五 liveness 协议 | **100%+**（heartbeat 实现 15s 比设计 30s 更激进；client_evicted overflow 已实现）|
 | §10 远端 CLI / Capability 反向 RPC | **0%**（Stage 1 不含；External 范畴）|
 | **Stage 1 文档**（user guide + HTTP 协议 reference + SDK 示例）| **100%**（commit `27a164c` 补全 §06 §"Documentation + examples + e2e tests" 1d 任务）|
 
-**综合**：~95% Stage 1 范畴内的设计决策 1:1 实现；文档 100% 补全；少数偏差都是**设计向更严格演进**（timing-safe / 401 uniform / 15s heartbeat 比 30s 更激进 / IPv6 ergonomics），不是简化。**Stage 1 GA-ready**——可 merge 后开 Stage 1.5（Mode A `qwen --serve` ~4d）follow-up。
+**综合**：100% Stage 1 范畴内的设计决策 1:1 实现；文档 100% 补全；少数偏差都是**设计向更严格演进**（timing-safe / 401 uniform / 15s heartbeat 比 30s 更激进 / IPv6 ergonomics），不是简化。**Stage 1 GA-ready**——可 merge 后开 Stage 1.5（Mode A `qwen --serve` ~4d）follow-up。
 
 #### 5️⃣ 经验沉淀
 

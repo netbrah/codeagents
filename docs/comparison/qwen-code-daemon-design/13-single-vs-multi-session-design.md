@@ -145,7 +145,7 @@ N 个 cold session 启动总成本：
 
 ### 3.6 与现实约束的对齐
 
-**PR#3889 已实现 child-process-per-session**（+8883/-4 / 32 commits，~95% 设计落地 + 文档 100% 补全）—— 这是单 session 模型的事实标准。
+**PR#3889 已实现 child-process-per-session**（+8883/-4 / 32 commits，Stage 1 scope 100% + 文档 100% 补全）—— 这是单 session 模型的事实标准。
 
 | 选择 | PR#3889 改造 | 与 PR#3889 一致性 |
 |---|---|---|

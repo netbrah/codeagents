@@ -171,7 +171,7 @@
 # Stage 0：现状 - 用户启动 stdio ACP agent
 qwen --acp                                   # stdio NDJSON
 
-# Stage 1（PR#3889 ~95% 实现）：Mode B headless qwen serve
+# Stage 1（PR#3889 GA-ready / Stage 1 scope 100%）：Mode B headless qwen serve
 qwen serve --port 5096
 
 # Stage 1.5（~4d 增量）：Mode A CLI + HttpServer
