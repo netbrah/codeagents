@@ -1,10 +1,10 @@
-# 11 — Shell 沙箱与远程执行
+# 10 — Shell 沙箱与远程执行
 
-> [← 上一篇：协议兼容性](./10-protocol-compatibility.md) · [下一篇：TUI 兼容性 →](./12-tui-compatibility.md)
+> [← 上一篇：协议兼容性](./09-protocol-compatibility.md) · [下一篇：TUI 兼容性 →](./11-tui-compatibility.md)
 
 > Shell 工具是 daemon 最危险的攻击面——`spawn(cmd, { cwd })` 默认跑 daemon 进程权限，多租户 / 半信任场景必须加 sandbox。本章设计 `ShellSandbox` 抽象接口 + 5 种实现方案 + 远程 sandbox（daemon 与 shell 不在同机）的完整方案。
 
-> **本章只关注 daemon 内的 sandbox 设计**。多租户 ACL / 配额 / 审计 / OIDC 等 orchestrator 层事项见 [§19 Orchestrator 多租户与配额](./19-orchestrator-multi-tenancy.md)。
+> **本章只关注 daemon 内的 sandbox 设计**。多租户 ACL / 配额 / 审计 / OIDC 等 orchestrator 层事项见 [§18 Orchestrator 多租户与配额](./18-orchestrator-multi-tenancy.md)。
 
 ## 一、TL;DR
 
@@ -18,7 +18,7 @@
 | **Container（Docker / Podman）** | 完整 container 隔离 | 200-2000ms | 高 | 跨平台 | 完全不信任 / SaaS production |
 | **远程 sandbox**（独立机器）| 物理机隔离 | 50-3000ms | 高 | 取决于实现 | SaaS / GPU 节点 / 合规边界 |
 
-**核心抽象**：`ShellSandbox` interface 把 shell 执行从 `spawn` 抽象出来，实现可换。本章作为 [External Reference Architecture](./08-roadmap.md#external-reference-architecture参考实现非项目路线图)（不在 qwen-code 主线路线图）；下面"Phase 1 / 2 / 3"指外部 sandbox 实施的渐进路线，不是 qwen-code 主线 Stage（主线只到 Stage 2）。
+**核心抽象**：`ShellSandbox` interface 把 shell 执行从 `spawn` 抽象出来，实现可换。本章作为 [External Reference Architecture](./07-roadmap.md#external-reference-architecture参考实现非项目路线图)（不在 qwen-code 主线路线图）；下面"Phase 1 / 2 / 3"指外部 sandbox 实施的渐进路线，不是 qwen-code 主线 Stage（主线只到 Stage 2）。
 
 ## 二、ShellSandbox 抽象接口
 
@@ -500,8 +500,8 @@ token-bucket throttling、`MonitorRegistry` 等机制不变。
 **Shell 是 daemon 最危险的攻击面**——即使单 daemon = 单用户，shell 命令是 LLM 行为不可信，必须 sandbox。  
 **`ShellSandbox` interface 在 External Phase 1 上线**（4 种本地实现按 `none → os-user → namespace → container` 隔离强度递增；Monitor tool 走相同接口）。  
 **远程 sandbox 是 SaaS 关键架构**（External Phase 3）——把 shell 调度到独立 worker pool（弹性 + 合规 + 跨地理 + GPU 节点）；支持 SSH / gRPC / k8s Job / containerd over TCP 4 种实现，推荐 gRPC + Container 双隔离。  
-**多租户 ACL / 配额 / OIDC** 在 orchestrator 层（[§19](./19-orchestrator-multi-tenancy.md)），不在本章范围。
+**多租户 ACL / 配额 / OIDC** 在 orchestrator 层（[§18](./18-orchestrator-multi-tenancy.md)），不在本章范围。
 
 ---
 
-[← 上一篇：协议兼容性](./10-protocol-compatibility.md) · [下一篇：TUI 兼容性 →](./12-tui-compatibility.md) · [回到 README](./README.md)
+[← 上一篇：协议兼容性](./09-protocol-compatibility.md) · [下一篇：TUI 兼容性 →](./11-tui-compatibility.md) · [回到 README](./README.md)

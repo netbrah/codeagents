@@ -1,8 +1,8 @@
-# 16 — 长跑稳定性与可观测性（External Reference Architecture）
+# 15 — 长跑稳定性与可观测性（External Reference Architecture）
 
-> [← 上一篇：多端协调策略](./15-client-coordination.md) · [回到 README](./README.md)
+> [← 上一篇：多端协调策略](./14-client-coordination.md) · [回到 README](./README.md)
 
-> **⚠️ 整章是 [External Reference Architecture](./08-roadmap.md#external-reference-architecture参考实现非项目路线图)，不在 qwen-code 主线路线图**——是给商业平台 / k8s operator / 云厂商的 SaaS 部署稳定性设计蓝图（多租户 daemon 跑 24h+ / Memory budget per tenant / Worker thread isolation / 30 天 Soak/Chaos 测试矩阵 / 22 Prometheus 指标 / Bun vs Node.js 长跑实测）。
+> **⚠️ 整章是 [External Reference Architecture](./07-roadmap.md#external-reference-architecture参考实现非项目路线图)，不在 qwen-code 主线路线图**——是给商业平台 / k8s operator / 云厂商的 SaaS 部署稳定性设计蓝图（多租户 daemon 跑 24h+ / Memory budget per tenant / Worker thread isolation / 30 天 Soak/Chaos 测试矩阵 / 22 Prometheus 指标 / Bun vs Node.js 长跑实测）。
 >
 > **qwen-code 主线稳定性**（适合大多数读者）：在 1 daemon = 1 session 模型下显著简化——
 >
@@ -186,7 +186,7 @@ storage.run({ workspaceId, sessionId }, async () => {
 
 ## 四、qwen daemon 具体的 10 个泄漏点
 
-[§13 实体模型](./13-entity-model.md) 5 层每层都有典型 leak 模式。下面给具体代码 + 防御实现。
+[§12 实体模型](./12-entity-model.md) 5 层每层都有典型 leak 模式。下面给具体代码 + 防御实现。
 
 ### 4.1 Session 不过期
 
@@ -239,7 +239,7 @@ setInterval(() => {
 
 **风险**：TCP RST 丢失 / NAT 表过期 → stale subscriber 永驻。
 
-**修复**：参考 [§15 §五 liveness 协议](./15-client-coordination.md)。
+**修复**：参考 [§14 §五 liveness 协议](./14-client-coordination.md)。
 
 ### 4.3 FileReadCache 累积
 
@@ -1066,18 +1066,18 @@ Chaos 测试: 主动注入故障，验证防御机制
 - **prod 长跑** 用 Node.js v22+（生态成熟、监控工具多）
 - **External Phase 4 SaaS** 强烈推荐 Node.js
 
-## 十三、与 External SaaS HA / §15 协同
+## 十三、与 External SaaS HA / §14 协同
 
-| §16 机制 | 与其他章关系 |
+| §15 机制 | 与其他章关系 |
 |---|---|
-| TTL 清理 | §15 §五 liveness 协议（subscriber TTL）+ §13 §五 生命周期表 |
+| TTL 清理 | §14 §五 liveness 协议（subscriber TTL）+ §12 §五 生命周期表 |
 | Memory threshold restart | External SaaS HA §八 graceful drain（90s）+ External Reference Architecture multi-pod sticky（External SaaS）|
-| Circuit breaker | §19 §五 quota engine + §07 §4 DoS 防御 |
+| Circuit breaker | §18 §五 quota engine + §06 §4 DoS 防御 |
 | heap dump | External SaaS HA §十一 监控告警 |
 | Worker thread | External SaaS HA §三 状态可恢复性矩阵（worker 隔离的 LLM streaming 算"瞬时"状态）|
-| Native supervisor | §16 degraded mode（supervisor 触发 graceful drain）|
+| Native supervisor | §15 degraded mode（supervisor 触发 graceful drain）|
 
-**核心洞察**：稳定性 = External SaaS HA 设计的应用层补充。HA 让重启成本接近 0，§16 让 leak 可观测可管理。两者结合达到"长跑 12-72h + 重启可预期"的目标。
+**核心洞察**：稳定性 = External SaaS HA 设计的应用层补充。HA 让重启成本接近 0，§15 让 leak 可观测可管理。两者结合达到"长跑 12-72h + 重启可预期"的目标。
 
 ## 十四、External Phase 1-4 实施
 
@@ -1105,8 +1105,8 @@ Chaos 测试: 主动注入故障，验证防御机制
 
 ## 十六、一句话总结
 
-**Qwen daemon 长跑稳定性 = 接受"重启不可避免"哲学（不追求永不重启，目标 12-72h 稳跑 + rolling restart 清状态）+ Node.js 长跑 7 类风险主动管理（V8 heap / GC / fd / 子进程 zombie / uncaughtException / native module / AsyncLocalStorage 链表）+ 多租户加剧 5 类风险（故障半径 / 资源争抢 / SLO 下限 / leak 累积 / 审计取证）+ qwen 具体 10 个泄漏点修复（session TTL / subscriber liveness / FileReadCache LRU / task lifetime / MCP supervisor / LSP cascade close / ALS 隔离 / permission cache / audit buffer / registry 共享）+ 9 项稳定性模式（TTL / bounded / quota / circuit breaker / memory threshold restart / heap dump / liveness / native supervisor / worker isolation）+ 6 类 native module 风险防御（better-sqlite3 / node-pty / mcp-sdk / zlib / canvas / 通用 supervisor）+ 22 项 Prometheus 指标 + 30 天 Soak/Chaos 测试矩阵。与 External SaaS HA 协同：HA 让重启成本接近 0，§16 让 leak 可观测可管理。Bun vs Node.js：dev Bun（启动快），prod Node.js v22+（长跑稳）。**
+**Qwen daemon 长跑稳定性 = 接受"重启不可避免"哲学（不追求永不重启，目标 12-72h 稳跑 + rolling restart 清状态）+ Node.js 长跑 7 类风险主动管理（V8 heap / GC / fd / 子进程 zombie / uncaughtException / native module / AsyncLocalStorage 链表）+ 多租户加剧 5 类风险（故障半径 / 资源争抢 / SLO 下限 / leak 累积 / 审计取证）+ qwen 具体 10 个泄漏点修复（session TTL / subscriber liveness / FileReadCache LRU / task lifetime / MCP supervisor / LSP cascade close / ALS 隔离 / permission cache / audit buffer / registry 共享）+ 9 项稳定性模式（TTL / bounded / quota / circuit breaker / memory threshold restart / heap dump / liveness / native supervisor / worker isolation）+ 6 类 native module 风险防御（better-sqlite3 / node-pty / mcp-sdk / zlib / canvas / 通用 supervisor）+ 22 项 Prometheus 指标 + 30 天 Soak/Chaos 测试矩阵。与 External SaaS HA 协同：HA 让重启成本接近 0，§15 让 leak 可观测可管理。Bun vs Node.js：dev Bun（启动快），prod Node.js v22+（长跑稳）。**
 
 ---
 
-[← 返回 README](./README.md) · [下一篇：与 Anthropic Managed Agents 对比 →](./17-vs-anthropic-managed-agents.md)
+[← 返回 README](./README.md) · [下一篇：与 Anthropic Managed Agents 对比 →](./16-vs-anthropic-managed-agents.md)

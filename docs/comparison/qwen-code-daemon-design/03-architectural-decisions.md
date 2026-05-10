@@ -44,7 +44,7 @@ scope 概念**移到 orchestrator 层**（不是 daemon 内部）：
 | Client A 等待 permission（SSE permission_request）| **任何 client（A 或 B）都能 POST /permission/:requestId 应答** |
 | Client A 关闭浏览器 / SDK 退出 | daemon instance 不影响（进程仍存活）；其他 client 继续观察 |
 | Client B 通过 LoadSession 加载历史 | 从该 daemon 的本地 transcript JSONL 重建 |
-| 所有 client 都断开 + 空闲 N 分钟 | daemon instance 进入 idle，可被 orchestrator 回收（详见 §16）|
+| 所有 client 都断开 + 空闲 N 分钟 | daemon instance 进入 idle，可被 orchestrator 回收（详见 §15）|
 
 这是 **"live collaboration" 模型** —— 与 Google Docs 多人编辑一个文档同构。协作发生在 daemon 进程内，没有跨 session 路由开销。
 
@@ -183,7 +183,7 @@ SDK 客户端默认走 C —— 用户感受到的就是"同 workspace 自动共
 | 实现复杂度 | **低**（每 daemon 自给自足）| 高（cross-session 状态管理）|
 | 适用规模 | **个人 / 小团队 / 中等 SaaS** | 大规模 SaaS（共享更经济）|
 
-适用边界：单机 N < 50 并发 session 经济性可接受；N ≥ 100 时考虑资源池化或迁移到多 session 模式（详见 [§18 设计对比](./18-single-vs-multi-session-design.md)）。
+适用边界：单机 N < 50 并发 session 经济性可接受；N ≥ 100 时考虑资源池化或迁移到多 session 模式（详见 [§17 设计对比](./17-single-vs-multi-session-design.md)）。
 
 ### 必要的工程约束
 
@@ -301,7 +301,7 @@ class DaemonInstance {
 }
 ```
 
-详见 [06-MCP/资源共享](./06-mcp-resources.md)。
+
 
 ---
 
@@ -365,7 +365,40 @@ class FileReadCache {
 // daemon 化下，每 session 各自持一个 FileReadCache instance — 不共享
 ```
 
-详见 [06-MCP/资源共享 §2](./06-mcp-resources.md#2-filereadcache-共享策略)。
+### PR#3810 / PR#3774 与 cache 语义的耦合
+
+| PR | 行为 | 与 session-scoped 的依赖 |
+|---|---|---|
+| **PR#3810**（已合并）| `microcompactHistory` / `setHistory` / `truncateHistory` / `resetChat` / `stripOrphanedUserEntriesFromHistory` 5 路径触发 cache invalidation | 操作都是 per-session，invalidation 半径不会扩大到 workspace 级别 |
+| **PR#3774**（已合并 2026-05-06）| `EDIT_REQUIRES_PRIOR_READ` / `FILE_CHANGED_SINCE_READ` 两个错误码 | "miss" 等同 "**当前 session** 未读过该文件"；共享 cache 后此语义失效，整套 prior-read 守卫崩坏。FileReadCache 必须保持 session 私有 |
+
+---
+
+## 4.5 其他 daemon 内资源共享策略
+
+| 资源 | 共享范围 | 理由 / 现状 | 相关 PR |
+|---|---|---|---|
+| **LSP server** | per-daemon | LSP 服务端是为"项目"设计的（不是 per-conversation），TypeScript LSP 启动 5-15s，跨 session 共享是必须的；daemon 进程边界自然就是 LSP 生命周期边界 | — |
+| **PTY / Background shell** | per-task / 调度面 daemon 级 | PR#3642 `BackgroundShellRegistry` 已是跨 session 调度（按 taskId / sessionId 关联）；4 kinds（shell / agent / monitor / dream）都通过统一 `/workspace/:id/tasks` 暴露 | PR#3642 / PR#3687 / PR#3720 / PR#3801 |
+| **Skill registry** | daemon 全局 + path-conditional 激活 | Skill registry 是声明式（不可变），全局共享 + per-tool-call 激活；PR#3852 path-conditional 发现机制天然适配 | PR#3852 |
+| **Provider registry** | daemon 全局 | 不可变配置（DashScope / Anthropic / OpenAI 能力描述）| — |
+| **Auth credentials** | per-workspace | 不同 workspace 可能用不同账号（个人 / 公司）| — |
+| **FastModel config** | per-model（不再泄漏 main model）| PR#3815 修复 `extra_body` / `samplingParams` / `reasoning` 跨模型泄漏 | PR#3815 |
+
+### 资源共享决策汇总表
+
+| 资源 | 共享范围 | 隔离机制 |
+|---|---|---|
+| Provider registry | daemon 全局 | 不可变 |
+| Skill registry | daemon 全局 + path-conditional 激活 | 不可变 + per-tool-call 激活 |
+| Auth credentials | per-workspace | workspace 隔离 |
+| LSP server | per-daemon | daemon 进程级隔离 |
+| MCP server | per-daemon | daemon 进程级隔离 + reconnect coalesce + 30s 健康检查 |
+| Background shell / agent / monitor / dream | per-task / 调度面 daemon 级 | task ID + sessionId 关联 |
+| **Session state** | **per-session（= per-daemon）** | **SessionService 持久化 + transcript JSONL** |
+| **FileReadCache** | **per-session（= per-daemon）** | **PR#3717 天然 session-scoped** |
+| Permission flow | per-tool-call | PR#3723 |
+| FastModel config | per-model | PR#3815 |
 
 ---
 
@@ -408,7 +441,7 @@ async function executeTool(tool: Tool, ctx: Context) {
 }
 ```
 
-详见 [07-权限/认证](./07-permission-auth.md)。
+详见 [07-权限/认证](./06-permission-auth.md)。
 
 ---
 
@@ -587,12 +620,12 @@ class PermissionRequestHandler {
 |---|---|---|
 | **入口命令** | `qwen --serve [--port N]`（CLI flag） | `qwen serve [--port N]`（独立 subcommand） |
 | **HTTP server 启动时机** | TUI 初始化后 + Core 初始化后 + listen on port | 启动即 listen on port |
-| **TUI in-process bus** | 复用 §12 BackgroundTaskViewContext / SessionContext shape，订阅 EventBus 而非 SSE | 无 |
+| **TUI in-process bus** | 复用 §11 BackgroundTaskViewContext / SessionContext shape，订阅 EventBus 而非 SSE | 无 |
 | **Token / 认证** | 默认 `auth: none`（loopback only）+ 显式 `--token` 启用 | 默认 `auth: bearer`（生成 token + 写 `~/.qwen/serve/token`）|
 | **CORS / Origin lock** | 默认 loopback only（`127.0.0.1`）| 配置驱动 |
 | **进程退出** | TUI Ctrl+C → graceful drain HTTP → close port → exit | SIGTERM → graceful drain → close port → exit |
 | **重启 / 持久** | 不适用（用户在终端）| systemd / pm2 / Docker auto-restart |
-| **mDNS 广播**（§14） | 可选 `--discoverable` flag | 可选配置 `discovery.mdns: true` |
+| **mDNS 广播**（§13） | 可选 `--discoverable` flag | 可选配置 `discovery.mdns: true` |
 
 ### Mode A 的 TUI ↔ Core 通讯
 

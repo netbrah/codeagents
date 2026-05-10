@@ -1,8 +1,8 @@
-# 08 — 路线图
+# 07 — 路线图
 
-> [← 上一篇：权限 / 认证](./07-permission-auth.md) · [下一篇：与 OpenCode 详细对比 →](./09-comparison-with-opencode.md)
+> [← 上一篇：权限 / 认证](./06-permission-auth.md) · [下一篇：与 OpenCode 详细对比 →](./08-comparison-with-opencode.md)
 
-> Qwen Code 项目本身只承诺 **"daemon building block"** —— 把 ACP NDJSON 协议通过 HTTP+SSE 暴露成可被任何外部 client / 编排器消费的服务。多 session orchestrator / 多租户 / SaaS 部署等"平台层"由外部实现（商业平台 / k8s operator / 云厂商定制），项目提供 [§18](./18-single-vs-multi-session-design.md) / [§19](./19-orchestrator-multi-tenancy.md) / [§04 §8.2](./04-http-api.md#82-新增-orchestrator-层-apistage-2) 作为参考架构蓝图。
+> Qwen Code 项目本身只承诺 **"daemon building block"** —— 把 ACP NDJSON 协议通过 HTTP+SSE 暴露成可被任何外部 client / 编排器消费的服务。多 session orchestrator / 多租户 / SaaS 部署等"平台层"由外部实现（商业平台 / k8s operator / 云厂商定制），项目提供 [§17](./17-single-vs-multi-session-design.md) / [§18](./18-orchestrator-multi-tenancy.md) / [§04 §8.2](./04-http-api.md#82-新增-orchestrator-层-apistage-2) 作为参考架构蓝图。
 
 ## 总览
 
@@ -15,10 +15,10 @@ qwen-code 主线（~3 周内 feature complete）：
 ────────── qwen-code daemon feature complete ──────────
 
 External Reference Architecture（外部 / 商业层，参考实现）：
-├─ Orchestrator (multi-daemon spawn / route / cleanup)        → §18 / §04 §8.2 设计参考
-├─ Multi-tenancy (Tenant / OIDC / Quota / Audit)              → §19 设计参考
-├─ Shell sandbox (NoSandbox / OS user / Namespace / Container) → §11 设计参考
-└─ SaaS deployment (k8s / Postgres / Redis / S3)              → External SaaS HA / §19 §七 设计参考
+├─ Orchestrator (multi-daemon spawn / route / cleanup)        → §17 / §04 §8.2 设计参考
+├─ Multi-tenancy (Tenant / OIDC / Quota / Audit)              → §18 设计参考
+├─ Shell sandbox (NoSandbox / OS user / Namespace / Container) → §10 设计参考
+└─ SaaS deployment (k8s / Postgres / Redis / S3)              → External SaaS HA / §18 §七 设计参考
 ```
 
 **核心判断**：qwen-code 是 building block，不是 SaaS 平台。Stage 1 + Stage 1.5 + Stage 2 完成后 daemon 协议表面 100% 稳定，外部集成方（如阿里云 DashScope / 自建团队 / 用户）可基于此自由实现 orchestrator + 多租户 + SaaS。这与 OpenCode（端到端 SaaS 路线）的设计哲学相反——后者绑定平台决策，前者保持 Unix 风格的可组合性。
@@ -74,13 +74,13 @@ External Reference Architecture（外部 / 商业层，参考实现）：
 | 原因 | 详情 |
 |---|---|
 | **EventBus + ring replay + Last-Event-ID 重连** | 原 §04 §三 计划 Stage 6 HA 才详做，PR#3889 提前到 Stage 1（client_evicted overflow + bounded subscriber queues 都做了）|
-| **Timing-safe bearer compare** | §07 设计为 Bearer，PR#3889 加 SHA-256 + `crypto.timingSafeEqual` + 401 uniform across no-header/bad-scheme/wrong-token，对应 §07 side-channel 防御（设计在 §07 但 Stage 1 实现）|
+| **Timing-safe bearer compare** | §06 设计为 Bearer，PR#3889 加 SHA-256 + `crypto.timingSafeEqual` + 401 uniform across no-header/bad-scheme/wrong-token，对应 §06 side-channel 防御（设计在 §06 但 Stage 1 实现）|
 | **IPv6 loopback ergonomics** | `::1` / `[::1]` / `host.docker.internal` 等 LOOPBACK_BINDS 边界，原设计未具体化 |
 | **EventBus correctness** | `client_evicted` overflow / replay ring / AsyncIterable abort handling 等几百行 |
 | **Self-audit + multi-model reviewer rounds** | 32 commits 中 ~12 轮 audit（self-audit 1-10 + reviewer rounds 1-7 + 后续 multi-model review threads close）—— 这是 PR#3889 体量超出的最大来源；多模型审（claude-opus-4-7 + gpt-5.5 + deepseek）累计 close ~30 review threads（race / leak / IPv6 / SSE / Windows / env whitelist / abort timeout 等）|
 | **DaemonClient SDK** | §04 没单独估算 SDK 端，但 sibling 同步实现 `parseSseStream` / `DaemonHttpError` |
 | **child-crash recovery** | reviewer round 4 加，原设计未含 |
-| **Stage 1 文档补全** | commit `27a164c` 补 §08 设计原计划的 1d "documentation + examples" 任务：`docs/users/qwen-serve.md`（114 行用户 quickstart）+ `docs/developers/qwen-serve-protocol.md`（287 行 HTTP 协议 reference）+ `docs/developers/examples/daemon-client-quickstart.md`（190 行 SDK ts 示例）+ README "Daemon mode" 入口；总 +591 行 docs |
+| **Stage 1 文档补全** | commit `27a164c` 补 §07 设计原计划的 1d "documentation + examples" 任务：`docs/users/qwen-serve.md`（114 行用户 quickstart）+ `docs/developers/qwen-serve-protocol.md`（287 行 HTTP 协议 reference）+ `docs/developers/examples/daemon-client-quickstart.md`（190 行 SDK ts 示例）+ README "Daemon mode" 入口；总 +591 行 docs |
 
 #### 2️⃣ 实现的 9 个 STAGE1_FEATURES（capabilities envelope）
 
@@ -95,30 +95,30 @@ External Reference Architecture（外部 / 商业层，参考实现）：
 | Feature | 路由 | 设计章节 |
 |---|---|---|
 | `health` | `GET /health` | §04 §一 |
-| `capabilities` | `GET /capabilities`（9 tags）| §10 §三（Stage 1 协议兼容性）|
+| `capabilities` | `GET /capabilities`（9 tags）| §09 §三（Stage 1 协议兼容性）|
 | `session_create` | `POST /session` | §04 §一 |
 | `session_list` | `GET /workspace/:id/sessions` | §04 §一 |
 | `session_prompt` | `POST /session/:id/prompt`（per-session FIFO + no-poison）| §04 §一 + 决策 §6 prompt FIFO |
 | `session_cancel` | `POST /session/:id/cancel` | §04 §一 |
 | `session_events` | `GET /session/:id/events` SSE + Last-Event-ID + 15s heartbeat | §04 §三 + §04 §三 SSE 重连 |
 | `session_set_model` | `POST /session/:id/model`（publishes `model_switched`）| §04 §一 |
-| `permission_vote` | `POST /permission/:requestId` first-responder | §04 §三 + §03 §6 决策 + §07 §3 |
+| `permission_vote` | `POST /permission/:requestId` first-responder | §04 §三 + §03 §6 决策 + §06 §3 |
 
 #### 3️⃣ 9 commits breakdown（核心实现部分）
 
 | Commit | 关注章节 |
 |---|---|
-| `61f2f59a1` scaffold `qwen serve` Express + auth + Host allowlist + /health + /capabilities | §04 §一 + §07 §1 |
+| `61f2f59a1` scaffold `qwen serve` Express + auth + Host allowlist + /health + /capabilities | §04 §一 + §06 §1 |
 | `8d7c03a5f` HttpAcpBridge spawn `qwen --acp` per workspace + ACP 10s init + sessionScope:single | §03 §1 + §05 进程模型 |
 | `ca996ecb5` POST /prompt FIFO + /cancel + SessionNotFoundError | §04 §一 + 决策 §6 |
-| `41aa95094` EventBus + SSE Last-Event-ID + 15s heartbeat + ring replay + client_evicted overflow | §04 §三 + §04 §三 + §15 §五 |
-| `6ee655f0a` POST /permission first-responder vote + cancelSession resolves outstanding | §03 §6 决策 + §07 §3 |
-| `8206a64b5` SDK DaemonClient + DaemonHttpError + parseSseStream | §10 SDK / ACP 协议兼容性 |
+| `41aa95094` EventBus + SSE Last-Event-ID + 15s heartbeat + ring replay + client_evicted overflow | §04 §三 + §04 §三 + §14 §五 |
+| `6ee655f0a` POST /permission first-responder vote + cancelSession resolves outstanding | §03 §6 决策 + §06 §3 |
+| `8206a64b5` SDK DaemonClient + DaemonHttpError + parseSseStream | §09 SDK / ACP 协议兼容性 |
 | `a8ce5e08d` /workspace/:id/sessions + /session/:id/model + errorMessage helper | §04 §一 |
-| `ad0e6ec06` audit round 1: timing-safe bearer / coalesce spawnOrAttach / parseLastEventId / IPv6 / failOnError | §07 §1 + §07 |
+| `ad0e6ec06` audit round 1: timing-safe bearer / coalesce spawnOrAttach / parseLastEventId / IPv6 / failOnError | §06 §1 + §06 |
 | 后续 14 commits（self-audit 2-10 + reviewer rounds 1-7）| 持续 audit |
-| `0337f71` / `87255e1` / `11567a4` / `149999a` / `2cc2305` / `988507e` close ~30 multi-model（gpt-5.5 / claude-opus-4-7 / deepseek）review threads —— race / leak / IPv6 / SSE / Windows / env whitelist / abort timeout | §07 §1 + §07 + §04 §三 + §15 §五 |
-| `27a164c` Stage 1 docs：用户 quickstart + HTTP 协议 reference + SDK ts 示例 + README "Daemon mode" 入口 | §04 §一 + §07 + §10 |
+| `0337f71` / `87255e1` / `11567a4` / `149999a` / `2cc2305` / `988507e` close ~30 multi-model（gpt-5.5 / claude-opus-4-7 / deepseek）review threads —— race / leak / IPv6 / SSE / Windows / env whitelist / abort timeout | §06 §1 + §06 + §04 §三 + §14 §五 |
+| `27a164c` Stage 1 docs：用户 quickstart + HTTP 协议 reference + SDK ts 示例 + README "Daemon mode" 入口 | §04 §一 + §06 + §09 |
 
 #### 4️⃣ 设计 vs 实现对应度评估
 
@@ -129,13 +129,13 @@ External Reference Architecture（外部 / 商业层，参考实现）：
 | §04 §一 路由表 | **100%**（9 路由全实现）|
 | §04 §二.2 复用 ACP zod schema | **100%** ✓ |
 | §04 §三 SSE / WebSocket | **80%**（SSE 完整 / WebSocket Stage 2 deferred）|
-| §07 §1 Bearer token | **100%** + 加 timing-safe compare + 401 uniform |
-| §07 §6.1 0.0.0.0 拒绝默认 | **100%** ✓ |
-| §10 capabilities envelope | **100%**（9 tags 实现）|
+| §06 §1 Bearer token | **100%** + 加 timing-safe compare + 401 uniform |
+| §06 §6.1 0.0.0.0 拒绝默认 | **100%** ✓ |
+| §09 capabilities envelope | **100%**（9 tags 实现）|
 | §04 §三 SSE Last-Event-ID 重连 | **100%**（ring + replay + 15s heartbeat）|
-| §15 §五 liveness 协议 | **75%**（heartbeat 间隔 15s vs 设计 30s——更激进；client_evicted overflow 已实现）|
-| §14 远端 CLI / Capability 反向 RPC | **0%**（Stage 1 不含；Stage 2 deferred）|
-| **Stage 1 文档**（user guide + HTTP 协议 reference + SDK 示例）| **100%**（commit `27a164c` 补全 §08 §"Documentation + examples + e2e tests" 1d 任务）|
+| §14 §五 liveness 协议 | **75%**（heartbeat 间隔 15s vs 设计 30s——更激进；client_evicted overflow 已实现）|
+| §13 远端 CLI / Capability 反向 RPC | **0%**（Stage 1 不含；Stage 2 deferred）|
+| **Stage 1 文档**（user guide + HTTP 协议 reference + SDK 示例）| **100%**（commit `27a164c` 补全 §07 §"Documentation + examples + e2e tests" 1d 任务）|
 
 **综合**：~95% Stage 1 范畴内的设计决策 1:1 实现；文档 100% 补全；少数偏差都是**设计向更严格演进**（timing-safe / 401 uniform / 15s heartbeat 比 30s 更激进 / IPv6 ergonomics），不是简化。**Stage 1 GA-ready**——可 merge 后开 Stage 1.5（Mode A `qwen --serve` ~4d）follow-up。
 
@@ -144,12 +144,12 @@ External Reference Architecture（外部 / 商业层，参考实现）：
 | 经验 | 详情 |
 |---|---|
 | **EventBus 在 Stage 1 就需要完整实现** | 原计划 Stage 6 HA 详做，但 SSE Last-Event-ID 重连是 Stage 1 用户必需，无法 deferred |
-| **Timing-safe / 401 uniform 等 side-channel 防御 Stage 1 就要做** | §07 设计放在多租户章节，但 PR#3889 在 Stage 1 单租户也做了——开源 daemon 默认就该这么严 |
+| **Timing-safe / 401 uniform 等 side-channel 防御 Stage 1 就要做** | §06 设计放在多租户章节，但 PR#3889 在 Stage 1 单租户也做了——开源 daemon 默认就该这么严 |
 | **IPv6 loopback ergonomics 不能省略** | 容器化 / Docker / `host.docker.internal` 是常见用例，loopback 处理细节比预想复杂 |
 | **多轮 self-audit + multi-model 流程的价值** | PR#3889 用 ~12 轮 audit（claude-opus-4-7 / gpt-5.5 / deepseek 三模型）—— close ~30 review threads；不同模型抓不同类问题（race / leak / IPv6 / SSE / Windows / env whitelist / abort timeout 互补覆盖）|
 | **child-crash recovery 是必需的** | reviewer round 4 才补；spawn 子进程模式下，子进程崩溃时 daemon 必须 graceful 处理而不是把错误传播给所有 SSE clients |
 | **PR 体量 ~5x-9x 预估是常态** | 工程文档预估 vs 实际几乎总是 5-9x，因为 audit + 边界 + ergonomics + 文档 占大头 |
-| **文档不能 deferred 到 merge 后** | 原 §08 §1 "1d Documentation + examples" 在主实现之后被推迟；commit `27a164c` 补回（591 行 docs）。教训：文档要列入 PR scope 否则 merge 后没人会回填 |
+| **文档不能 deferred 到 merge 后** | 原 §07 §1 "1d Documentation + examples" 在主实现之后被推迟；commit `27a164c` 补回（591 行 docs）。教训：文档要列入 PR scope 否则 merge 后没人会回填 |
 
 #### 6️⃣ Stage 1 不含 / 推到 Stage 1.5 / Stage 2 / 外部的能力
 
@@ -161,15 +161,15 @@ External Reference Architecture（外部 / 商业层，参考实现）：
 | 多 token / per-token user-id | Stage 2 |
 | Prometheus metrics endpoint | Stage 2 |
 | `POST /file/read` / `/file/write` | **External / Stage 2 可选**（agent 已有 fs，daemon-only file API 仅给远端 client 用）|
-| Mobile / browser UI | **External**（参考 [§14 远端 CLI 模式](./14-remote-cli-mode.md)；PR#3929-3931 平行 stack 已有 mobile UI 参考）|
+| Mobile / browser UI | **External**（参考 [§13 远端 CLI 模式](./13-remote-cli-mode.md)；PR#3929-3931 平行 stack 已有 mobile UI 参考）|
 | Pairing token / LAN URL | **External**（参考 PR#3929-3931）|
-| Orchestrator (multi-daemon spawn / route / cleanup) | **External**（参考 [§04 §8.2](./04-http-api.md#82-新增-orchestrator-层-apistage-2) + [§18](./18-single-vs-multi-session-design.md) + [§19](./19-orchestrator-multi-tenancy.md)）|
-| Multi-tenancy / OIDC / Quota / Audit | **External**（参考 [§19](./19-orchestrator-multi-tenancy.md)）|
-| Shell sandbox（OS user / namespace / container / remote）| **External**（参考 [§11](./11-multi-tenancy-and-sandbox.md)）|
+| Orchestrator (multi-daemon spawn / route / cleanup) | **External**（参考 [§04 §8.2](./04-http-api.md#82-新增-orchestrator-层-apistage-2) + [§17](./17-single-vs-multi-session-design.md) + [§18](./18-orchestrator-multi-tenancy.md)）|
+| Multi-tenancy / OIDC / Quota / Audit | **External**（参考 [§18](./18-orchestrator-multi-tenancy.md)）|
+| Shell sandbox（OS user / namespace / container / remote）| **External**（参考 [§10](./10-multi-tenancy-and-sandbox.md)）|
 
 #### 7️⃣ Stage 1 主线 HA 与稳定性已覆盖范围
 
-qwen-code 主线 HA / 稳定性需求由 PR#3889 + PR#3739 已完整覆盖（详细 SaaS 部署 HA / 长跑稳定性蓝图见  / [§16](./16-stability-and-longevity.md)，作为 External Reference Architecture）：
+qwen-code 主线 HA / 稳定性需求由 PR#3889 + PR#3739 已完整覆盖（详细 SaaS 部署 HA / 长跑稳定性蓝图见  / [§15](./15-stability-and-longevity.md)，作为 External Reference Architecture）：
 
 | 机制 | 实现 | 覆盖 |
 |---|---|---|
@@ -180,7 +180,7 @@ qwen-code 主线 HA / 稳定性需求由 PR#3889 + PR#3739 已完整覆盖（详
 | **资源 cleanup 简单** | OS process exit | kill daemon = 清理所有 fd / child process / memory，无需主动 cleanup hooks |
 | **timing-safe bearer auth + 401 uniform** | PR#3889 commit `ad0e6ec06` | 防 side-channel 攻击 |
 
-主线**不需要**：multi-pod sticky session / Postgres Patroni / Redis Sentinel / per-tenant heap budget / Worker thread tenant isolation / 30 天 Soak/Chaos 测试矩阵 等——这些都是 External SaaS 运营层关切，由  / [§16](./16-stability-and-longevity.md) 设计参考蓝图描述。
+主线**不需要**：multi-pod sticky session / Postgres Patroni / Redis Sentinel / per-tenant heap budget / Worker thread tenant isolation / 30 天 Soak/Chaos 测试矩阵 等——这些都是 External SaaS 运营层关切，由  / [§15](./15-stability-and-longevity.md) 设计参考蓝图描述。
 
 ---
 
@@ -285,27 +285,27 @@ IM bot       ─────│  - Mode B (headless)      │
 | Cross-daemon aggregate API（"我所有 task"）| ~2d | [§04 §8.2 `/aggregate`](./04-http-api.md#82-新增-orchestrator-层-apistage-2) |
 | **合计参考** | **~1.5-2 周 / 1 人** | |
 
-详见 [§18 单 vs 多 Session 设计深度对比](./18-single-vs-multi-session-design.md) 的决策树。
+详见 [§17 单 vs 多 Session 设计深度对比](./17-single-vs-multi-session-design.md) 的决策树。
 
 ### Multi-tenancy + OIDC + Quota + Audit
 
 | 组件 | 工作量参考 | 设计文档 |
 |---|---|---|
-| Tenant 抽象 + Workspace ACL | ~3-5d | [§19 §三 Tenant 抽象](./19-orchestrator-multi-tenancy.md) |
-| AuthN 4 模式（Bearer / OIDC / mTLS / cookie）| ~5-7d | [§19](./19-orchestrator-multi-tenancy.md#二orchestrator-4-件事) |
-| Quota engine（Redis sliding-window + reservation）| ~5-7d | [§19](./19-orchestrator-multi-tenancy.md#二orchestrator-4-件事) |
-| Audit log 4 通道（jsonl / syslog / OpenTelemetry / Kafka）| ~3-5d | [§19](./19-orchestrator-multi-tenancy.md#二orchestrator-4-件事) |
+| Tenant 抽象 + Workspace ACL | ~3-5d | [§18 §三 Tenant 抽象](./18-orchestrator-multi-tenancy.md) |
+| AuthN 4 模式（Bearer / OIDC / mTLS / cookie）| ~5-7d | [§18](./18-orchestrator-multi-tenancy.md#二orchestrator-4-件事) |
+| Quota engine（Redis sliding-window + reservation）| ~5-7d | [§18](./18-orchestrator-multi-tenancy.md#二orchestrator-4-件事) |
+| Audit log 4 通道（jsonl / syslog / OpenTelemetry / Kafka）| ~3-5d | [§18](./18-orchestrator-multi-tenancy.md#二orchestrator-4-件事) |
 | **合计参考** | **~3-4 周 / 1-2 人** | |
 
-详见 [§19 Orchestrator 多租户与配额](./19-orchestrator-multi-tenancy.md)。
+详见 [§18 Orchestrator 多租户与配额](./18-orchestrator-multi-tenancy.md)。
 
 ### Shell Sandbox
 
 | 组件 | 工作量参考 | 设计文档 |
 |---|---|---|
-| `ShellSandbox` interface | ~1d | [§11 §二](./11-multi-tenancy-and-sandbox.md#二shellsandbox-抽象接口) |
-| 4 种本地 sandbox（NoSandbox / OS user / Namespace / Container）| ~2-3w | [§11 §三 / §四](./11-multi-tenancy-and-sandbox.md) |
-| 远程 sandbox（SSH / gRPC / k8s Job / containerd）| ~2-3w | [§11 §五](./11-multi-tenancy-and-sandbox.md#五远程-sandboxdaemon-与-shell-不在同机) |
+| `ShellSandbox` interface | ~1d | [§10 §二](./10-multi-tenancy-and-sandbox.md#二shellsandbox-抽象接口) |
+| 4 种本地 sandbox（NoSandbox / OS user / Namespace / Container）| ~2-3w | [§10 §三 / §四](./10-multi-tenancy-and-sandbox.md) |
+| 远程 sandbox（SSH / gRPC / k8s Job / containerd）| ~2-3w | [§10 §五](./10-multi-tenancy-and-sandbox.md#五远程-sandboxdaemon-与-shell-不在同机) |
 | **合计参考** | **~4-6 周 / 1 人** | |
 
 注：Sandbox 是 daemon 内能力，但具体策略取决于部署形态（个人/企业/SaaS），所以放在外部参考。
@@ -315,11 +315,11 @@ IM bot       ─────│  - Mode B (headless)      │
 | 组件 | 工作量参考 | 设计文档 |
 |---|---|---|
 | k8s native（StatefulSet + PVC + Service mesh）| ~1-2w |  |
-| Postgres state + Redis cache + S3 transcript | ~1-2w | [§19 持久化栈](./19-orchestrator-multi-tenancy.md)（持久层） |
+| Postgres state + Redis cache + S3 transcript | ~1-2w | [§18 持久化栈](./18-orchestrator-multi-tenancy.md)（持久层） |
 | Multi-region / cross-geo scheduling | ~1-2w |  |
 | **合计参考** | **~3-6 周 / 2-3 人** | |
 
-详见  + [§19 持久化栈](./19-orchestrator-multi-tenancy.md)（持久层）。
+详见  + [§18 持久化栈](./18-orchestrator-multi-tenancy.md)（持久层）。
 
 ---
 
@@ -374,4 +374,4 @@ External Reference Architecture（独立时间线，非项目路线图）:
 
 ---
 
-下一篇：[09-与 OpenCode 详细对比 →](./09-comparison-with-opencode.md)
+下一篇：[09-与 OpenCode 详细对比 →](./08-comparison-with-opencode.md)

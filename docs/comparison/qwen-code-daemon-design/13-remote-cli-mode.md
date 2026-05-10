@@ -1,6 +1,6 @@
-# 14 — 远端 CLI 模式与 Client Capability 协议
+# 13 — 远端 CLI 模式与 Client Capability 协议
 
-> [← 上一篇：实体模型与层级关系](./13-entity-model.md) · [回到 README](./README.md)
+> [← 上一篇：实体模型与层级关系](./12-entity-model.md) · [回到 README](./README.md)
 
 > **远端 client 接入流程**（[§03 §2](./03-architectural-decisions.md#2-状态进程模型) "1 daemon = 1 session"下）：
 >
@@ -37,7 +37,7 @@ Laptop / Workstation
 **适用**：
 - 单人开发（最常见）
 - Stage 1-3 默认部署
-- 同 host 多 client（CLI 1 + CLI 2 + IDE 同 session，[§12](./12-tui-compatibility.md)）
+- 同 host 多 client（CLI 1 + CLI 2 + IDE 同 session，[§11](./11-tui-compatibility.md)）
 
 **特点**：
 - 无网络层 latency
@@ -477,7 +477,7 @@ async function handleFilePicker(params: FilePickerParams) {
    └─ Initial: GET /v1/session/sess-abc/events
    ↓
 6. daemon 验证：
-   ├─ Token HMAC 比对（[§07](./07-permission-auth.md)）
+   ├─ Token HMAC 比对（[§06](./06-permission-auth.md)）
    ├─ Tenant lookup
    ├─ Workspace allowlist check
    └─ Session 存在性 + 所属 tenant 匹配
@@ -487,7 +487,7 @@ async function handleFilePicker(params: FilePickerParams) {
 
 ### 5.2 Bearer Token 设计
 
-参考 [§07 §1](./07-permission-auth.md)：
+参考 [§06 §1](./06-permission-auth.md)：
 
 ```
 Token format: qwen_<env>_<tenant_id>_<random_64bytes_base32>
@@ -782,11 +782,11 @@ CLI 可缓存少量数据本地：
 
 CLI 重连时传 `Last-Event-ID`：daemon 通过 PR#3739 transcript-first fork resume 重建 session（如果命中其他 pod）→ 拉 events from Last-Event-ID + 1 → 客户端 UI 无缝续接。
 
-## 十、与 §12 TUI 兼容性的关系
+## 十、与 §11 TUI 兼容性的关系
 
-[§12](./12-tui-compatibility.md) 讨论了 TUI 在单进程 vs daemon 下的兼容性，**Local-Local 拓扑（§12 主题）**已覆盖；**本章补充 Remote-Remote 拓扑**。
+[§11](./11-tui-compatibility.md) 讨论了 TUI 在单进程 vs daemon 下的兼容性，**Local-Local 拓扑（§11 主题）**已覆盖；**本章补充 Remote-Remote 拓扑**。
 
-| 维度 | §12 Local | §14 Remote |
+| 维度 | §11 Local | §13 Remote |
 |---|---|---|
 | Ink 组件 | 共用 | 共用 |
 | HttpAcpAdapter | 同 host fast path | 跨 host RPC + TLS |
@@ -795,7 +795,7 @@ CLI 重连时传 `Last-Event-ID`：daemon 通过 PR#3739 transcript-first fork r
 | Local echo | 不需要 | **必需** |
 | 离线降级 | 通常不需要（同机不会断）| **必需** |
 
-§12 + §14 合起来构成完整的 TUI 部署矩阵。
+§11 + §13 合起来构成完整的 TUI 部署矩阵。
 
 ## 十一、与 VSCode Remote-SSH 的对比借鉴
 
@@ -943,8 +943,8 @@ CLI 端必须验证收到的 SSE event `session_id` 与自己订阅的 sessionId
 | §4 FileReadCache per-session | session-private 跨设备共享时仍正确（cache 在 daemon 端）|
 | §5 Permission 第 4 mode 'daemon-http' | Remote 是 daemon-http 的常见使用场景 |
 | §6 多 client fan-out + first responder | Remote 多端协作的核心 |
-| §11 多租户 + sandbox | Remote 是多租户的常见部署 |
-| §07 越权防御 | Remote 加固：cookie HMAC + mTLS + IP allowlist |
+| §10 多租户 + sandbox | Remote 是多租户的常见部署 |
+| §06 越权防御 | Remote 加固：cookie HMAC + mTLS + IP allowlist |
 | External SaaS HA | Remote SSE 重连协议（Last-Event-ID）必需 |
 
 ## 十六、Stage 1-6 各阶段 Remote 支持矩阵
@@ -964,4 +964,4 @@ CLI 端必须验证收到的 SSE event `session_id` 与自己订阅的 sessionId
 
 ---
 
-[← 返回 README](./README.md) · [下一篇：多端协调策略 →](./15-client-coordination.md)
+[← 返回 README](./README.md) · [下一篇：多端协调策略 →](./14-client-coordination.md)
