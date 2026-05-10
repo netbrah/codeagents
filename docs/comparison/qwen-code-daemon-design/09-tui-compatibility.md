@@ -387,7 +387,7 @@ qwen process
 ```bash
 # 终端 A: 启 daemon
 $ qwen serve --port 5096
-opencode-style: opencode serve listening on http://127.0.0.1:5096
+Qwen daemon listening on http://127.0.0.1:5096
 
 # 终端 B: 启 TUI 客户端
 $ qwen tui --connect http://localhost:5096
@@ -518,12 +518,11 @@ OpenCode 也有 TUI（参考 `packages/opencode/src/server/routes/instance/tui.t
 |---|---|
 | `packages/cli/src/ui/components/*` | 0 行（已用 Context）|
 | `packages/cli/src/ui/contexts/*Context.tsx` | 0 行（shape 不变）|
-| `packages/cli/src/ui/providers/in-process/*` | 抽出现有 Provider 到此 |
-| `packages/cli/src/ui/providers/http-daemon/*` | **新增**（~500-1000 行 Provider 集 + adapter）|
-| `packages/cli/src/cli/cmd/serve.ts` | 新增（参考 OpenCode）|
-| `packages/cli/src/cli/cmd/tui-connect.ts` | 新增 |
+| Provider 实现层（in-process vs http-daemon 双 Provider）| 抽现有 Provider + 新增 HttpAcpAdapter 集（~500-1000 行；具体路径由实现 PR 决定）|
+| `packages/cli/src/serve/server.ts`（PR#3889 已落地）| Stage 1 已实现 |
+| `qwen tui --connect` CLI 命令 | 新增（Stage 2）|
 
-## 九、3 阶段路线图
+## 九、TUI 演进阶段
 
 ```
 Stage 1 (Mode B headless qwen serve, PR#3889): TUI 不动，仍单进程跑 ACP agent
@@ -702,7 +701,7 @@ qwen --json-file /tmp/events.jsonl --input-file /tmp/input.jsonl
 | 跨机器（远端 client）| ❌ 仅同机本地文件 | ✅ HTTP 走任何网络 |
 | Bearer token / 认证 | ❌ 任何能读文件的进程都能加入 | ✅（[§05](./05-permission-auth.md)）|
 | First-responder permission vote 协议 | ❌ 文件 race | ✅ 协议级抢答 + 防双 approve（[§02 §6](./02-architectural-decisions.md#6-多-client-并发请求)）|
-| Last-Event-ID 重连补漏 | ❌ 只能重读整个 jsonl | ✅ EventBus + ring replay（）|
+| Last-Event-ID 重连补漏 | ❌ 只能重读整个 jsonl | ✅ EventBus + ring replay（[§03 §三 SSE Last-Event-ID](./03-http-api.md#sse-last-event-id-重连协议)）|
 | Fan-out backpressure / bounded queue | ❌ 文件无限追加 | ✅ subscriber bounded queue + evict（[§11](./11-client-coordination.md)）|
 | 多端输入串行 / 排队 | ❌ 多 writer append 无原子保证 | ✅ session task queue 串行 |
 | Heartbeat / 断连检测 | ❌ 文件读者断开 TUI 不知 | ✅ 15s heartbeat + AbortController |
@@ -727,7 +726,7 @@ qwen --json-file /tmp/events.jsonl --input-file /tmp/input.jsonl
 | File I/O → HTTP/SSE | = Mode A 启动 Express server |
 | 加 bearer token | = [§05 §1](./05-permission-auth.md) 鉴权 |
 | 加 fan-out + bounded queue | = [§02 §6](./02-architectural-decisions.md#6-多-client-并发请求) EventBus |
-| 加 Last-Event-ID 重连 | =  SSE 重连协议 |
+| 加 Last-Event-ID 重连 | = [§03 §三 SSE 重连协议](./03-http-api.md#sse-last-event-id-重连协议) |
 
 → 直接做 Mode A 即可，不需要"先升级 dual-output"。
 
