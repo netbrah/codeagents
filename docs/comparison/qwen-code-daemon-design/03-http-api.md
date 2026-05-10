@@ -1,6 +1,6 @@
 # 03 — HTTP API 设计
 
-> **🚀 Stage 1 实现状态**（2026-05-07）：本章 9 路由全部由 [PR#3889](https://github.com/QwenLM/qwen-code/pull/3889) 实现（commits `61f2f59a1` scaffold + `ca996ecb5` prompt/cancel + `41aa95094` SSE EventBus + `6ee655f0a` permission + `a8ce5e08d` workspace/model）。详见 [§06 Stage 1 实现 audit](./06-roadmap.md#stage-1-pr3889-实现-audit2026-05-07)。
+> **🚀 Stage 1 实现状态**（2026-05-07）：本章 daemon 层核心路由全部由 [PR#3889](https://github.com/QwenLM/qwen-code/pull/3889) 实现（commits `61f2f59a1` scaffold + `ca996ecb5` prompt/cancel + `41aa95094` SSE EventBus + `6ee655f0a` permission + `a8ce5e08d` workspace/model）。详见 [§06 Stage 1 实现 audit](./06-roadmap.md#stage-1-pr3889-实现-audit2026-05-07)。
 
 > **API 模型要点**（[§02 §2](./02-architectural-decisions.md#2-状态进程模型) "1 daemon = 1 session"下）：
 >
@@ -14,17 +14,19 @@
 
 ## 一、根路由总览
 
+> **`:id` 校验语义**（1 daemon = 1 session = 1 workspace 模型下）：所有路径中的 `sessionId` / `workspaceId` 必须 = daemon 启动时绑定的那个，不匹配返回 `404 session_not_bound` / `404 workspace_not_bound`。保留 ID 在 URL 是为了 fail-fast 防御（防止 client 拿错 daemon URL 时静默写到错误目标）。
+
 ```
-GET    /                                   服务端元信息
+GET    /                                   服务端版本元信息（qwen / daemon / acp 版本号）
+GET    /capabilities                       完整能力清单 + 当前绑定状态（详见 §七 / §八.3）
 GET    /health                             健康检查（无认证）
 POST   /authenticate                       (HTTP-only) bearer token 取换 long-lived token
 
-# Session 生命周期（直接映射 ACP RPC）
-POST   /session                            new session       ← NewSessionRequest
-GET    /session                            list sessions     ← ListSessionsRequest
-GET    /session/:id                        session info      ← (新加 schema)
-POST   /session/:id/load                   load session      ← LoadSessionRequest
-DELETE /session/:id                        archive / delete
+# Session 生命周期（直接映射 ACP RPC；1 daemon = 1 session 下幂等返回 bound）
+POST   /session                            get-or-create bound session   ← NewSessionRequest
+GET    /session/:id                        session info（id 必须 = bound session）
+POST   /session/:id/load                   load session（仅 daemon 未绑定时可用）  ← LoadSessionRequest
+DELETE /session/:id                        archive / delete（等价 daemon shutdown）
 
 # 与 session 交互
 POST   /session/:id/prompt                 send prompt       ← PromptRequest
@@ -37,15 +39,15 @@ POST   /session/:id/config                 set config option ← SetSessionConfi
 GET    /session/:id/events                 SSE / WebSocket   ← SessionNotification[]
                                             (Upgrade: websocket 走 WS，否则 SSE)
 
-# 权限审批（HTTP 异步流模式）
-POST   /permission/:requestId              respond to permission_request
+# 权限审批（HTTP 异步流模式 · session-scoped）
+POST   /session/:id/permission/:requestId  respond to permission_request
 
 # Workspace 管理（daemon 启动时绑定 1 个 workspace；多 workspace 由 External orchestrator spawn 多 daemon）
-GET    /workspace                          list workspace（仅 1 个，对应当前 daemon）
-POST   /workspace                          register workspace  body: { directory }（仅 daemon 未绑定时；已绑定返回现有）
+POST   /workspace                          注册 workspace  body: { directory }（仅 daemon 未绑定时；已绑定幂等返回）
+GET    /workspace/:id                      workspace info（id 必须 = bound workspace）
 DELETE /workspace/:id                      dispose（等价于 daemon shutdown）
 
-# 工具能力查询
+# 工具能力查询（id 必须 = bound workspace）
 GET    /workspace/:id/skills               已加载 skill 列表
 GET    /workspace/:id/mcp                  已连接 MCP server 列表
 GET    /workspace/:id/lsp                  LSP server 状态
@@ -201,7 +203,7 @@ daemon → client: SSE { type: 'tool_call', name: 'Bash', ... }
                  SSE { type: 'permission_request', requestId: 'r1', ... }
                  (HTTP request 挂起等 client 响应)
 
-client → daemon: POST /permission/r1  body: { allow: true, alwaysAllow: false }
+client → daemon: POST /session/:id/permission/r1  body: { allow: true, alwaysAllow: false }
 daemon → client: SSE { type: 'tool_result', ... }
                  SSE { type: 'message_part', content: '...' }
                  (response body 是 PromptResponse)
@@ -317,63 +319,42 @@ POST /session/sess-yesterday/load HTTP/1.1
 }
 ```
 
-### 4.3 多 client 跨设备续行（默认 `single` scope 下的典型流）
+### 4.3 多 client 同 daemon live collaboration
 
-**默认 daemon `sessionScope: 'single'`** —— 同 workspace 多 client 自动共享 session。
+1 daemon = 1 session 下，**多 client 接入同一 daemon URL 即自动共享该 session**——daemon 内不做 routing，幂等 `POST /session` 永远返回 bound session。
 
 ```
-[CLI]: qwen workspace register /work/repo-a → workspaceId=ws-a
-       qwen → POST /session { meta: { workspaceId: 'ws-a', scope: 'single' } }
-       daemon SessionRouter.routingKey('http', '*', 'ws-a') = "http:__single__:ws-a"
-       创建 sess-foo（首个 client）
-       → 200 OK { sessionId: 'sess-foo' }
+[CLI]: 启动 daemon（绑定 cwd=/work/repo-a）
+       qwen → POST /session { meta: { workspaceId: 'ws-a' } }
+       → 200 OK { sessionId: 'sess-foo', attached: false }   ← 首次创建
        开始 prompt: "请重构 src/foo.ts"
 
-[VSCode 同时打开]: 自动连 daemon
-       POST /session { meta: { workspaceId: 'ws-a', scope: 'single' } }
-       同 routing key 命中 sess-foo
-       → 200 OK { sessionId: 'sess-foo', attached: true }
+[VSCode 同时连同一 daemon URL]:
+       POST /session { meta: { workspaceId: 'ws-a' } }
+       → 200 OK { sessionId: 'sess-foo', attached: true }    ← 幂等返回 bound
        
-       GET /session/sess-foo/events （SSE 接入）
+       GET /session/sess-foo/events（SSE 接入）
        VSCode 实时看到 CLI 触发的 message_part / tool_call / tool_result
        
-[Web UI 同时打开]: 同上 → 也看到 sess-foo 实时事件流
+[Web UI 同时连同一 daemon URL]: 同上 → 也看到 sess-foo 实时事件流
 
 → Agent 决定调 Bash 跑 npm test，触发 permission_request
   CLI / VSCode / Web UI 三个 client 都通过 SSE 收到事件
   用户在 Web UI 上点 "Allow"
-  → POST /permission/r1 { allow: true }
+  → POST /session/sess-foo/permission/r1 { allow: true }
   → daemon SSE 广播 "permission_resolved by client-webui-1" 给所有 client
   → CLI / VSCode 自动关闭弹窗
   → Bash 工具继续执行
 ```
 
-### 4.4 跨 channel 续行（手机/电脑场景，需要 `scope: 'user'`）
+### 4.4 跨 daemon 续行（多 session 场景）
 
-```
-[手机微信]: 通过 channels/weixin → SessionRouter
-            scope='user', user-id=u123 → routing key "weixin:u123:chat-456"
-            创建 sess-mobile
+不同 daemon instance 之间互相不可见——跨 channel / 跨设备续行属于 **orchestrator 层**职责（`coordinator.sessionScope: 'single' / 'user' / 'thread'` 决定如何把 sessionId 路由到对应 daemon）。详见 [§02 §1](./02-architectural-decisions.md#1-session-是否跨-client-共享) + [§16 Orchestrator 多租户与配额](./16-orchestrator-multi-tenancy.md)。
 
-[电脑 SDK]: scope='user' 显式指定
-POST /session HTTP/1.1
-{ "meta": { "workspaceId": "ws-a", "scope": "user", "userId": "u123" } }
-  
-  daemon SessionRouter.routingKey('http', 'u123', 'ws-a') = "http:u123:ws-a"
-  
-  这是不同 channel 的 routing key (weixin: vs http:)，所以 NOT 命中 sess-mobile
-  
-  解决方案：用 LoadSession 显式跨 channel 拉取
-POST /session/sess-mobile/load
-  → 200 OK (LoadSessionResponse 含完整 transcript)
-  
-  现在 SDK client 也接入 sess-mobile，能看到手机端正在跑的 background task
-```
-
-**关键点**：
-- 同 channel 内（如 `'http'` channel 含 SDK + WebUI + IDE）`single` scope 下默认共享
-- 跨 channel（如 `'weixin'` ↔ `'http'`）需要显式 LoadSession 跨边界拉取
-- 跨 channel 自动共享需要 `scope='user'`（要求双方都标记同 user-id）
+主要场景：
+- **同 user 跨设备**（手机 → 电脑）：orchestrator `scope: 'user'` 路由到同一 daemon instance（按 userId）
+- **跨 channel**（IM bot → CLI）：client 显式拿 sessionId → `POST /coordinator/sessions/:id/route` 解析 daemonUrl → 直连
+- **冷续行**（daemon 已 idle 退出）：`POST /session/:id/load` 在新 daemon 中从 transcript JSONL 重建
 
 ## 五、错误码与状态码
 
@@ -381,8 +362,9 @@ POST /session/sess-mobile/load
 |---|---|---|
 | 401 | bearer token 缺失/错误 | — |
 | 403 | workspace 越权 / permission denied | — |
-| 404 | session/workspace not found | `errorCodes.SESSION_NOT_FOUND` |
-| 409 | 同 session 已有 active prompt（多 client 并发冲突）| 新增 `SESSION_BUSY` |
+| 404 | sessionId / workspaceId 不匹配 daemon 当前绑定 | `session_not_bound` / `workspace_not_bound` |
+| 409 | bound session 已有 active prompt（多 client 并发，第二个 prompt 挂起或拒绝）| `SESSION_BUSY` |
+| 409 | daemon 已绑 session，不能再 `POST /session/:id/load` | `already_bound` |
 | 422 | request body schema 校验失败 | — |
 | 429 | rate limit | — |
 | 500 | core internal error | `errorCodes.INTERNAL_ERROR` |
@@ -418,20 +400,19 @@ SDK 客户端可以从 `/openapi.json` codegen 出 typed HTTP client（参考 Op
 
 ## 七、版本与向后兼容
 
+`GET /` 返回最小版本元信息（用于 client 快速 probe）：
+
 ```
 GET / HTTP/1.1
 → 200 OK
 {
   "qwen": "0.16.0",              // qwen-code package version
   "daemon": "1",                  // daemon API major version
-  "acp": "0.14",                  // ACP protocol version (ACP_PROTOCOL_VERSION)
-  "capabilities": {
-    "websocket": true,
-    "sse": true,
-    "openapi": true
-  }
+  "acp": "0.14"                   // ACP protocol version (ACP_PROTOCOL_VERSION)
 }
 ```
+
+完整能力清单（含当前绑定状态、tags、orchestrator URL 等）由 `GET /capabilities` 返回——schema 详见 [§八.3 Capability envelope](#83-capability-envelope)。
 
 - **daemon API 版本独立于 qwen 包版本** —— 允许 qwen 包升级时不破坏 SDK 客户端
 - **ACP 协议版本透传** —— 与底层 ACP 库版本一致（当前 0.14）
@@ -444,21 +425,22 @@ GET / HTTP/1.1
 
 ### 8.1 Daemon 层路由（主线）
 
-PR#3889 已实现的全部路由保留 9 路由 wire 格式 / body schema 不变，单 session 模型下的语义如下：
+PR#3889 已实现的全部 daemon 层路由保留 wire 格式 / body schema 不变。单 session 模型下的语义概要（详细路由清单见 [§一 根路由总览](#一根路由总览)）：
 
-| 路由 | 单 session 模型下语义 |
+| 路由分组 | 单 session 模型下语义 |
 |---|---|
-| `POST /session` | daemon spawn 时已绑定唯一 session → **返回现有 session**（幂等）|
-| `POST /session/:id/prompt` | sessionId 必须 = daemon 绑定的那个，否则 `404 session_not_bound` |
-| `POST /session/:id/cancel` | 同上 |
-| `GET /session/:id/events` | 同上 |
-| `POST /session/:id/permission/:reqId` | 同上 |
-| `POST /session/:id/load`（resume）| 仅当 daemon 未绑 session 时可用，否则 `409 already_bound` |
-| `POST /workspace`（注册）| daemon spawn 时已绑 workspace → 返回现有 |
-| `GET /capabilities` | 含 `mode` / `boundSessionId` / `deploymentMode` 字段 |
+| `POST /session` | 幂等返回 daemon 启动时绑定的 sessionId |
+| `POST /session/:id/{prompt,cancel,model,mode,config}` | id 必须 = bound session，否则 `404 session_not_bound` |
+| `GET /session/:id/events` | SSE / WebSocket 事件流（id 同上校验）|
+| `POST /session/:id/permission/:requestId` | session-scoped permission 应答（id 同上校验）|
+| `POST /session/:id/load`（resume）| 仅 daemon 未绑 session 时可用，否则 `409 already_bound` |
+| `POST /workspace`（注册）| 幂等返回 daemon 启动时绑定的 workspaceId |
+| `GET /workspace/:id/{skills,mcp,lsp,tasks,file,pty,...}` | id 必须 = bound workspace |
+| `GET /` | 最小版本元信息（qwen / daemon / acp 版本）|
+| `GET /capabilities` | 完整 capability envelope（含 `mode` / `boundSessionId` / `deploymentMode` / tags）|
 | `GET /health` | 含 `boundSession` / `idleSince` 字段 |
 
-**关键设计决策：保留 sessionId 在 URL**——做 client-side 校验，防止 client 拿错 daemon URL 时静默写到错误 session。**不要**改成 sessionId 隐式（看似清爽但失去 fail-fast 防御）。
+**关键设计决策：保留 sessionId / workspaceId 在 URL**——做 client-side fail-fast 校验，防止 client 拿错 daemon URL 时静默写到错误目标。**不要**改成 ID 隐式（看似清爽但失去防御）。
 
 ### 8.2 Orchestrator 层 API（External Reference Architecture）
 
@@ -475,7 +457,7 @@ PR#3889 已实现的全部路由保留 9 路由 wire 格式 / body schema 不变
 | `GET /coordinator/health` | 全部 daemon pool 健康状态 | 推荐 |
 | `POST /coordinator/sessions/scope` | 路由策略 `single` / `user` / `thread` | 推荐 |
 
-**Orchestrator API base URL** 由 `coordinator.baseUrl` 配置（独立于 daemon URL）。Mode A（CLI + HttpServer）单用户场景 **不需要 orchestrator**——直接连 `qwen --serve --port 7776`。Orchestrator 只在 Mode B 多 session 部署时启用。
+**Orchestrator API base URL** 由 `coordinator.baseUrl` 配置（独立于 daemon URL）。Mode A（CLI + HttpServer）单用户场景 **不需要 orchestrator**——直接连 daemon URL（`qwen --serve` 启动时打印的端口）。Orchestrator 只在 Mode B 多 session 部署时启用。
 
 #### `POST /coordinator/sessions` 示例
 
@@ -520,9 +502,9 @@ Authorization: Bearer <coordinator-token>
 
 用于 SDK 重连（拿现有 sessionId → 解析当前 daemonUrl）；orchestrator 维护 `sessionId → daemonUrl` 映射。
 
-### 8.3 Capability envelope 增量
+### 8.3 Capability envelope
 
-`GET /capabilities` 新增字段（向后兼容 / 老 client 忽略未知字段）：
+`GET /capabilities` 完整响应 schema（向后兼容字段加法策略，老 client 忽略未知字段）：
 
 ```jsonc
 {

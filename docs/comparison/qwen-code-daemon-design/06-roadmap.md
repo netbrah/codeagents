@@ -126,7 +126,7 @@ External Reference Architecture（外部 / 商业层，参考实现）：
 |---|---|
 | §02 §1 sessionScope='single' default | **100%** ✓ |
 | §02 §6 prompt FIFO + first responder | **100%** ✓ |
-| §03 §一 路由表 | **100%**（9 路由全实现）|
+| §03 §一 路由表 | **100%**（daemon 层核心路由全实现）|
 | §03 §二.2 复用 ACP zod schema | **100%** ✓ |
 | §03 §三 SSE / WebSocket | **80%**（SSE 完整 / WebSocket Stage 2 deferred）|
 | §05 §1 Bearer token | **100%** + 加 timing-safe compare + 401 uniform |
