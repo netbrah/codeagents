@@ -2,7 +2,7 @@
 
 > [← 上一篇：权限 / 认证](./05-permission-auth.md) · [下一篇：与 OpenCode 详细对比 →](./07-comparison-with-opencode.md)
 
-> Qwen Code 项目本身只承诺 **"daemon building block"** —— 把 ACP NDJSON 协议通过 HTTP+SSE 暴露成可被任何外部 client / 编排器消费的服务。多 session orchestrator / 多租户 / SaaS 部署等"平台层"由外部实现（商业平台 / k8s operator / 云厂商定制），项目提供 [§13](./13-single-vs-multi-session-design.md) / [§14](./14-orchestrator-multi-tenancy.md) / [§03 §8.2](./03-http-api.md#82-新增-orchestrator-层-apistage-2) 作为参考架构蓝图。
+> Qwen Code 项目本身只承诺 **"daemon building block"** —— 把 ACP NDJSON 协议通过 HTTP+SSE 暴露成可被任何外部 client / 编排器消费的服务。多 session orchestrator / 多租户 / SaaS 部署等"平台层"由外部实现（商业平台 / k8s operator / 云厂商定制），项目提供 [§13](./13-single-vs-multi-session-design.md) / [§14](./14-orchestrator-multi-tenancy.md) / [§03 §8.2](./03-http-api.md#82-orchestrator-层-apiexternal-reference-architecture) 作为参考架构蓝图。
 
 ## 总览
 
@@ -22,6 +22,24 @@ External Reference Architecture（外部 / 商业层，参考实现）：
 ```
 
 **核心判断**：qwen-code 是 building block，不是 SaaS 平台。Stage 1 + Stage 1.5 + Stage 2 完成后 daemon 协议表面 100% 稳定，外部集成方（如阿里云 DashScope / 自建团队 / 用户）可基于此自由实现 orchestrator + 多租户 + SaaS。这与 OpenCode（端到端 SaaS 路线）的设计哲学相反——后者绑定平台决策，前者保持 Unix 风格的可组合性。
+
+---
+
+## Stage 0：前置 PR 完成度（确认已就绪）
+
+进入 Stage 1 前确认以下 PR 已合并：
+
+| PR | 状态 | 必要性 |
+|---|---|---|
+| PR#3717 FileReadCache | ✅ 已合并 | session-scoped cache 是 daemon 必备 |
+| PR#3810 FileReadCache 5 路径 invalidation | ✅ 已合并 | 长 session 正确性 |
+| PR#3723 共享 permission flow | ✅ 已合并 | daemon 加第 4 mode 的基础 |
+| PR#3739 Background agent resume + transcript-first fork | ✅ 已合并 | daemon 重启 / 跨 client 续行 |
+| PR#3642 `/tasks` + background shell pool | ✅ 已合并 | 跨 session 任务调度 |
+| PR#3818 MCP rediscovery coalesce | ✅ 已合并 | MCP pool 共享 |
+| PR#3836 Kind framework 4 消费者 | ✅ 已合并 | 跨 client 任务可见性 |
+
+✓ **全部 PR 在 2026-05-06 之前已合并**——daemon 化的所有前置基础已就绪。
 
 ---
 
@@ -73,7 +91,7 @@ External Reference Architecture（外部 / 商业层，参考实现）：
 
 | 原因 | 详情 |
 |---|---|
-| **EventBus + ring replay + Last-Event-ID 重连** | 原 §03 §三 计划 Stage 6 HA 才详做，PR#3889 提前到 Stage 1（client_evicted overflow + bounded subscriber queues 都做了）|
+| **EventBus + ring replay + Last-Event-ID 重连** | 原 §03 §三 计划放在 External Reference Architecture / SaaS HA 才详做，PR#3889 提前到 Stage 1（client_evicted overflow + bounded subscriber queues 都做了）|
 | **Timing-safe bearer compare** | §05 设计为 Bearer，PR#3889 加 SHA-256 + `crypto.timingSafeEqual` + 401 uniform across no-header/bad-scheme/wrong-token，对应 §05 side-channel 防御（设计在 §05 但 Stage 1 实现）|
 | **IPv6 loopback ergonomics** | `::1` / `[::1]` / `host.docker.internal` 等 LOOPBACK_BINDS 边界，原设计未具体化 |
 | **EventBus correctness** | `client_evicted` overflow / replay ring / AsyncIterable abort handling 等几百行 |
@@ -100,11 +118,11 @@ External Reference Architecture（外部 / 商业层，参考实现）：
 | `session_list` | `GET /workspace/:id/sessions` | §03 §一 |
 | `session_prompt` | `POST /session/:id/prompt`（per-session FIFO + no-poison）| §03 §一 + 决策 §6 prompt FIFO |
 | `session_cancel` | `POST /session/:id/cancel` | §03 §一 |
-| `session_events` | `GET /session/:id/events` SSE + Last-Event-ID + 15s heartbeat | §03 §三 + §03 §三 SSE 重连 |
+| `session_events` | `GET /session/:id/events` SSE + Last-Event-ID + 15s heartbeat | §03 §三 SSE 重连 |
 | `session_set_model` | `POST /session/:id/model`（publishes `model_switched`）| §03 §一 |
 | `permission_vote` | `POST /permission/:requestId` first-responder | §03 §三 + §02 §6 决策 + §05 §3 |
 
-#### 3️⃣ 9 commits breakdown（核心实现部分）
+#### 3️⃣ 核心 commits breakdown
 
 | Commit | 关注章节 |
 |---|---|
@@ -134,7 +152,7 @@ External Reference Architecture（外部 / 商业层，参考实现）：
 | §08 capabilities envelope | **100%**（9 tags 实现）|
 | §03 §三 SSE Last-Event-ID 重连 | **100%**（ring + replay + 15s heartbeat）|
 | §11 §五 liveness 协议 | **75%**（heartbeat 间隔 15s vs 设计 30s——更激进；client_evicted overflow 已实现）|
-| §10 远端 CLI / Capability 反向 RPC | **0%**（Stage 1 不含；Stage 2 deferred）|
+| §10 远端 CLI / Capability 反向 RPC | **0%**（Stage 1 不含；External 范畴）|
 | **Stage 1 文档**（user guide + HTTP 协议 reference + SDK 示例）| **100%**（commit `27a164c` 补全 §06 §"Documentation + examples + e2e tests" 1d 任务）|
 
 **综合**：~95% Stage 1 范畴内的设计决策 1:1 实现；文档 100% 补全；少数偏差都是**设计向更严格演进**（timing-safe / 401 uniform / 15s heartbeat 比 30s 更激进 / IPv6 ergonomics），不是简化。**Stage 1 GA-ready**——可 merge 后开 Stage 1.5（Mode A `qwen --serve` ~4d）follow-up。
@@ -143,7 +161,7 @@ External Reference Architecture（外部 / 商业层，参考实现）：
 
 | 经验 | 详情 |
 |---|---|
-| **EventBus 在 Stage 1 就需要完整实现** | 原计划 Stage 6 HA 详做，但 SSE Last-Event-ID 重连是 Stage 1 用户必需，无法 deferred |
+| **EventBus 在 Stage 1 就需要完整实现** | 原计划放在 External Reference Architecture / SaaS HA 详做，但 SSE Last-Event-ID 重连是 Stage 1 用户必需，无法 deferred |
 | **Timing-safe / 401 uniform 等 side-channel 防御 Stage 1 就要做** | §05 设计放在多租户章节，但 PR#3889 在 Stage 1 单租户也做了——开源 daemon 默认就该这么严 |
 | **IPv6 loopback ergonomics 不能省略** | 容器化 / Docker / `host.docker.internal` 是常见用例，loopback 处理细节比预想复杂 |
 | **多轮 self-audit + multi-model 流程的价值** | PR#3889 用 ~12 轮 audit（claude-opus-4-7 / gpt-5.5 / deepseek 三模型）—— close ~30 review threads；不同模型抓不同类问题（race / leak / IPv6 / SSE / Windows / env whitelist / abort timeout 互补覆盖）|
@@ -163,9 +181,9 @@ External Reference Architecture（外部 / 商业层，参考实现）：
 | `POST /file/read` / `/file/write` | **External / Stage 2 可选**（agent 已有 fs，daemon-only file API 仅给远端 client 用）|
 | Mobile / browser UI | **External**（参考 [§10 远端 CLI 模式](./10-remote-cli-mode.md)；PR#3929-3931 平行 stack 已有 mobile UI 参考）|
 | Pairing token / LAN URL | **External**（参考 PR#3929-3931）|
-| Orchestrator (multi-daemon spawn / route / cleanup) | **External**（参考 [§03 §8.2](./03-http-api.md#82-新增-orchestrator-层-apistage-2) + [§13](./13-single-vs-multi-session-design.md) + [§14](./14-orchestrator-multi-tenancy.md)）|
+| Orchestrator (multi-daemon spawn / route / cleanup) | **External**（参考 [§03 §8.2](./03-http-api.md#82-orchestrator-层-apiexternal-reference-architecture) + [§13](./13-single-vs-multi-session-design.md) + [§14](./14-orchestrator-multi-tenancy.md)）|
 | Multi-tenancy / OIDC / Quota / Audit | **External**（参考 [§14](./14-orchestrator-multi-tenancy.md)）|
-| Shell sandbox（OS user / namespace / container / remote）| **External**（参考 ）|
+| Shell sandbox（OS user / namespace / container / remote）| **External**（参考本章 Shell Sandbox 段）|
 
 #### 7️⃣ Stage 1 主线 HA 与稳定性已覆盖范围
 
@@ -180,7 +198,7 @@ qwen-code 主线 HA / 稳定性需求由 PR#3889 + PR#3739 已完整覆盖（详
 | **资源 cleanup 简单** | OS process exit | kill daemon = 清理所有 fd / child process / memory，无需主动 cleanup hooks |
 | **timing-safe bearer auth + 401 uniform** | PR#3889 commit `ad0e6ec06` | 防 side-channel 攻击 |
 
-主线**不需要**：multi-pod sticky session / Postgres Patroni / Redis Sentinel / per-tenant heap budget / Worker thread tenant isolation / 30 天 Soak/Chaos 测试矩阵 等——这些都是 External SaaS 运营层关切，由  设计参考蓝图描述。
+主线**不需要**：multi-pod sticky session / Postgres Patroni / Redis Sentinel / per-tenant heap budget / Worker thread tenant isolation / 30 天 Soak/Chaos 测试矩阵 等——这些都是 External SaaS 运营层关切，作为 External Reference Architecture 设计参考蓝图。
 
 ---
 
@@ -278,11 +296,11 @@ IM bot       ─────│  - Mode B (headless)      │
 
 | 组件 | 工作量参考 | 设计文档 |
 |---|---|---|
-| `qwen-coordinator` HTTP server | ~3-5d | [§03 §8.2 Orchestrator API](./03-http-api.md#82-新增-orchestrator-层-apistage-2) |
+| `qwen-coordinator` HTTP server | ~3-5d | [§03 §8.2 Orchestrator API](./03-http-api.md#82-orchestrator-层-apiexternal-reference-architecture) |
 | sessionScope routing（single / user / thread）| ~2d | [§02 §1](./02-architectural-decisions.md#1-session-是否跨-client-共享) |
-| Daemon instance 注册表（sessionId → daemonUrl）| ~2d | [§03 §8.2 `POST /coordinator/sessions/:id/route`](./03-http-api.md#82-新增-orchestrator-层-apistage-2) |
-| Spawn / cleanup / health watchdog | ~2d |  |
-| Cross-daemon aggregate API（"我所有 task"）| ~2d | [§03 §8.2 `/aggregate`](./03-http-api.md#82-新增-orchestrator-层-apistage-2) |
+| Daemon instance 注册表（sessionId → daemonUrl）| ~2d | [§03 §8.2 `POST /coordinator/sessions/:id/route`](./03-http-api.md#82-orchestrator-层-apiexternal-reference-architecture) |
+| Spawn / cleanup / health watchdog | ~2d | [§14 §五 Phase 1](./14-orchestrator-multi-tenancy.md#五4-个-phase演进路径) |
+| Cross-daemon aggregate API（"我所有 task"）| ~2d | [§03 §8.2 `/aggregate`](./03-http-api.md#82-orchestrator-层-apiexternal-reference-architecture) |
 | **合计参考** | **~1.5-2 周 / 1 人** | |
 
 详见 [§13 单 vs 多 Session 设计深度对比](./13-single-vs-multi-session-design.md) 的决策树。
@@ -311,18 +329,18 @@ External 实施方向（按 ShellSandbox interface 抽象）：
 | 远程 sandbox（daemon 与 shell 不在同机）| SSH / gRPC / k8s Job / containerd over TCP | ~2-3w |
 | **合计参考** | **~4-6 周 / 1 人**（按部署形态选用）| |
 
-PR#3889 已实现的 `BridgeClient` file-proxy 方法（`readTextFile` / `writeTextFile`）在 Stage 1 不强制 sandbox——agent 跑同 UID 且有 shell 工具权限，sandbox 在此层是 theatre。Stage 4+ 远程 sandbox 替换 Client 为 sandbox-aware 变种即可。
+PR#3889 已实现的 `BridgeClient` file-proxy 方法（`readTextFile` / `writeTextFile`）在 Stage 1 不强制 sandbox——agent 跑同 UID 且有 shell 工具权限，sandbox 在此层是 theatre。External Phase 2+ 远程 sandbox 替换 Client 为 sandbox-aware 变种即可。
 
 ### SaaS deployment
 
 | 组件 | 工作量参考 | 设计文档 |
 |---|---|---|
-| k8s native（StatefulSet + PVC + Service mesh）| ~1-2w |  |
+| k8s native（StatefulSet + PVC + Service mesh）| ~1-2w | External Phase 3 |
 | Postgres state + Redis cache + S3 transcript | ~1-2w | [§14 持久化栈](./14-orchestrator-multi-tenancy.md)（持久层） |
-| Multi-region / cross-geo scheduling | ~1-2w |  |
+| Multi-region / cross-geo scheduling | ~1-2w | External Phase 4 |
 | **合计参考** | **~3-6 周 / 2-3 人** | |
 
-详见  + [§14 持久化栈](./14-orchestrator-multi-tenancy.md)（持久层）。
+详见 [§14 持久化栈](./14-orchestrator-multi-tenancy.md)（持久层）。
 
 ---
 
@@ -336,7 +354,7 @@ qwen-code 主线
    Stage 2           ░░░░░░░░░░░░
 
 里程碑:
-   end Week 1: Stage 1 GA（PR#3889 merge）
+   end Week 1: Stage 1 GA-ready（PR#3889 待 merge）
    end Week 2: Stage 1.5 GA（Mode A）
    end Week 3: Stage 2 GA（daemon protocol surface 锁定）
 
@@ -359,21 +377,6 @@ External Reference Architecture（独立时间线，非项目路线图）:
 | 与现有 ACP agent 行为不一致 | Stage 1 stdio 桥接持续保留作 reference impl |
 | 用户期望"开箱即用 SaaS"失望 | README 顶部明确 scope：daemon building block，平台层外部实现；提供详细 reference architecture 文档 |
 
-## Stage 0：前置 PR 完成度（确认已就绪）
-
-进入 Stage 1 前确认以下 PR 已合并：
-
-| PR | 状态 | 必要性 |
-|---|---|---|
-| PR#3717 FileReadCache | ✅ 已合并 | session-scoped cache 是 daemon 必备 |
-| PR#3810 FileReadCache 5 路径 invalidation | ✅ 已合并 | 长 session 正确性 |
-| PR#3723 共享 permission flow | ✅ 已合并 | daemon 加第 4 mode 的基础 |
-| PR#3739 Background agent resume + transcript-first fork | ✅ 已合并 | daemon 重启 / 跨 client 续行 |
-| PR#3642 `/tasks` + background shell pool | ✅ 已合并 | 跨 session 任务调度 |
-| PR#3818 MCP rediscovery coalesce | ✅ 已合并 | MCP pool 共享 |
-| PR#3836 Kind framework 4 消费者 | ✅ 已合并 | 跨 client 任务可见性 |
-
-✓ **全部 PR 在 2026-05-06 之前已合并**——daemon 化的所有前置基础已就绪。
 
 ## 不复用 / 待弃用资产
 
