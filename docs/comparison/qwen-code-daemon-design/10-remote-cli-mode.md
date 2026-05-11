@@ -830,6 +830,88 @@ CLI 重连时传 `Last-Event-ID`：daemon 用 PR#3739 transcript-first fork resu
 - qwen 是"多 thin client + 共 session"模型（live collaboration）；VSCode Remote-SSH 是"单 client + server"
 - qwen capability 反向 RPC 抽象出 5 类，VSCode 直接是 IDE protocol（更厚）
 
+## 十一·五、与 PR#3929-3931 `qwen remote-control` stack 的对比
+
+> 平行推进的 [PR#3929](https://github.com/QwenLM/qwen-code/pull/3929) / [#3930](https://github.com/QwenLM/qwen-code/pull/3930) / [#3931](https://github.com/QwenLM/qwen-code/pull/3931) 3-PR stack（作者 chiga0，独立开发，不引用 issue #3803）走另一条 remote-control 路线——**stream-json + dual-output + mobile UI**。本节澄清两条 stack 的差异 + 哪些能力可以 backport 到 daemon。
+
+### 11.5.1 整体对比
+
+| 维度 | daemon-design + PR#3889 | PR#3929-3931 stack |
+|---|---|---|
+| **作者 / scope** | wenshao · 通用 daemon building block | chiga0 · mobile/browser remote-control 专项 |
+| **入口命令** | `qwen serve` (Mode B) / `qwen --serve` (Mode A) | `qwen remote-control` (worker) / `qwen --remote-control` (attach 当前 TUI) / `/remote-control` slash |
+| **传输协议** | HTTP + SSE / WebSocket（Express 5 + ACP NDJSON）| HTTP + WebSocket + stream-json 控制平面 + dual-output JSONL bridge |
+| **协议复用** | 100% 复用 ACP zod schema（§03 §二）| 复用 dual-output 现有 primitive + stream-json 包装 control plane |
+| **session 模型** | 1 Daemon Instance = 1 Session（§02 §2）| Worker server spawn worker session（PR#3930）或 attach 当前 TUI（PR#3931）|
+| **多 client 共 session** | ✅ live collaboration 默认 + first-responder permission | ⚠️ mobile/browser 可 attach 同 session 但首要场景是单 mobile + 当前 TUI 双视图 |
+| **Mobile / browser UI** | ❌ §10 标 External Reference 范畴 | ✅ **自带最小化 mobile/browser UI**（PR#3930 +2564 行含 static 资产）|
+| **Pairing token + LAN URL** | ❌ 仅 bearer token | ✅ **一次性 pairing token + 客户端 token + LAN URL 报告** |
+| **Capability 反向 RPC（5 类）** | ✅ editor / clipboard / browser / notification / file_picker | ❌ 无反向 RPC——permission approve/deny 通过 stream-json 直接路由 |
+| **状态** | PR#3889 ✅ Stage 1 GA-ready（merged path 内）| 3-PR stack OPEN（2026-05-07 起）+1302 / +2564 / +2067 行 |
+| **与 issue #3803 关系** | 明确引用 #3803 设计 | **不引用** #3803，独立技术栈 |
+
+### 11.5.2 PR#3929-3931 独有的 3 项能力
+
+#### 1. Mobile / browser UI（PR#3930 内置 static 资产）
+
+PR#3930 自带最小化 mobile / browser UI（HTML + JS + CSS），用户连 `http://<lan>:port` 即可在手机浏览器看到当前 session。这是 daemon-design 没有的——daemon-design 把 Web UI 视为 External Reference（外部集成方实现）。
+
+**daemon backport 思路**：
+- daemon Stage 2 后可在 `qwen serve` 内嵌一个**可选 static 资产目录**（默认 disabled，`--serve-ui` flag 启用）
+- UI 通过 daemon 标准 HTTP API + SSE 接入，**无需 stream-json 协议**
+- 体积估算：~500-800 行 HTML/JS + ~1-2KB CSS（minimal）
+
+#### 2. Pairing Token + LAN URL 报告
+
+PR#3930 协议层亮点：
+- **一次性 pairing token**：daemon 启动时打印 6-8 位短 token，mobile/browser 一次性输入后换取**长期 client token**（raw token 不存盘）
+- **LAN URL 报告**：检测本机非 loopback 网卡，打印类似 `http://192.168.1.42:5096/?pair=ABC123` 的链接 + QR code，mobile 扫码即接入
+- **非 loopback 默认拒绝绑定**（`--allow-lan` 显式启用）+ 速率限制 + Origin 校验 + CSP
+
+**daemon backport 思路**：
+- Stage 2 daemon 多 token 设计（[§05 §2.4](./05-permission-auth.md#24-多-client-multi-tenant)）可吸收 pairing token 机制
+- LAN URL + QR code 输出可作为 `qwen serve --print-lan-url` flag
+- mobile/browser 端无需复杂 OAuth flow，pairing 5 秒完成
+
+#### 3. dual-output / remote-input bridge attach 模式
+
+PR#3931 创新点：让现有 TUI（已经在运行的 `qwen` 交互式 CLI）**不重启**就 attach 到 remote-control server——复用现有 `--json-file <events.jsonl>` / `--input-file <input.jsonl>` dual-output 原语，通过 `TuiRemoteBridge` / `RemoteInputWatcher` 把文件流桥接到 WebSocket。
+
+**与 daemon Mode A 的区别**：
+- daemon Mode A（[§02 §7](./02-architectural-decisions.md#7-daemon-部署模式clihttpserver-vs-headlesshttpserver)）：TUI 是 client #0，**通过 in-process EventBus** 共享 session（daemon HTTP server 在同进程内常驻）
+- PR#3931：TUI **保留独立进程**，通过文件层 bridge 与独立运行的 remote-control server 同步——更轻的耦合
+
+**daemon Mode A 已经覆盖 PR#3931 的场景**：本地 TUI + 远端 mobile 同看 session = `qwen --serve` 即可，无需文件 bridge 中间层。
+
+### 11.5.3 协议层为何不冲突
+
+| 层 | daemon-design | PR#3929-3931 |
+|---|---|---|
+| **HTTP 路由** | `/session/:id/*` / `/workspace/:id/*` 标准 RESTful | `/remote-control/*` + WebSocket upgrade |
+| **wire schema** | ACP zod schema 1:1（`PromptRequest` / `SessionNotification`）| stream-json 自定义控制平面（`session_create` / `prompt_submit` / `interrupt`）|
+| **event 编码** | SSE `data: <ACP JSON>\n\n` + `id: <transcript line#>` | dual-output JSONL（`session_start` / `stream_event` / `control_request` / `control_response`）|
+| **接入方式** | `daemonUrl + Bearer token` 直接 HTTP fetch | pairing token 换 client token + WebSocket 长连 |
+
+两层路由命名空间 (`/session/*` vs `/remote-control/*`) 不冲突——同一进程可同时承载两套（但当前 PR#3929-3931 用 standalone server，没有合并到 `qwen serve`）。
+
+### 11.5.4 未来融合机会
+
+| 能力 | 当前位置 | 融合方向 |
+|---|---|---|
+| Mobile UI static 资产 | PR#3930 自带 | Stage 2 后可移植到 daemon Mode B（`--serve-ui` opt-in flag）|
+| Pairing token + LAN URL + QR code | PR#3930 | Stage 2 多 token 设计可吸收（[§05 §2.4](./05-permission-auth.md#24-多-client-multi-tenant)）|
+| 一次性 pair → 长期 client token | PR#3930 | OAuth-lite 模式，daemon Stage 2 多 token 加 token-issue endpoint 即可 |
+| `qwen --remote-control` attach 现有 TUI | PR#3931 | daemon Mode A 已覆盖（in-process EventBus）；PR#3931 文件 bridge 模式可作为"轻量替代"保留 |
+| stream-json 控制平面 | PR#3929-3931 协议核心 | **不建议融合**——与 ACP zod schema 设计哲学冲突；两条 stack 应保留独立 wire 协议 |
+| Capability 反向 RPC（5 类）| daemon-design §三/§四 | PR#3929-3931 未来需要 mobile editor 等本机能力时可借鉴 |
+
+### 11.5.5 一句话定位
+
+**PR#3929-3931 = 应用层（Mobile remote-control specialization）**：自带 UI + pairing UX + dual-output bridge。
+**daemon-design (PR#3889) = 协议层（Generic daemon building block）**：HTTP + SSE + ACP NDJSON，让 mobile UI / pairing token 等应用层能力**可以基于此独立实现**。
+
+两条 stack 互补不冲突——平行 merge 不影响彼此。Mobile UI / pairing token / LAN URL 这 3 块应用层能力是 daemon Stage 2 后可以**选择性吸收**的目标（无需改 wire 协议）。
+
 ## 十二、端到端 Setup 流程示例
 
 > **注**：以下 CLI 命令（`qwen daemon init` / `qwen tenant create` / `qwen profile add` / `qwen login`）是 External Reference Architecture 范畴的 speculative 设计示例，**不在 qwen-code 主线 Stage 1/1.5/2 范围**——展示 External 集成方可能如何包装 daemon building block。
