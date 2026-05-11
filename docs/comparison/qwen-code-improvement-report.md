@@ -68,7 +68,7 @@
 | **P1** | [/teleport 跨端双向迁移](./teleport-session-migration-deep-dive.md) — Web session → 终端 session 双向迁移 [↓](./qwen-code-improvement-report-p0-p1-platform.md#item-8) | 缺失 | 大 | — |
 | **P1** | [GitLab CI/CD](./gitlab-ci-cd-deep-dive.md) — 官方 GitLab pipeline 集成 [↓](./qwen-code-improvement-report-p0-p1-platform.md#item-9) | 缺失 | 中 | — |
 | **P1** | [流式工具执行流水线](./streaming-tool-execution-deep-dive.md) — API 流式返回 tool_use 时立即开始执行，不等完整响应 [↓](./qwen-code-improvement-report-p0-p1-engine.md#item-1) | 等完整响应后执行 | 中 | — |
-| **P1** | [文件读取缓存 + 批量并行 I/O](./file-read-cache-deep-dive.md) — 1000 条 LRU + mtime 失效 + 32 批并行 [↓](./qwen-code-improvement-report-p0-p1-engine.md#item-2) | 🟡 主体已实现（查询缓存 ✓ + FileReadCache ✓ + history-rewrite invalidation 修复 ✓ + prior-read 守卫 ✓，仅 32 批并行 readManyFiles + file-changed 守卫仍待）| 小 | [PR#3581](https://github.com/QwenLM/qwen-code/pull/3581) ✓（2026-04-24 合并 · `workspaceContext` / `validatePath` / `.qwenignore` 查询缓存）/ [PR#3717](https://github.com/QwenLM/qwen-code/pull/3717) ✓（2026-04-30 合并 · session-scoped `FileReadCache` + 未变更 Read 短路占位符 · `(dev,ino)` key + 三态 check API + `READ_FILE_CACHE_*` env 度量开关）/ [PR#3810](https://github.com/QwenLM/qwen-code/pull/3810) ✓（**2026-05-04 合并 · +579/-0** · 修复 #3805 "read tool returns no content in long-running sessions" · 给 PR#3717 漏掉的 5 条 history-rewrite 路径补 `clear()`）/ [PR#3774](https://github.com/QwenLM/qwen-code/pull/3774) ✓（**2026-05-06 合并 · +1891/-118** 体量从 OPEN 时 +611/-2 增长 3x · 用 FileReadCache 强制 Edit/WriteFile 必须先 read · 新增 `EDIT_REQUIRES_PRIOR_READ` / `FILE_CHANGED_SINCE_READ` 错误码）|
+| **P1** | [文件读取缓存 + 批量并行 I/O](./file-read-cache-deep-dive.md) — 1000 条 LRU + mtime 失效 + 32 批并行 [↓](./qwen-code-improvement-report-p0-p1-engine.md#item-2) | ✅ **prior-read 守卫链完整闭环（与 Claude Code 行为一致）**——查询缓存 ✓ + FileReadCache ✓ + 5 条 history-rewrite invalidation ✓ + prior-read 守卫 ✓ + partial-read 接受 ✓ + binary detection 统一 ✓；仅 32 批并行 `readManyFiles` 仍待 | 小 | [PR#3581](https://github.com/QwenLM/qwen-code/pull/3581) ✓（2026-04-24 · 查询缓存）/ [PR#3717](https://github.com/QwenLM/qwen-code/pull/3717) ✓（2026-04-30 · FileReadCache）/ [PR#3810](https://github.com/QwenLM/qwen-code/pull/3810) ✓（2026-05-04 · +579/-0 · 5 路径 invalidation）/ [PR#3774](https://github.com/QwenLM/qwen-code/pull/3774) ✓（2026-05-06 · +1891/-118 · `EDIT_REQUIRES_PRIOR_READ` / `FILE_CHANGED_SINCE_READ` 错误码）/ [PR#3932](https://github.com/QwenLM/qwen-code/pull/3932) ✓（2026-05-08 · Edit 接受 partial read）/ [PR#4002](https://github.com/QwenLM/qwen-code/pull/4002) ✓（**2026-05-10 · +707/-127** · 3 部分修复 close #3964 + #3945：① 解耦 cacheable 与 truncation · ② `detectFileType` 优先 mime/扩展名（`KNOWN_TEXT_EXTENSIONS` 50+ 文本扩展）防 `isBinaryFile` 4KB sample 误判 · ③ 修 WriteFile partial-read 死锁）|
 | **P1** | [记忆/附件异步prefetch](./memory-prefetch-deep-dive.md) — 工具执行期间并行搜索相关记忆 [↓](./qwen-code-improvement-report-p0-p1-engine.md#item-3) | 无prefetch | 中 | — |
 | **P1** | [Token Budget 续行与自动交接](./token-budget-continuation-deep-dive.md) — 90% 续行 + 递减检测 + 分层压缩回退 [↓](./qwen-code-improvement-report-p0-p1-engine.md#item-4) | 70% 一次性压缩 | 中 | — |
 | **P1** | 同步 I/O 异步化 — readFileSync/statSync 替换为 async，解阻塞事件循环 [↓](./qwen-code-improvement-report-p0-p1-engine.md#item-5) | ✓ 已实现 | 中 | [PR#3581](https://github.com/QwenLM/qwen-code/pull/3581) ✓（2026-04-24 合并 · hot path 110→10 syscall/prompt，-91%）|
@@ -448,6 +448,101 @@
 ---
 
 ## 六、更新日志
+
+### 2026-05-11（~3d 增量 · 11 项合并 · prior-read 守卫链闭环（PR#4002 close #3964 + #3945）+ reactive compression harden + LiveAgentPanel 完整化 + targeted resize repaint）
+
+扫描窗口：2026-05-08 → 2026-05-11 UTC。窗口内 **11 项合并 + 多项关键 OPEN**。本次主线：① **prior-read 守卫链完整闭环**（PR#4002 +707/-127 close #3964 + #3945 · 与 Claude Code 行为对齐 · 3 部分修复：cacheable 与 truncation 解耦 / `detectFileType` 优先 mime+扩展名 / WriteFile partial-read 死锁）；② **reactive compression 跟进硬化**（PR#3985 +189/-18 · setup-failure 释放 send lock + 显式失败 latch + AbortSignal 传播）；③ **LiveAgentPanel 完整化**（PR#3909 inline AgentExecutionDisplay → 始终 LiveAgentPanel；PR#3919 panel-ownership filter + post-delete statusChange）；④ **TUI resize 优化**（PR#3967 替换 `ESC[2J ESC[3J ESC[H]` 全屏清屏为 `cursorTo + eraseDown` 定向重绘 · 消除 resize 闪屏）；⑤ **subagent 审批 banner 补充工具详情**（PR#3956 +179/-53 · `general-purpose` subagent 工具调用现显示完整命令 / diff / MCP server）；⑥ **OTel diagnostics 静音**（PR#3986 +93/-3 · exporter 连接失败不再污染 UI surface · 走 debug log path）；⑦ **skills 热重载 slash commands**（PR#3923 +212/-4 · `SkillManager.addChangeListener` 触发 `slashCommandProcessor.reloadCommands()` · `/<skill>` 不再需要重启）；⑧ **Idealab 作为第三方 provider**（PR#3955）；⑨ **partial reads 在 prior-read enforcement 中被接受**（PR#3932 · Edit 路径 `lastReadWasFull` relaxed）。
+
+#### 🟢 MERGED（关键项）
+
+| PR | 标题 | 合并时间 | 影响 |
+|---|---|---|---|
+| **[PR#4002](https://github.com/QwenLM/qwen-code/pull/4002)** | fix(core): unify Edit/WriteFile prior-read with Claude Code; close #3964 + #3945 | 2026-05-10 06:29 UTC | 🌟 **关联 item-2 FileReadCache prior-read 守卫链最后闭环**（**+707/-127**）—— **3 部分修复**：① 解耦 `cacheable` 与 truncation（PR#3774 conflate 的 bug：partial / truncated 文本文件不再误报为二进制 payload）；② `detectFileType` 优先看 mime/扩展名（新增 `KNOWN_TEXT_EXTENSIONS` 列表 50+ 文本扩展 .py/.kt/.go/.rs/.cpp/.cs/.vue/.svelte/.bash/.toml/.dockerfile 等），而非 `isBinaryFile` 4KB sample（修复 UTF-16 / encrypted FS / source-file header binary prefix 误判）；③ 修 WriteFile partial-read 死锁（`requireFullRead` rejection 让模型回到同样 truncated 状态无逃生）。Close 高优先级用户报告 #3964（`.kt`/`.cpp`/`.py`/`.ts` Edit 失败 across 0.15.7-0.15.9 on Linux+Windows）+ #3945（large file 不可 Edit）|
+| **[PR#3985](https://github.com/QwenLM/qwen-code/pull/3985)** | fix(core): harden reactive compression follow-ups | 2026-05-09 15:20 UTC | **关联 item-10 反应式压缩**（**+189/-18**）—— 修补 PR#3879 reactive compression 三个 review 漏洞：① setup-failure 释放 send lock（不再 block 后续 send）；② 显式压缩失败 latch（只 latch `failed` 状态，跳过 `NOOP`，避免反复重试白消耗 compression API）；③ AbortSignal 传播到 summary generation（用户 cancel 后压缩 API 调用即时停止）|
+| **[PR#3986](https://github.com/QwenLM/qwen-code/pull/3986)** | feat(telemetry): suppress OpenTelemetry diagnostics from UI | 2026-05-09 15:15 UTC | **关联 item-26 OTel Tracing**（+93/-3）—— OTel SDK diagnostics（exporter 连接失败 / 警告）原本走 `console` 直接污染 UI surface；改路由到现有 debug log path。诊断信息仍可用，但不再 leak 到用户可见层 |
+| **[PR#3967](https://github.com/QwenLM/qwen-code/pull/3967)** | fix(cli): replace clearTerminal with targeted repaint on resize | 2026-05-09 10:27 UTC | **TUI 渲染优化**（+16/-0）—— 终端宽度变化时原来写 `ESC[2J ESC[3J ESC[H]`（全屏清屏）导致 resize 时可见闪屏。改为 `cursorTo(0, 0) + eraseDown` 定向重绘（仅 width 变化时触发，height-only resize 不触发）。`refreshStatic()` full clear 保留给显式场景 |
+| **[PR#3919](https://github.com/QwenLM/qwen-code/pull/3919)** | fix(cli,core): live-phase panel-ownership filter + post-delete statusChange emit | 2026-05-08 05:42 UTC | **关联 LiveAgentPanel 完整化**（**+676/-50**）—— PR#3909 把 inline AgentExecutionDisplay 替换为 always-on LiveAgentPanel 后两个 review 跟进：① panel-ownership filter（`ToolGroupMessage` live phase 过滤掉 panel-owned subagent rows 避免双重渲染）；② post-delete statusChange emit（subagent 完成后 panel 即时更新而不是等下一轮）|
+| **[PR#3956](https://github.com/QwenLM/qwen-code/pull/3956)** | fix(cli): show tool details in subagent approval banner | 2026-05-08 12:20 UTC | **关联 subagent UX**（**+179/-53**）—— `general-purpose` subagent 请求 tool permission 时 banner 只显示 agent name + 通用 `Do you want to proceed?`，**完全隐藏实际 command / file diff / MCP server**。修复：把 `compactMode` early-return 移到 unified return path 后，让 type-specific body 在 compact 模式也渲染。Body cap 5 行 + `MaxSizedBox` overflow |
+| **[PR#3909](https://github.com/QwenLM/qwen-code/pull/3909)** | feat(cli): replace inline AgentExecutionDisplay with always-on LiveAgentPanel | 2026-05-07 | **关联 subagent UI 架构变更**——subagent 执行的"verbose inline frame"（3 档 compact/default/verbose 显示）下线，统一改为始终显示在 composer 下方的 LiveAgentPanel；与 PR#3919 / PR#3921 / PR#3922 配套形成完整 LiveAgentPanel 系列 |
+| **[PR#3923](https://github.com/QwenLM/qwen-code/pull/3923)** | feat(skills): reload slash commands when SkillManager fires change event | 2026-05-08 14:11 UTC | **关联 item-9 skill 加载 / slash 命令**（+212/-4）—— `SkillCommandLoader.loadCommands()` 之前只在 `CommandService.create()` 跑一次，加 / 改 `SKILL.md` 后 `<available_skills>` tool description 更新但 slash-command list（`/<skill-name>`）保持 stale 直到重启。改：`slashCommandProcessor` 订阅 `SkillManager.addChangeListener`，chokidar watcher → `refreshCache` → `notifyChangeListeners` → `reloadCommands()`。Tracks #3696 sub-task 2 |
+| **[PR#3932](https://github.com/QwenLM/qwen-code/pull/3932)** | fix(core): accept partial reads in prior-read enforcement | 2026-05-08 | **关联 item-2 FileReadCache**（PR#4002 前置）—— `Edit` 路径 `lastReadWasFull` relaxed（接受 partial read），`WriteFile` 仍要求 full read。但 cacheable 与 truncation 的 conflation 留到 PR#4002 才修 |
+| **[PR#3916](https://github.com/QwenLM/qwen-code/pull/3916)** | fix(core): drop disabled MCP server from health status registry | 2026-05-09 | **关联 item-13 MCP Auto-Reconnect**（+182/-0 同 PR#3741 footer pill）—— 禁用的 MCP server 不再出现在 health registry，footer pill 不再误显示 |
+| **[PR#3947](https://github.com/QwenLM/qwen-code/pull/3947)** | [codex] Persist ACP model selection | 2026-05-08 | **ACP 协议增强**——ACP session 重连后 model 选择持久化（不再丢失）|
+| **[PR#3955](https://github.com/QwenLM/qwen-code/pull/3955)** | feat(cli): add Idealab as third-party provider | 2026-05-08 | **关联 [provider-deep-dive](./provider-deep-dive.md)**——增加 Idealab 作为第三方 provider |
+
+#### 🟡 关键 OPEN（值得追踪）
+
+| PR | 方向 | 关联 |
+|---|---|---|
+| **[PR#4023](https://github.com/QwenLM/qwen-code/pull/4023)** | fix(cli): auto-restore prompt and preserve queue on cancel | wenshao · **+1199/-47** · **关联 item-6 Mid-Turn Queue Drain**——ESC 取消 prompt 时把 queue 流回 input buffer（drain on EVERY cancel path 包括 tool execution cancel）·镜像 Claude Code auto-restore-on-interrupt 行为 |
+| **[PR#4020](https://github.com/QwenLM/qwen-code/pull/4020)** | feat(core): improve Anthropic proxy compatibility and enable global prompt cache scope | wenshao · **+577/-34** · **关联 prompt cache + provider**——IdeaLab-style Anthropic-compat proxies（`Authorization: Bearer` 代 `x-api-key` 防双 header 冲突）+ 跨 session prompt caching（global cache scope）|
+| **[PR#4022](https://github.com/QwenLM/qwen-code/pull/4022)** | feat(tools): defer low-frequency built-in tools to reduce initial prompt size | wenshao · +20/-0 · **关联 ToolSearch 延迟工具机制**——Monitor / SendMessage / TaskStop / WebFetch 4 个低频 built-in tools 标记 `shouldDefer=true` + `searchHint` · 与 Claude Code 延迟策略对齐 · 减小 initial function-declaration list |
+| **[PR#3969](https://github.com/QwenLM/qwen-code/pull/3969)** | feat(cli): Ctrl+B promote keybind (#3831 PR-3 of 3) | wenshao · +290/-15 · foreground → background promote feature 收官（PR-1 #3842 signal.reason + PR-2 #3894 shell.ts 集成 → 本 PR 用户可见按键 Ctrl+B）|
+| **[PR#3989](https://github.com/QwenLM/qwen-code/pull/3989)** | feat(core,cli): two-phase session listing for instant /resume first frame | **+1601/-310** · `listSessionsLite`（stat-only）+ `enrichSessions`（后台 hydrate）· `/resume` first frame 立即渲染 |
+| **[PR#4001](https://github.com/QwenLM/qwen-code/pull/4001)** | feat(cli): add structured JSON schema output | **关联 [item-4 Structured Output](./qwen-code-improvement-report-p0-p1-platform.md#item-4)** · `--json-schema` flag |
+| **[PR#3990](https://github.com/QwenLM/qwen-code/pull/3990)** | feat(vscode): add Token Plan as first-class auth provider | VSCode 集成增强 |
+| **[PR#3970](https://github.com/QwenLM/qwen-code/pull/3970)** | refactor(core): TaskBase envelope + foreground subagent persistence | subagent 持久化重构 |
+
+#### 🎯 重点解析 1：PR#4002 prior-read 守卫链最后闭环
+
+PR#4002 是 FileReadCache 系列（PR#3717 → PR#3810 → PR#3774 → PR#3932 → **PR#4002**）的收官——把"防 plausible-but-stale Edit"的语义从"实验性约束"升级到"与 Claude Code 行为完全一致"。3 部分修复对应 3 个不同 root cause：
+
+| Part | 影响 | 修复 |
+|---|---|---|
+| Part 1 cache-side | partial / truncated text reads 被 `priorReadEnforcement.ts` 误报为二进制 payload | 解耦 `cacheable`（仅判断 content type）与 `lastReadWasFull`（判断是否完整）|
+| Part 2 detection-side | `isBinaryFile` 4KB sample 在 UTF-16 / encrypted FS / source-file binary header 上误判 | `detectFileType` 优先看 mime registry + `KNOWN_TEXT_EXTENSIONS`（50+ 文本扩展）|
+| Part 3 WriteFile dead loop | WriteFile `requireFullRead` 拒绝后让模型回到同样 truncated state | 与 Part 1 同源修复打通 |
+
+**Close 用户报告体量**：#3964（`.kt`/`.cpp`/`.py`/`.ts` 在 0.15.7-0.15.9 across Linux+Windows）+ #3945（large file Edit 不可用）—— 这是过去 2 周用户报告最高频的 file-edit 类 bug。
+
+#### 🎯 重点解析 2：PR#3909 / PR#3919 LiveAgentPanel 系列完整化
+
+subagent 执行 UI 经过从"inline frame 3 档（compact/default/verbose）"→"always-on LiveAgentPanel"的架构变更：
+
+| PR | 状态 | 改动 |
+|---|---|---|
+| PR#3909 | ✓ 2026-05-07 | 替换 inline AgentExecutionDisplay → LiveAgentPanel（panel 在 composer 下方常驻）|
+| PR#3919 | ✓ 2026-05-08 +676/-50 | live-phase panel-ownership filter（避免 ToolGroupMessage 与 LiveAgentPanel 双重渲染）+ post-delete statusChange emit |
+| PR#3921 | ✓ 2026-05-07 | foreground agent entry 完成后不再 linger 在 status bar |
+| PR#3922 | ✓ 2026-05-07 | background tasks dialog ESC 不再取消 running request |
+| PR#3956 | ✓ 2026-05-08 | subagent approval banner 加 tool details |
+
+整套系列把 subagent 执行 UI 从 "几乎不可见 + verbose 三档不直观" 改造为"始终可见 panel + approval banner 含完整工具信息"。
+
+#### 🟢 状态升级
+
+| Item | 旧状态 | 新状态 |
+|---|---|---|
+| **item-2 FileReadCache prior-read 守卫链** | 主体实现 + prior-read 局部生效 | ✅ **完整闭环（与 Claude Code 行为一致）**（PR#4002 +707/-127 close #3964 + #3945）|
+| **item-10 反应式压缩** | PR#3879 initial impl | ✅ **硬化**（PR#3985 修补 3 个 review 漏洞）|
+| **OTel diagnostics UI 干净度** | 走 console 污染 UI | ✓ 修复（PR#3986 走 debug log path）|
+| **subagent approval UX** | banner 隐藏工具详情 | ✓ 修复（PR#3956 显示 command / diff / MCP server）|
+| **LiveAgentPanel 完整化** | inline 3 档（PR#3909 前） | ✅ **always-on panel** + ownership filter + post-delete sync |
+| **Skill slash command 热重载** | 改 SKILL.md 需重启 | ✓ 修复（PR#3923）|
+| **terminal resize 闪屏** | 全屏 ESC[2J 清屏 | ✓ 修复（PR#3967 targeted repaint）|
+
+#### 累计计数
+
+- 已合并 PR: 165 → **176**（+11，含 PR#4002 / 3985 / 3986 / 3967 / 3923 / 3956 / 3955 / 3947 / 3916 / 3932 / 3919）
+- 关键 OPEN：8 项 wenshao 系列（PR#4023 cancel queue / #4020 Anthropic proxy + global cache / #4022 deferred tools / #3969 Ctrl+B promote / #3989 two-phase session list / #4001 structured JSON output / #3970 TaskBase / #3990 VSCode Token Plan）
+
+#### 备忘：FileReadCache 系列单挑战 5 PR、跨 13 天
+
+FileReadCache 从最初的"性能优化提案"演化到"与 Claude Code 行为对齐的可信度约束"：
+
+```
+2026-04-30  PR#3717  +1212/-10   FileReadCache + 未变更 Read 短路
+2026-05-04  PR#3810  +579/-0     5 路径 invalidation 修复（#3805）
+2026-05-06  PR#3774  +1891/-118  prior-read enforcement + 2 错误码
+2026-05-08  PR#3932  —           Edit 接受 partial read
+2026-05-10  PR#4002  +707/-127   3 部分修复 close #3964 + #3945
+———————————————————————————————————————
+合计       5 PRs    +4389 行    13 天闭环
+```
+
+这是当前 codeagents 项目追踪的**单 item 跨 PR 数最多的工程序列**，验证了"`feat/fix` 一次提案 → 多轮 review → 多个 follow-up 直到与 reference 实现对齐"的迭代模式。
+
+---
 
 ### 2026-05-06 第二轮（~10h 增量 · 6 项合并 · kind framework 第 4 消费者 dream 落地（PR#3836 +1714/-100）+ auto-memory recall 不阻塞 + fast model per-model 配置）
 

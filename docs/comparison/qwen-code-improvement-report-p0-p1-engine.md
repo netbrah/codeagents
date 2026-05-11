@@ -57,7 +57,16 @@
 
 本 item 升级为 🟡 **主体已实现**：查询缓存 ✓ + FileReadCache ✓，**仅剩 32 批并行 `readManyFiles`**（PR#3717 不含批量并行 I/O）。
 
-**Follow-up（2026-05-01 仍 OPEN）**：[PR#3774](https://github.com/QwenLM/qwen-code/pull/3774) 🟡 OPEN —— `feat(core): enforce prior read before Edit / WriteFile mutates a file`（+611/-2）。这是 PR#3717 body 中明确预告的下一步：**用 FileReadCache 强制"未读必读"** —— 模型若要 Edit/WriteFile 一个**已存在**的文件，必须先在本会话见过该文件的当前字节，否则报错：
+**Prior-read 守卫链（PR#3774 → PR#3810 → PR#3932 → PR#4002 → ✓ 完整闭环 2026-05-10）**：
+
+| PR | 合并日期 | 体量 | 关键改动 |
+|---|---|---|---|
+| [PR#3774](https://github.com/QwenLM/qwen-code/pull/3774) | 2026-05-06 | +1891/-118 | `feat(core): enforce prior read before Edit / WriteFile mutates a file` —— `priorReadEnforcement.ts` 引入 `EDIT_REQUIRES_PRIOR_READ` / `FILE_CHANGED_SINCE_READ` 两个错误码 + `FileReadCache.lastReadCacheable` 字段区分文本 vs 二进制 payload |
+| [PR#3810](https://github.com/QwenLM/qwen-code/pull/3810) | 2026-05-04 | +579/-0 | 修复 #3805 —— PR#3717 漏掉的 5 条 history-rewrite 路径（`microcompactHistory` / `setHistory` / `truncateHistory` / `resetChat` / `stripOrphanedUserEntriesFromHistory`）补 `clear()` |
+| [PR#3932](https://github.com/QwenLM/qwen-code/pull/3932) | 2026-05-08 | — | `fix(core): accept partial reads in prior-read enforcement` —— `Edit` 接受 partial read（`lastReadWasFull` relaxed），`WriteFile` 仍要求 full |
+| [PR#4002](https://github.com/QwenLM/qwen-code/pull/4002) | **2026-05-10** | **+707/-127** | `fix(core): unify Edit/WriteFile prior-read with Claude Code; close #3964 + #3945` —— **3 部分修复**：① 解耦 `cacheable` 与 truncation（PR#3774 conflate 的 bug，partial / truncated 文本文件不再误报为二进制 payload）；② `detectFileType` 优先看 mime/扩展名（`KNOWN_TEXT_EXTENSIONS` 列表 .py/.kt/.go/.rs/.cpp/.cs/.vue/.svelte 等 50+ 扩展）而非 `isBinaryFile` 4KB sample（修复 UTF-16/encrypted FS/header-binary-prefix 误判）；③ WriteFile partial-read 死锁（`requireFullRead` rejection 让模型回到同样 truncated 状态，无逃生）|
+
+**错误码**：
 
 | 错误码 | 触发条件 | 错误信息提示 |
 |---|---|---|
@@ -66,7 +75,7 @@
 
 **为什么重要**：填补"plausible-but-stale 匹配"漏洞 —— 模型可能凭想象 Edit 一个 `old_string`，恰巧文件中存在该字符串（即使模型没有读过文件的当前版本）。原有的 "0 occurrences" 检查只能挡住"想象不存在的串"，挡不住"想象到一个真实存在的串但文件已变"。新文件创建豁免（无内容可读）；session 级 `Config.fileReadCacheDisabled` 提供逃生口。
 
-**合并后效果**：item-2 将从"主体已实现"升级为 ✓ **完整闭环** —— FileReadCache 终于不只是一个性能优化，还是**模型可信度的强制约束**。
+**最终状态**：item-2 ✓ **完整闭环** —— FileReadCache 既是性能优化（缓存命中短路全文 Read），又是**模型可信度的强制约束**（plausible-but-stale 拦截）。PR#4002 后与 Claude Code 行为一致。
 
 ---
 
@@ -369,10 +378,11 @@ PR#3656 之后崩溃恢复链路有了"读端容错"基础，但 ① 3 状态中
 | [Issue#843](https://github.com/QwenLM/qwen-code/issues/843) `when send a long prompt, user query too long cause error UI` | CLOSED | 真实用户痛点报告：发送长 prompt → UI 报错。Issue 被关闭但无 follow-up PR，说明问题仍存在 |
 | `packages/core/src/` grep `prompt_too_long` | **0 命中** | Qwen Code 源码**完全没有** `prompt_too_long` 错误处理代码 |
 
-**当前实际状况**：
+**当前实际状况**（更新 2026-05-09）：
 - ✓ **主动压缩**：PR#3006（microcompaction）已合并 + 原有 70% 阈值压缩
-- ✗ **反应式压缩**：完全缺失，PR#2571 的 pre-flight 尝试被 reject
-- ✗ **错误消息解析**：源码中无 `parsePromptTooLongTokenCounts()` 等价实现
+- ✅ **反应式压缩落地**：[PR#3879](https://github.com/QwenLM/qwen-code/pull/3879) ✓ 合并——initial reactive compression（捕获 `prompt_too_long` 错误后触发自动压缩重试）
+- ✅ **Reactive 跟进硬化**：[PR#3985](https://github.com/QwenLM/qwen-code/pull/3985) ✓ **2026-05-09 合并 · +189/-18** —— `fix(core): harden reactive compression follow-ups` 修补 PR#3879 三个 review 漏洞：① setup-failure 释放 send lock（不再 block 后续 send）；② 显式压缩失败 latch（只 latch `failed` 状态，跳过 `NOOP`，避免反复重试白消耗 compression API）；③ 把 AbortSignal 传入 summary generation（用户 cancel 后压缩 API 调用即时停止）
+- 🟡 **错误消息解析**：随 PR#3879 引入，覆盖主流 provider
 
 **为什么社区方向偏向主动压缩而非反应式 recovery**：如果主动压缩做得足够好（PR#3006 microcompaction + item-1 多层压缩 + item-5 Auto Dream），理论上永远不会触发 `prompt_too_long`——反应式 recovery 成了"**主动压缩失效时的最后兜底**"，不是高优先级。但**兜底不可缺**：主动压缩再好也有边界情况（工具结果瞬间膨胀、token 估算偏差），没有反应式 recovery 就是 session 直接卡死。
 
