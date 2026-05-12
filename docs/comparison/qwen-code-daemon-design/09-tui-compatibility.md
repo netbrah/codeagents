@@ -4,17 +4,20 @@
 
 > Qwen Code 的 TUI（基于 Ink + React）在单进程和 Daemon 两种模式下的兼容性分析。**结论：显示层 / 状态层 100% 兼容（同一组组件 + Context shape），数据源层用 HttpAcpAdapter 替换，5 类本地依赖功能需要 case-by-case fallback**。
 
-> **🆕 §02 §7 双部署模式（2026-05-09）**：Daemon 化下 TUI 实际有 **3 种数据源形态**：
+> **🆕 §02 §7 双部署模式（2026-05-09）+ super-client 框架修订（2026-05-12）**：Daemon 化下 TUI 实际有 **4 种数据源形态**——区分关键是 "super-client TUI" vs "thin TUI shell"：
 >
-> | TUI 形态 | 数据源 | 决策依据 |
-> |---|---|---|
-> | **传统单进程**（`qwen`）| in-process direct call（`Session.handleXxx()`）| 现状 |
-> | **Mode A in-process bus subscriber**（`qwen --serve`）| in-process EventBus（与 HTTP 远端 client 走同一套 fan-out） | §02 §7 |
-> | **Mode B 远端 TUI**（`qwen client --remote-url`，[§10](./10-remote-cli-mode.md)）| HTTP/SSE via HttpAcpAdapter | §10 |
+> | TUI 形态 | 数据源 | 完整 dialog 支持 | 部署 |
+> |---|---|---|---|
+> | **传统单进程**（`qwen`）| in-process direct call（`Session.handleXxx()`）| ✅ super-client（~15 Ink dialogs + local-jsx）| 现状 |
+> | **Mode A 本地 super-client TUI**（`qwen --serve`）| in-process EventBus | ✅ super-client（~15 Ink dialogs + local-jsx + daemon 同进程访问本地 state）| §02 §7 |
+> | **Mode B `qwen serve` + 远端 thin TUI shell**（`qwen client --remote-url`，[§10](./10-remote-cli-mode.md)）| HTTP/SSE via HttpAcpAdapter | ⚠️ **thin shell** — 仅渲染 wire 流（conversation + tool calls + permission_request 等）；TUI dialogs 大部分不可用（无 daemon-side state 访问）| §10 |
+> | **Mode B `qwen serve` + 远端非-TUI client**（Web UI / mobile / IM bot）| HTTP/SSE 或 WebSocket | N/A — 非 Ink 渲染 | §10 |
 >
-> Mode A 的 TUI **不是 HTTP client**——它是 in-process subscriber，省了 HTTP 序列化成本但拿到字节级一致的事件流。本章下面的 HttpAcpAdapter 部分主要适用于 Mode B（远端 TUI）。Mode A 用 `InProcAdapter` 做同等抽象但内部直接订阅 EventBus。详见 [§02 §7](./02-architectural-decisions.md#7-daemon-部署模式clihttpserver-vs-headlesshttpserver)。
+> **关键澄清**：远端 TUI ≠ Mode A 本地 TUI 的远程镜像。远端 TUI 是 "用 Ink 渲染 wire 流的 thin client"，与 Web UI / mobile 同等待遇——都是 wire 订阅者，看到的是 strict subset。Mode A 本地 TUI 的 ~15 Ink dialogs（`/memory` / `/approval-mode` / `/mcp` 等）**不能跨 wire 传递**，远端 TUI 看不到也用不了。详见 [§〇·五 Mode B 无本地 TUI 部署下的远端 TUI 限制](#〇五mode-b-无本地-tui-部署下的远端-tui-限制不能复刻-mode-a)。
+>
+> Mode A 的 TUI **不是 HTTP client**——它是 in-process subscriber，省了 HTTP 序列化成本但拿到字节级一致的事件流 + 直接访问 daemon 同进程的本地 state（`~/.qwen/memory.json` / settings 等）。本章下面的 HttpAcpAdapter 部分主要适用于 Mode B（远端 thin TUI shell）。Mode A 用 `InProcAdapter` 做同等抽象但内部直接订阅 EventBus。详见 [§02 §7](./02-architectural-decisions.md#7-daemon-部署模式clihttpserver-vs-headlesshttpserver)。
 
-> **关键澄清**（LaZzyMan PR#3889 [review #4270256721](https://github.com/QwenLM/qwen-code/pull/3889#pullrequestreview-4270256721) + wenshao 选 option A [comment 4428675775](https://github.com/QwenLM/qwen-code/pull/3889#issuecomment-4428675775)）：**TUI 是 "super-client"，不是 "subscriber #0"**。TUI 保留完整 local interaction layer——~15 Ink dialogs（`ModelDialog` / `MemoryDialog` / `SessionPicker` 等）+ local-jsx slash commands（`/ide` / `/auth` / `/init` / `/resume` 等）。EventBus / wire 只承载 **agent ↔ user conversation** axis；远程 client 看到的是 strict subset，**不是 TUI 的 mirror**。下方 §〇 列详细差异。
+> **关键澄清**（LaZzyMan PR#3889 [review #4270256721](https://github.com/QwenLM/qwen-code/pull/3889#pullrequestreview-4270256721) + wenshao 选 option A [comment 4428675775](https://github.com/QwenLM/qwen-code/pull/3889#issuecomment-4428675775)）：**TUI 是 "super-client"，不是 "subscriber #0"**——但**这只对 Mode A 本地 TUI 成立**。Mode B 远端 TUI 是 thin shell，不是 super-client（详 §〇·五）。Mode A 本地 super-client TUI 保留完整 local interaction layer——~15 Ink dialogs（`ModelDialog` / `MemoryDialog` / `SessionPicker` 等）+ local-jsx slash commands（`/ide` / `/auth` / `/init` / `/resume` 等）。EventBus / wire 只承载 **agent ↔ user conversation** axis；远程 client（含远端 thin TUI shell）看到的是 strict subset，**不是 TUI 的 mirror**。下方 §〇 列详细差异。
 
 ## 〇、TUI 与 wire 的边界 — Local-only 行为清单
 
@@ -54,6 +57,53 @@ LaZzyMan 提议过 option B（promoting Gap 2 commands to a `session_state_chang
 - **TUI / wire 边界清晰**——TUI 长出新 dialog 不需要 wire schema 演进
 - **远程 client 实现简化**——不需要订阅 9+ 种 `session_state_changed.*` event 然后做 state machine
 - session-state-event 完整 taxonomy 工作 **不撤销**，但其目的从 "enumerate wire events" 转为 "document which TUI flows are local-only by design"（移到 #3803 跟进）
+
+## 〇·五、Mode B 无本地 TUI 部署下的远端 TUI 限制（不能复刻 Mode A）
+
+> **触发问题**：Mode B `qwen serve` headless 部署没有本地 TUI——只有远端 client 接入。如果远端 client 也是 TUI（用 Ink 在终端渲染），它能复刻 Mode A 本地 TUI 的完整体验吗？
+
+**答案：不能**。远端 TUI 是 **thin TUI shell**——和 Web UI / mobile / IM bot 同等待遇的 wire 订阅者，只是渲染用 Ink。Mode A super-client 框架下的 ~15 Ink dialogs + local-jsx slash commands **不能跨 wire 传递**。
+
+### 为什么远端 TUI 不能等同 Mode A 本地 TUI
+
+| Mode A 本地 super-client TUI 能做 | 远端 thin TUI shell 做不到 / 受限 |
+|---|---|
+| `/memory` 编辑 `~/.qwen/memory.json` | ❌ daemon 机器的 memory，远端 TUI 没文件系统访问 |
+| `/mcp` 启停 daemon-side MCP children | ❌ MCP children 在 daemon 机器，远端 TUI 看不到 |
+| `/agents` / `/tools` 配置 | ❌ 同上 |
+| `/approval-mode` 切换 | ❌ approval mode 是 daemon 进程内 state |
+| `/auth` 登录流（OAuth 浏览器跳转）| ❌ OAuth callback 需要 daemon 机器的浏览器 / fs |
+| `/init` 项目初始化 | ❌ 写文件到 daemon 机器的 workspace |
+| `/resume <id>` 切换 session | ⚠️ 远端 TUI 可通过 ACP `loadSession` HTTP（Stage 1.5 must-have #2 落地后）切换；不是"重启 TUI"而是"切 wire 订阅"|
+| `/ide` IDE 集成 | ❌ IDE 在 daemon 机器还是 client 机器？语义不明 |
+| `ModelDialog` 选 model | ✅ 通过 `POST /session/:id/model` + 订阅 `model_switched` event |
+| `SessionPicker` 列 session | ✅ 通过 `GET /workspace/:id/sessions` |
+| 渲染 message / tool call / permission | ✅ 订阅 wire SSE 流 |
+
+### 远端 thin TUI shell 与 Web UI 的等价性
+
+| 维度 | 远端 thin TUI shell | Web UI | 区别 |
+|---|---|---|---|
+| 渲染框架 | Ink（terminal）| React DOM（browser）| 仅展示层差异 |
+| 数据源 | HTTP/SSE wire | HTTP/SSE wire | 完全相同 |
+| 可订阅事件 | wire 流（message_part / tool_call / permission_request / model_switched / session_died 等）| 同 | 完全相同 |
+| 可触发 mutation | `POST /session/:id/prompt` / `POST /session/:id/model` / `POST /permission/:id` | 同 | 完全相同 |
+| TUI dialogs（`/memory` 等）| ❌ 不支持（daemon-side state，wire 不暴露）| ❌ 不支持（同样原因）| **同等限制** |
+
+→ **远端 TUI 的合理定位**：它是 "Web UI 的 Ink 变体"，不是 Mode A 本地 TUI 的远程镜像。如果用户想要远程 + 完整 TUI 体验，必须自己在远端机器跑 `qwen` 单进程模式（不通过 daemon），或者 SSH 进 daemon 机器跑 Mode A `qwen --serve`。
+
+### 三种部署的 Decision Matrix
+
+| 用户场景 | 推荐部署 | TUI 体验 |
+|---|---|---|
+| 单机本地工作 + 偶尔手机/Web 观察 | **Mode A `qwen --serve`**（本地 super-client TUI + 远端 thin clients）| ✅ 完整 |
+| 远程开发机（VPS / 云 dev box）+ 本地 TUI | SSH 进远程跑 `qwen` 单进程 或 `qwen --serve` | ✅ 完整 |
+| 远程开发机 + 多端协作（团队远端 attach）| `qwen serve` headless on 远端 + 各人远端 thin clients | ⚠️ thin shell only |
+| 完全 headless 部署（容器 / SaaS）| `qwen serve` headless + Web UI / mobile / thin TUI shell | ⚠️ thin shell only |
+
+**Stage 1.5 must-have 部分缓解**：`POST /session/:id/_meta`（#8）让远端 client 传 per-session context；`POST /capabilities` protocol negotiation（#9）让远端 client 知道 daemon 支持的 mutation 集；`POST /session/:id/load`（#2）让远端 client 能 `/resume`。但 `/memory` / `/mcp` / `/agents` 等需要 daemon-side state read/write 的 dialogs 仍是 Mode A 专属。
+
+> **延伸设计空间（option B 路径）**：如果将来用户强烈需求"远端 TUI 完整体验"，可考虑给 wire 加 `daemon-state` namespace（`GET /workspace/:id/memory` / `POST /workspace/:id/mcp` 等），让远端 TUI 通过 wire mutate daemon-side state。但这就是 LaZzyMan option B（wenshao 已拒绝，理由见上 §〇 末段）——会大幅扩展 wire surface 影响 Stage 2 native in-process 重构。当前定位：远端 TUI 用户接受 thin shell 限制，复杂工作 SSH 到 daemon 机器跑 Mode A。
 
 ## 一、TL;DR — 4 层兼容性矩阵
 

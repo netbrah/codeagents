@@ -27,6 +27,24 @@
 | Attach 状态恢复 | **必须 re-fetch state**（远程 client 看到 strict subset，不是 TUI mirror；详 §一·五）|
 | 离线降级 | `--daemon-or-local` flag：daemon 不可达自动 fallback 到本地子进程模式 |
 
+## 一·四、远程 TUI 是 thin TUI shell（不是 Mode A 本地 TUI 的远程镜像）
+
+> **触发问题**：Mode B `qwen serve` headless 部署下，远端 client 是 TUI 时，能否复刻 Mode A 本地 TUI 的完整 ~15 Ink dialogs + local-jsx slash commands 体验？
+
+**答案：不能**——远端 TUI 是 thin TUI shell（用 Ink 渲染 wire 流的 thin client），与 Web UI / mobile 同等待遇。Mode A super-client TUI 的 `/memory` / `/mcp` / `/agents` / `/approval-mode` / `/auth` / `/init` / `/ide` 等 dialogs **不能跨 wire 传递**。详见 [§09 §〇·五 Mode B 无本地 TUI 部署下的远端 TUI 限制](./09-tui-compatibility.md#〇五mode-b-无本地-tui-部署下的远端-tui-限制不能复刻-mode-a)。
+
+**远端 TUI = "Web UI 的 Ink 变体"**——Ink 渲染、HTTP/SSE 数据源、只支持 wire 上有的 mutation（`POST /session/:id/prompt` / `POST /session/:id/model` / `POST /permission/:id`）。
+
+**如果用户想要完整 TUI 体验 + 远程访问，3 个选项**：
+
+| 选项 | 部署 | TUI 体验 | 何时选 |
+|---|---|---|---|
+| **A. SSH + Mode A** | SSH 进远端机器跑 `qwen --serve`，本地终端通过 SSH 看 TUI | ✅ 完整 super-client TUI | 单人远程 dev box |
+| **B. SSH + 单进程** | SSH 进远端机器跑 `qwen`（无 daemon）| ✅ 完整 super-client TUI | 不需要多端 attach |
+| **C. Mode B + thin TUI shell** | 远端 `qwen serve` headless，本地用 `qwen client --remote-url` 跑 thin TUI | ⚠️ thin shell（无 dialogs）| 多人协作 / 容器化 SaaS |
+
+→ 本章下方 §二 (3 类拓扑) **拓扑 C Remote-Remote** 对应 SSH 模式（≡ 选项 A）；**Mode B 单独部署**（无 SSH）对应选项 C，TUI 是 thin shell。
+
 ## 一·五、远程 client Attach / Reconnect 状态恢复（关键设计）
 
 > 来源：LaZzyMan PR#3889 [review #4270256721](https://github.com/QwenLM/qwen-code/pull/3889#pullrequestreview-4270256721) + wenshao option A [comment 4428675775](https://github.com/QwenLM/qwen-code/pull/3889#issuecomment-4428675775)：TUI 是 super-client（保留 ~15 Ink dialogs + local-jsx slash commands）；远程 client 看到的是 strict subset。
