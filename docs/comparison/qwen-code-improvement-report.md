@@ -449,6 +449,61 @@
 
 ## 六、更新日志
 
+### 2026-05-12 第二轮（~6h 增量 · 1 项合并 + 3 项关键新 OPEN · **Worktree* 工具组 PR#4073 新 OPEN**（+1651/-4 · 直接闭合 [claude-code-vs-qwen-code-builtin-tools.md §3.10](./claude-code-vs-qwen-code-builtin-tools.md) 刚标注的 P1 借鉴项）+ Agent hooks via headless subagent PR#4072（+1401/-14）+ OTel hierarchical session tracing spans PR#4071（+1318/-409）+ chiga0 narrow terminal rendering PR#3968 合并）
+
+扫描窗口：2026-05-12 06:00 UTC 增量。窗口内 **1 项合并 + 3 项新 OPEN（今日全新创建）**。本轮关键发现：① **PR#4073 generic worktree** —— 与今日上午 binary 反编译刚发现的 Claude `EnterWorktree` / `ExitWorktree` 工具组**几乎同步落地 Qwen 端**（LaZzyMan 独立创建，非项目内 sync），闭合 [claude-code-vs-qwen-code-builtin-tools.md §3.10](./claude-code-vs-qwen-code-builtin-tools.md) 列出的 "Worktree* P1 借鉴" 缺口；② **PR#4072 agent hooks** —— 自述 "Aligns with Claude Code's `execAgentHook` / `SyntheticOutputTool` design"，把 hook 框架从单一 command-script 扩展到 headless subagent 多轮验证；③ **PR#4071 hierarchical session tracing** —— OpenTelemetry session-level interaction spans wrap `sendMessageStream` lifecycle 12 个 exit point，加 `NOOP_SPAN` sentinel + `WeakRef` + 30-min TTL cleanup 防 orphan span。
+
+#### 🟢 MERGED（1 项业务）
+
+| PR | 标题 | 合并时间 | 影响 |
+|---|---|---|---|
+| **[PR#3968](https://github.com/QwenLM/qwen-code/pull/3968)** | fix(cli): improve rendering on narrow terminals | 2026-05-12 05:58 UTC | **TUI 渲染窄屏适配**（+221/-8 · 4 files · chiga0）—— ① `TableRenderer` < 60 列时切换 vertical format（之前仅 `maxRowLines > 4` 触发）防止 wide markdown table 溢出 scrollback；② `Composer` ≤ 30 列且 `StreamingState.Responding` 时抑制 bottom loading indicator 防 ultra-narrow 终端不必要重绘。**从 TUI flicker hardening 系列剥离** |
+
+#### 🆕 关键新 OPEN（3 项，全在 2026-05-12 创建）
+
+| PR | 方向 | 关联 |
+|---|---|---|
+| **[PR#4073](https://github.com/QwenLM/qwen-code/pull/4073)** 🌟 🆕 2026-05-12 03:06 | feat(tools): add generic worktree support — EnterWorktree/ExitWorktree + Agent isolation | 🌟 **LaZzyMan · 闭合 [Worktree* 工具组 P1 借鉴缺口](./claude-code-vs-qwen-code-builtin-tools.md#310-remote--team--全局工具)**（+1651/-4 · 13 files · closes Phase A+B of #4056）—— ① 2 个新工具 `enter_worktree` / `exit_worktree`（**直接对标 Claude v2.1.139 `EnterWorktree` / `ExitWorktree`**）；② `agent` 工具新增 `isolation: 'worktree'` 参数（agent 可在隔离 worktree 内运行 + auto-cleanup if no changes / preserve if changes）；③ `worktreeCleanup.ts` stale ephemeral worktree 清理；④ `validateUserWorktreeSlug` 拒绝 `../` / dots 路径注入；⑤ `exit_worktree` dirty-state guard 拒绝 `action='remove'` if working tree dirty；⑥ 验证：B1/B2/B3/D1/D2/D3 全部 ✅（80 测试 16 新 + 64 既存 agent 测试无 regression）。**与 Arena 内部 worktree 共存不破坏**（`GitWorktreeService.setupWorktrees` / `ArenaManager` 不动）|
+| **[PR#4072](https://github.com/QwenLM/qwen-code/pull/4072)** 🌟 🆕 2026-05-12 02:34 | feat(hook): implement agent hooks via headless subagent with text fallback verdict | 🌟 **DennisYu07 · Hook 框架重大扩展**（+1401/-14 · 17 files）—— ① 新 `agent` hook type 在 Stop event 等触发执行 headless subagent 验证条件（多轮推理 / 读文件 / 跑命令 → 决定是否 allow action）；② `AgentHookRunner.executeInternal()` 通过 `SubagentManager.createAgentHeadless()` 创建；③ 新 `report_verdict` tool 结构化 pass/fail 输出 + `parseVerdictFromText()` text fallback（模型不调用 tool 时正则启发）；④ YOLO approval mode override（subagent 工具不触发 permission dialog）；⑤ transcript path 注入 subagent system prompt；⑥ 扩展 `HookType` enum / `HookConfig` union / 所有 registry/runner 支持 `agent` type。**自述 "Aligns with Claude Code's `execAgentHook` / `SyntheticOutputTool` design"**。Token cost ~30s/invocation，advisoryOnly 模式 + custom agent field 尚未验证 |
+| **[PR#4071](https://github.com/QwenLM/qwen-code/pull/4071)** 🆕 2026-05-12 02:24 | feat(telemetry): add hierarchical session tracing spans | **doudouOUC · OTel 分层 session tracing**（+1318/-409 · 6 files）—— ① 新 `session-tracing.ts` 模块 concurrent-safe span 管理（explicit span 引用 + `WeakRef` + `strongRefs` + 30-min TTL cleanup）；② SDK 未初始化时用 `NOOP_SPAN` sentinel；③ `client.ts` 在 UserQuery/Cron/Notification message types 上启动 interaction span 包裹完整 `sendMessageStream` lifecycle，**12 个 exit point**（ok/error/cancelled）含递归 yield* paths 正确结束；④ `sdk.ts` shutdown safety net 在 SDK shutdown 前结束 active interaction span 防 Ctrl+C orphan；⑤ `SPAN_INTERACTION` / `SPAN_LLM_REQUEST` / `SPAN_TOOL` / `SPAN_TOOL_EXECUTION` 常量；⑥ 19 unit tests 覆盖 interaction lifecycle / LLM spans / tool spans / 并发隔离 / noop / cleanup |
+
+#### 🎯 重点解析：PR#4073 worktree 与 binary 反编译同步落地
+
+时间线对照（2026-05-12 同一天）：
+
+| 时间 (UTC) | 事件 |
+|---|---|
+| 2026-05-12 03:06 | LaZzyMan 创建 PR#4073（+1651/-4） |
+| 2026-05-12 ~05:00 | 本项目 binary 反编译 v2.1.139 ELF 确认 `EnterWorktree` / `ExitWorktree` 在 Claude 内部 tool name 注册表 |
+| 2026-05-12 ~05:30 | [claude-code-vs-qwen-code-builtin-tools.md §3.10](./claude-code-vs-qwen-code-builtin-tools.md) 把 Worktree* 标为 Qwen 缺失 + P1 借鉴 |
+
+**两条独立路径同日抵达同一结论**——LaZzyMan 从 qwen-code Arena 内部 worktree 出发扩展为通用能力，本项目从 Claude binary 反编译反推工具组对齐。**结论**：worktree 已不再是 Qwen 缺口（已 OPEN PR 在 review），等待合并后从 §3.10 / §五 移除。
+
+#### 🎯 重点解析：PR#4072 hook 框架的"agent 化"
+
+Qwen Code 的 hook 框架在 PR#4072 之前仅支持 command-script 类型——shell 脚本里跑 simple check，pass/fail 判断局限。PR#4072 引入的 `agent` hook type 把验证能力**整个 LLM 化**：
+
+```
+旧 command hook：       Stop event → 跑 `lint.sh` → exit code 决定
+新 agent hook：         Stop event → 启 headless subagent → 多轮推理 (读文件/跑命令/想原因) → 结构化 verdict
+```
+
+**Claude 端对应**：v2.1.139 binary 反编译显示 Claude 有 `execAgentHook` / `SyntheticOutputTool` 机制（PR#4072 自述明示参考）——agent hook 的 verdict 通过 `SyntheticOutputTool` 注入回主对话。PR#4072 用 `report_verdict` tool + text fallback 实现同概念。
+
+**与 PR#3471 background subagent 调度面的关系**：复用 `SubagentManager.createAgentHeadless()`——agent hook 是 background subagent 的**新 use case**，验证 4 kinds Background framework (agent/shell/monitor/dream) 的可扩展性（即将出现第 5 kind：`hook-agent`？）。
+
+#### 🎯 重点解析：今日同日 3 新 OPEN 集中开发主题
+
+| 主题 | PR | 共性 |
+|---|---|---|
+| **隔离 / sandbox** | PR#4073 worktree | git worktree isolation for agent |
+| **验证 / hook** | PR#4072 agent hook | headless subagent verdict |
+| **可观测 / tracing** | PR#4071 OTel spans | interaction-level session tracing |
+
+3 PR 共同指向：**为生产部署 / 团队协作场景做基础设施补全**——隔离（防 agent 互相污染）+ 验证（防 agent 错误 Stop）+ 可观测（OTel 监控 LLM session）。与 PR#3889 daemon design Stage 1 GA-ready 的"production hardening"主线一致。
+
+---
+
 ### 2026-05-12（~1d 增量 · 7 项业务 PR 合并 · Anthropic proxy + global prompt cache scope（PR#4020 +1320/-37）+ Ctrl+B promote PR-3 of 3 收官（PR#3969）+ 4 工具 deferral（PR#4022）+ legacy qwen auth CLI 移除（PR#3959 -2532）+ ask_user_question always-visible（PR#4041））
 
 扫描窗口：2026-05-11 → 2026-05-12 UTC。窗口内 **7 项业务 PR + 2 项 ci/refactor**。前次的 8 项"关键 OPEN"有 3 项已合并：PR#4020 / PR#3969 / PR#4022。本次主线：① **Anthropic-compat proxy + 跨 session prompt cache**（PR#4020 +1320/-37 · 体量从 OPEN 时 +577 翻倍）；② **foreground → background promote 3-PR 系列收官**（PR#3969 PR-3 of 3 暴露 Ctrl+B keybind · 与 PR#3842 signal.reason + PR#3894 shell.ts 集成形成完整链）；③ **4 个低频 built-in 工具 deferred**（PR#4022 Monitor / SendMessage / TaskStop / WebFetch + searchHint · 与 Claude Code 延迟策略对齐）；④ **ask_user_question always-visible**（PR#4041 与 PR#4022 互补 · 防 deferred 后模型用 prose 代替结构化 multi-choice）；⑤ **legacy `qwen auth` CLI subcommand 移除**（PR#3959 −2532 行 · redirect 到 `/auth` TUI dialog · 体量去除最大）；⑥ runtime.json sidecar cleanup（PR#4030）；⑦ /stats model 长 model 名字一行（PR#4032）。
