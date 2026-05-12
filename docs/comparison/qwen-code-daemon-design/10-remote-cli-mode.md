@@ -90,7 +90,7 @@ Editor / clipboard / browser ←─── via SSE event ─────
 - External Phase 3+ SaaS（云端 dev container）
 - GitHub Codespaces / Coder 风格 cloud workspace
 - 工程师笔记本性能弱 / 跨机器开发
-- 团队共享 dev environment（多人接入同一 daemon = 同一 session live collaboration；多 session 由 orchestrator spawn 多 daemon 实例，[§14](./14-orchestrator-multi-tenancy.md)）
+- 团队共享 dev environment（多人接入同一 daemon = 同一 session live collaboration；单 daemon 内已支持多 workspace 多 session 多路复用，跨 daemon process / 跨机器才由 orchestrator spawn 多 daemon 实例，[§14](./14-orchestrator-multi-tenancy.md)）
 
 **特点**：
 - daemon 端有完整 workspace 视图

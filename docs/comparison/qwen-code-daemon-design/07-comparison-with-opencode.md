@@ -56,7 +56,7 @@
 
 /permission/:requestId                   审批响应（异步流模式）
 
-/workspace                               daemon 绑定的唯一 workspace（多 workspace 由 External orchestrator 通过多 daemon 实现）
+/workspace                               daemon 内 byWorkspaceChannel 管理 M workspace（同 daemon 多 workspace 已自带；跨 daemon process 才需 External orchestrator）
   ├─ POST /workspace                     register workspace（daemon 未绑时；已绑返回现有）
   ├─ GET  /workspace/:id/skills          已加载 skill
   ├─ GET  /workspace/:id/mcp             MCP server 状态

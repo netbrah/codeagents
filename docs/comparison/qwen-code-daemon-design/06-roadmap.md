@@ -21,7 +21,7 @@ qwen-code 主线（~7-10 周 feature complete · Stage 1 merge ~1-2w + Stage 1.5
 ────────── qwen-code daemon feature complete ──────────
 
 External Reference Architecture（外部 / 商业层，参考实现）：
-├─ Orchestrator (multi-daemon spawn / route / cleanup)        → §13 / §03 §8.2 设计参考
+├─ Cross-Daemon Orchestrator（跨 daemon process / 跨机器路由 / failover）  → §13 / §03 §8.2 设计参考
 ├─ Multi-tenancy (Tenant / OIDC / Quota / Audit)              → §14 设计参考
 ├─ Shell sandbox (NoSandbox / OS user / Namespace / Container) → External 设计
 └─ SaaS deployment (k8s / Postgres / Redis / S3)              → External SaaS HA / §14 §七 设计参考
@@ -39,7 +39,7 @@ External Reference Architecture（外部 / 商业层，参考实现）：
 
 ### 目标
 
-提供 daemon 的最小可用形态——`qwen serve` headless 进程，通过 HTTP+SSE 暴露 ACP NDJSON 协议。1 daemon + M `qwen --acp` children（1 per workspace）+ N sessions multiplexed per workspace via `QwenAgent.sessions: Map`（[§02 §2](./02-architectural-decisions.md#2-状态进程模型)）。跨 workspace 仍由外部 orchestrator spawn 多 daemon 处理（或 Stage 2e native in-process 时升级到单 daemon 多 workspace）。
+提供 daemon 的最小可用形态——`qwen serve` headless 进程，通过 HTTP+SSE 暴露 ACP NDJSON 协议。1 daemon + M `qwen --acp` children（1 per workspace）+ N sessions multiplexed per workspace via `QwenAgent.sessions: Map`（[§02 §2](./02-architectural-decisions.md#2-状态进程模型)）。**单机多 workspace 已由 daemon 内部 `byWorkspaceChannel` spawn child 处理**（commit `6a170ef8`）；跨 daemon process / 跨机器 / 多 tenant 隔离才需要外部 orchestrator。Stage 2e native in-process 进一步把 child 桥接也去掉，daemon 直接持 `QwenAgent`。
 
 ### 实现
 
@@ -209,7 +209,7 @@ External Reference Architecture（外部 / 商业层，参考实现）：
 | `POST /file/read` / `/file/write` | **External / Stage 2 可选**（agent 已有 fs，daemon-only file API 仅给远端 client 用）|
 | Mobile / browser UI | **External**（参考 [§10 远端 CLI 模式](./10-remote-cli-mode.md)；PR#3929-3931 平行 stack 已有 mobile UI 参考）|
 | Pairing token / LAN URL | **External**（参考 PR#3929-3931）|
-| Orchestrator (multi-daemon spawn / route / cleanup) | **External**（参考 [§03 §8.2](./03-http-api.md#82-orchestrator-层-apiexternal-reference-architecture) + [§13](./13-single-vs-multi-session-design.md) + [§14](./14-orchestrator-multi-tenancy.md)）|
+| Cross-Daemon Orchestrator（跨 daemon process / 跨机器路由 / failover） | **External**（单机内多 session 已由 daemon 自身 in-daemon orchestration 解决；参考 [§03 §8.2](./03-http-api.md#82-orchestrator-层-apiexternal-reference-architecture) + [§13](./13-single-vs-multi-session-design.md) + [§14](./14-orchestrator-multi-tenancy.md)）|
 | Multi-tenancy / OIDC / Quota / Audit | **External**（参考 [§14](./14-orchestrator-multi-tenancy.md)）|
 | Shell sandbox（OS user / namespace / container / remote）| **External**（参考本章 Shell Sandbox 段）|
 
@@ -418,19 +418,37 @@ IM bot       ─────│  - Mode B (headless)      │
 
 ---
 
+## In-daemon Orchestration（Stage 1 已实现，commit `6a170ef8` 后）
+
+> **范围演进**（2026-05-12）：commit `6a170ef8` 之前 "orchestration" 全部归 External；之后以下 5 项 orchestration 职责已内化到 daemon HTTP front 进程内，**单机部署不再需要外部 orchestrator**。
+
+| In-daemon 职责（Stage 1 已实现）| 实现细节 |
+|---|---|
+| **Workspace channel pool 管理** | `byWorkspaceChannel: Map<workspace, ChannelInfo>` 在 daemon HTTP front 内部维护 |
+| **Per-workspace child spawn 协调** | `getOrCreateChannel(workspaceKey)` + `inFlightChannelSpawns` coalesce，concurrent 同 workspace 请求合并 |
+| **Per-workspace child lifecycle / cleanup** | `channel.exited` cleanup tear down all sessions on channel；`killSession` 引用计数清理（sessionIds set 空才 kill child）|
+| **Session routing via sessionScope** | 默认 `sessionScope: 'single'` 同 workspace attach；Stage 1.5 must-have #1 加 per-request override |
+| **Cross-session aggregate API** | `GET /workspace/:id/sessions`（PR#3889 commit `a8ce5e08d`）daemon 内一个 query 拿所有 session |
+
+**单机部署 N session × M workspace** —— 完全在 daemon 内完成，无需外部组件。
+
+---
+
 ## External Reference Architecture（参考实现，非项目路线图）
 
-下面这些不在 qwen-code 项目路线图中——是给外部集成方（商业平台 / k8s operator / 云厂商）的设计参考。详细文档已写好，可作为蓝图直接 fork 实现。
+下面这些不在 qwen-code 项目路线图中——是给外部集成方（商业平台 / k8s operator / 云厂商）的设计参考。详细文档已写好，可作为蓝图直接 fork 实现。**Stage 1 commit `6a170ef8` 之后 External 范围已收缩**——只覆盖跨 daemon process / 跨机器 / 多 tenant / SaaS 才需要的能力，单机多 session 已被 daemon 自身吃掉。
 
-### Orchestrator（多 daemon 路由 / 生命周期 / 聚合 UI）
+### Cross-Daemon Orchestrator（跨 daemon process / 跨机器路由）
+
+> **何时需要**：单机 daemon 容量到顶（N=50+ workspaces 或 cross-tenant 隔离要求）需要多 daemon process 时；k8s 多 pod 部署时。**单机单 daemon 场景完全不需要本节**。
 
 | 组件 | 工作量参考 | 设计文档 |
 |---|---|---|
-| `qwen-coordinator` HTTP server | ~3-5d | [§03 §8.2 Orchestrator API](./03-http-api.md#82-orchestrator-层-apiexternal-reference-architecture) |
-| sessionScope routing（single / user / thread）| ~2d | [§02 §1](./02-architectural-decisions.md#1-session-是否跨-client-共享) |
-| Daemon instance 注册表（sessionId → daemonUrl）| ~2d | [§03 §8.2 `POST /coordinator/sessions/:id/route`](./03-http-api.md#82-orchestrator-层-apiexternal-reference-architecture) |
-| Spawn / cleanup / health watchdog | ~2d | [§14 §五 Phase 1](./14-orchestrator-multi-tenancy.md#五4-个-phase演进路径) |
-| Cross-daemon aggregate API（"我所有 task"）| ~2d | [§03 §8.2 `/aggregate`](./03-http-api.md#82-orchestrator-层-apiexternal-reference-architecture) |
+| `qwen-coordinator` HTTP front | ~3-5d | [§03 §8.2 Orchestrator API](./03-http-api.md#82-orchestrator-层-apiexternal-reference-architecture) |
+| Daemon process pool / spawn-per-tenant | ~2-3d | 跨 daemon process 池化 + tenant → daemon-process 1:1 绑定（**daemon 内 sessionScope 仍归 daemon 自己**）|
+| Cross-daemon sessionId → daemonUrl 注册表 | ~2d | 跨 daemon process 需要外部目录服务（单 daemon 时 daemon 自己的 `byWorkspaceChannel` 就够）|
+| Cross-daemon aggregate API（跨 daemon"我所有 task"）| ~2d | 跨 daemon 聚合（单 daemon 已有 `GET /workspace/:id/sessions`，无需外部）|
+| Sticky cookie / failover routing | ~2-3d | k8s 多 pod 场景把 client 路由到含其 sessionId 的 pod |
 | **合计参考** | **~1.5-2 周 / 1 人** | |
 
 详见 [§13 单 vs 多 Session 设计深度对比](./13-single-vs-multi-session-design.md) 的决策树。

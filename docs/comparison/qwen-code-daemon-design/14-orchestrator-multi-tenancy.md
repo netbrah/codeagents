@@ -1,34 +1,40 @@
-# 14 — Orchestrator 多租户与配额（External Reference Architecture）
+# 14 — 跨 Daemon / 多租户 Orchestrator（External Reference Architecture）
 
 > [← 上一篇：单 vs 多 Session 设计深度对比](./13-single-vs-multi-session-design.md) · [回到 README](./README.md)
 
-> **不在 qwen-code 主线 scope**——本章是给 qwen-code 开发者的"大致方向"指引：当外部商业平台 / k8s operator / 云厂商基于 qwen-code daemon building block 搭 SaaS 时，**orchestrator 层**应该长什么样。
+> **不在 qwen-code 主线 scope**——本章是给 qwen-code 开发者的"大致方向"指引：当外部商业平台 / k8s operator / 云厂商基于 qwen-code daemon building block 搭 SaaS 时，**跨 daemon / 多租户 orchestrator 层**应该长什么样。
 >
 > 主线只承诺 daemon building block；下面是平台层蓝图。
 
-## 一、Layer 模型
+> 🚨 **Multi-Tenant 关键约束**（Stage 1 commit `6a170ef8` 后修订）：daemon 同 workspace channel 内 N session **共享同 `qwen --acp` child 的 OS 权限**（同 user UID + 同 fs 视图 + 同 MCP children）。**不可让多 tenant 共一个 workspace channel** —— 跨 tenant session 共 OS 权限 = 跨 tenant fs 访问。Orchestrator 必须在以下两层之一做 1:1 tenant 绑定：
+> - **Workspace 层（推荐）**：1 tenant ↔ 1 workspace（或多 workspace 但全归同 tenant）→ daemon `byWorkspaceChannel` 自然隔离
+> - **Daemon process 层（高安全场景）**：1 tenant ↔ 独立 daemon process → 跨 tenant OS 进程级隔离 + per-tenant resource quota
+
+## 一、Layer 模型（Stage 1 commit `6a170ef8` 后修订）
 
 | 层 | 职责 | 实施方 |
 |---|---|---|
-| **Daemon Instance**（主线）| 1 session 状态 + tool 执行 + Shell sandbox | qwen-code 项目 |
-| **Orchestrator**（External）| spawn / route daemon、AuthN/AuthZ、quota、audit、持久化 | 外部商业平台 |
+| **Daemon process**（主线，单进程）| **In-daemon orchestration**：1 daemon HTTP front + workspace channel pool + per-workspace `qwen --acp` child + N session multiplexed per channel（via `QwenAgent.sessions: Map`） + per-session permission flow + tool 执行 + Shell sandbox | qwen-code 项目 |
+| **Cross-Daemon Orchestrator**（External）| spawn / route 多 daemon process、AuthN/AuthZ、quota、audit、持久化、cross-pod failover | 外部商业平台 |
 
-**核心思想**：[§02 §2](./02-architectural-decisions.md#2-状态进程模型) **PR#3889 Stage 1 channel-per-workspace** 模型在 workspace 边界上把租户复杂度从 daemon 内挤出到 orchestrator 层——daemon 进程不感知租户，每个 daemon 服务一组 workspace（外部 orchestrator 决定边界），同 workspace 内 N session 共享 OS 权限，跨 workspace 进程级隔离。**多 tenant 场景必须由 orchestrator 在 workspace / daemon 粒度上做 ACL**——不可让多 tenant 共一个 workspace channel（因为同 channel N session 共 OS 权限）。
+**核心思想（修订）**：[§02 §2](./02-architectural-decisions.md#2-状态进程模型) **PR#3889 Stage 1 channel-per-workspace** 模型把"单机多 session 编排"已内化到 daemon 自身（commit `6a170ef8`）；orchestrator 仅在 **跨 daemon process / 跨机器 / 多 tenant 隔离 / SaaS audit & quota** 场景下才需要。daemon 进程不感知 tenant，由 orchestrator 在 workspace 或 daemon-process 粒度做 1:1 tenant 绑定。
 
-> **Stage 2e native in-process 影响**：daemon 直接持 `QwenAgent` 跨 workspace 时仍保持"daemon = 1 tenant"假设，orchestrator 4 件事职责不变；但若推进 cross-tenant in-process 多 workspace（合规风险），daemon 必须重新引入 workspace+sessionId-keyed ACL middleware。本章描述 **Stage 1 假设下** 的 orchestrator 角色分工。
+> **Stage 2e native in-process 影响**：daemon 直接持 `QwenAgent` 跨 workspace 时仍保持"daemon = 1 tenant"假设（或 daemon = 多 tenant 但 workspace 级隔离），orchestrator 4 件事职责不变；若推进 cross-tenant in-process 多 workspace（合规风险），daemon 必须重新引入 workspace+sessionId-keyed ACL middleware。本章描述 **Stage 1 假设下** 的 orchestrator 角色分工。
 
 **Daemon 主线持久化基线（对比基线）**：每 session 一份 transcript JSONL（PR#3739，同 channel N session 各一份）+ `~/.qwen/settings.json` / skills / OAuth credentials 启动加载、运行时只读。**0 RDBMS 依赖**——audit 查询 / quota 原子 / hash lookup 这些 RDBMS 痛点在 PR#3889 Stage 1 主线 daemon 内不出现（仍是 orchestrator 层关切）。但同 workspace N session 并发写 `workspace`/`global` scope permission decisions / settings 时需 in-memory mutex（per-file lock）防 lost update（同 `qwen --acp` child 内）。下面 SQLite/Postgres/drizzle-orm 全部是 orchestrator 层关切。
 
-## 二、Orchestrator 4 件事
+## 二、Cross-Daemon Orchestrator 4 件事
+
+> 注：daemon **自身已 ship 的 orchestration**（workspace channel pool / per-workspace child spawn / session multiplex / `sessionScope:single` 默认路由 / `GET /workspace/:id/sessions` aggregate）见 [§06 In-daemon Orchestration](./06-roadmap.md#in-daemon-orchestrationstage-1-已实现commit-6a170ef8-后)。**下表是跨 daemon process / 跨机器场景才需要的**外部 orchestrator 职责。
 
 | # | 职责 | 含义 |
 |---|---|---|
 | 1 | **AuthN**（认证）| 入口校验 client 身份。常见 4 模式：Bearer token / OIDC（Google/Azure/Okta）/ mTLS / cookie session |
-| 2 | **AuthZ**（授权）| `tenant → workspaces` 映射 + scope 路由策略（`single` / `user` / `thread`）。决定哪个 client 能 spawn / attach 哪个 daemon |
-| 3 | **Quota**（配额）| per-tenant LLM token quota + 并发 daemon 数限制。原子 increment 走 Redis sliding-window + reservation 模式 |
-| 4 | **Audit**（审计）| 每 daemon spawn / kill / shell 调用都写一条 audit log（合规 / 排错 / 安全审计）|
+| 2 | **AuthZ**（授权 + tenant→daemon 1:1 绑定）| `tenant → daemon process` 或 `tenant → workspace` 映射（强制 1:1，防跨 tenant 共 channel）+ 跨 daemon scope 路由（决定哪个 client 路由到哪个 daemon process）。**daemon 内的 sessionScope（'single'/'thread'/'user'）由 daemon 自己处理，orchestrator 只在跨 daemon 时介入** |
+| 3 | **Quota**（配额）| per-tenant LLM token quota + 并发 daemon process 数限制。原子 increment 走 Redis sliding-window + reservation 模式 |
+| 4 | **Audit**（审计）| 每 daemon process spawn / kill / cross-daemon routing 决策都写一条 audit log（合规 / 排错 / 安全审计）。同 daemon 内 N session 的 fine-grained tool call audit 由 daemon 自己输出 |
 
-每件事在 orchestrator 入口 middleware 层做，daemon 层完全不感知。
+每件事在 orchestrator 入口 middleware 层做，daemon 层完全不感知（daemon 内部 sessionScope / per-session permission flow 等"daemon 自治"职责不在此列）。
 
 ## 三、Tenant 抽象
 

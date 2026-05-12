@@ -17,7 +17,7 @@ Qwen Code 当前的程序化访问形态：
 每次 SDK query() / Client 实例 = 1 个 CLI 子进程
 ```
 
-引入 daemon 后（1 daemon instance = 1 session；多 session 由外部 orchestrator 管，不在 qwen-code 主线范围）：
+引入 daemon 后（commit `6a170ef8` 后：daemon 内 channel-per-workspace + N session multiplexed；跨 daemon process / 跨机器场景由外部 orchestrator 管，不在 qwen-code 主线范围）：
 
 ```
                                    ┌──────────────────────────────┐
@@ -111,7 +111,7 @@ OpenCode 用单一 `OPENCODE_SERVER_PASSWORD`（粗粒度访问控制）。Qwen 
 **核心原则**：
 - 每个 daemon 进程**只承载唯一一个 session**——daemon 内无 multi-session 路由
 - **Mode A（CLI + HttpServer）/ Mode B（Headless Daemon）双部署模式**（[§02 §7](./02-architectural-decisions.md#7-daemon-部署模式clihttpserver-vs-headlesshttpserver)）—— 区别仅在 daemon 进程是否同时承载本地 TUI
-- **多 session 由 External orchestrator spawn 多 daemon 实例**（`qwen-coordinator` 角色）—— **不在 qwen-code 主线路线图**，由商业平台 / k8s operator / 云厂商基于 daemon building block 实现，参考 [§13 设计对比](./13-single-vs-multi-session-design.md) / [§14 多租户配额](./14-orchestrator-multi-tenancy.md) / [§03 §8.2 orchestrator API](./03-http-api.md#82-orchestrator-层-apiexternal-reference-architecture)
+- **单机多 session 已被 daemon 自身 in-daemon orchestration 解决**（commit `6a170ef8`：`byWorkspaceChannel: Map` + workspace channel pool + N session multiplexed per workspace via `QwenAgent.sessions: Map`）；**跨 daemon process / 跨机器 / 多 tenant SaaS 场景**才由 External orchestrator（`qwen-coordinator` 角色）spawn 多 daemon —— **不在 qwen-code 主线路线图**，由商业平台 / k8s operator / 云厂商基于 daemon building block 实现，参考 [§13 设计对比](./13-single-vs-multi-session-design.md) / [§14 多租户配额](./14-orchestrator-multi-tenancy.md) / [§03 §8.2 orchestrator API](./03-http-api.md#82-orchestrator-层-apiexternal-reference-architecture)
 
 ### 3.1 单 Daemon Instance 内部架构（Mode A / Mode B 共用）
 
