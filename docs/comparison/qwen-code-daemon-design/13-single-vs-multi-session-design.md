@@ -208,7 +208,7 @@ N 个 cold session 启动总成本：
 ├── N ≤ 500 且同 workspace 高密度？
 │   └─ 是 → ⚠️ Stage 1 + External SaaS Worker threads hybrid ~3-4w
 └── N ≥ 500 大规模 SaaS？
-    └─ 是 → 🟡 推进 Stage 2 in-process N-session（复用 `QwenAgent.sessions: Map`，主要重构 HttpAcpBridge，**远小于** OpenCode 那种 Effect-TS 重写）
+    └─ 是 → 🟡 推进 Stage 2 in-process N-session（**仅 Mode B headless `qwen serve`**——TUI 是 single-session by design，[§02 §7 Stage 2 下 Mode A TUI 语义](./02-architectural-decisions.md#stage-2-in-process-n-session-下-mode-a-的-tui-语义关键设计澄清) 推荐 Mode A 永远 single-session）；复用 `QwenAgent.sessions: Map`，主要重构 HttpAcpBridge，**远小于** OpenCode 那种 Effect-TS 重写
 ```
 
 ## 五、与 PR#3889 / OpenCode / qwen-code 自身现状的具体对齐
