@@ -243,7 +243,7 @@ for await (const msg of q) {
 | Stage | 实现方式 | 与 stdio 兼容性 |
 |---|---|---|
 | **Stage 1**（`qwen serve` headless，PR#3889）| daemon spawn `qwen --acp` 子进程 + HTTP↔stdio 桥接 | **业务逻辑 100% 同源** —— 实际就是同一个 ACP agent，仅外面包了层 HTTP 翻译 |
-| **Stage 1.5**（Mode A `qwen --serve`）| TUI + HTTP server 同进程 + in-process EventBus | **业务逻辑同源** —— TUI 是 client #0，与远端 client 共享同一事件流 |
+| **Stage 1.5**（Mode A `qwen --serve`）| TUI + HTTP server 同进程 + in-process EventBus | **业务逻辑同源** —— TUI 是 super-client（保留 ~15 Ink dialogs + local-jsx slash commands；EventBus / wire 只承载 agent↔user conversation axis；远程 client 看到的是 strict subset，详 [§02 §7](./02-architectural-decisions.md#mode-a-在多-session-daemon-下的-tui-语义关键设计澄清)）|
 | **Stage 2**（daemon 完善：mDNS / OpenAPI / WebSocket bidi / 多 token）| daemon protocol surface 锁定 | 同 Stage 1，加增强能力（不影响 SDK 兼容性）|
 
 **Stage 1 是最强兼容性保证**——daemon 进程内的 ACP agent 子进程**没有任何改动**，所以行为绝对一致。
@@ -281,6 +281,55 @@ SDK Client → HTTP → daemon (in-process)
 | 资源（LSP/MCP）| 每次 spawn 重新加载 | daemon 内复用（决策 §3 per-daemon MCP）|
 | 故障半径 | 一个 query 崩溃只死自己 | 一个 session 崩溃可能影响其他 session（共进程 — 决策 §2）|
 | Working directory | 子进程 spawn 时 OS 级 cwd | AsyncLocalStorage 应用层 cwd（[05-进程模型](./04-process-model.md)）|
+
+## 六·五、Capability 真正协商（Stage 1.5 must-have #9 + chiga0 finding 5）
+
+> 来源：chiga0 PR#3889 [downstream review comment 4427875644](https://github.com/QwenLM/qwen-code/pull/3889#issuecomment-4427875644) must-have #9 + [cross-module review comment 4427773706](https://github.com/QwenLM/qwen-code/pull/3889#issuecomment-4427773706) finding 5。
+
+**Stage 1 现状**：`/capabilities` 返回 hard-coded 9-tag 数组：
+
+```
+['health', 'capabilities', 'session_create', 'session_list',
+ 'session_prompt', 'session_cancel', 'session_events',
+ 'session_set_model', 'permission_vote']
+```
+
+→ Client 拿到的是 "this daemon ships these 9 features"，**没有 protocol version 协商**——`v: 2` client 接 `v: 1` daemon 时，新 frame 类型只能 fall through 到 "unknown frame, ignore"，client 没法 detect drift。
+
+**Stage 1.5 must-have #9 修订**：`/capabilities` 加 `protocol_versions` 字段：
+
+```jsonc
+GET /capabilities
+{
+  "v": 1,
+  "mode": "http-bridge",
+  "features": [/* same 9 tags + Stage 1.5 新 tag */],
+  "protocol_versions": {                              // 🆕
+    "acp": "0.14.x",                                   // ACP wire 版本
+    "daemon_envelope": 1                               // SSE envelope schema 版本
+  },
+  "modelServices": [/* ... */]
+}
+```
+
+**chiga0 finding 5 修订**（Stage 1.5-prereq）：硬编码 `STAGE1_FEATURES` 数组改为 plug-in capability registry——让 `POST /ext/:method` ACP extMethod 桥接给 vendor zero-fork 扩展（vendor 注册 capability tag → registry → `/capabilities` 自动包括）。
+
+**Client 协议演进检测流程**：
+
+```ts
+// SDK Client 启动时
+const caps = await fetch(`${daemonUrl}/capabilities`).then(r => r.json())
+const acpMajor = parseMajor(caps.protocol_versions.acp)
+const envelopeVersion = caps.protocol_versions.daemon_envelope
+
+if (acpMajor !== CLIENT_ACP_MAJOR) {
+  throw new ProtocolDriftError(`Client ACP v${CLIENT_ACP_MAJOR} but daemon ACP v${acpMajor}`)
+}
+if (envelopeVersion > CLIENT_ENVELOPE_VERSION) {
+  console.warn(`Daemon envelope v${envelopeVersion} > client v${CLIENT_ENVELOPE_VERSION}`)
+  // Client 可以选 graceful degrade 或 abort
+}
+```
 
 ## 七、不兼容点的 Adapter 责任
 

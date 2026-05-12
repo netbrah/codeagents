@@ -10,6 +10,17 @@
 >
 > 故本章 22 维对比的真实题目是 "**Stage 1 channel-per-workspace + N session multiplexed**"（PR#3889 当前实现）vs **OpenCode single-process N-session 跨 workspace 共享**" 两种模式。Stage 1 在同 workspace 内已经达到 OpenCode 同款 in-process N-session 经济性；跨 workspace 资源共享是 Stage 2e 才解决的可选演进，不在主线 scope。
 
+> **P1 vs P2 拓扑澄清**（LaZzyMan PR#3889 [comment 4428498510](https://github.com/QwenLM/qwen-code/pull/3889#issuecomment-4428498510)）：本章讨论的"多 session"涵盖**两种正交拓扑**——
+>
+> | 拓扑 | 形态 | 典型场景 | 主要压力 |
+> |---|---|---|---|
+> | **P1 — 1:N**（multi-end sync）| 1 session × N clients 订阅同一 conversation 流 | 桌面 TUI + 手机 mirror；Web UI attach；pair programming | EventBus fan-out |
+> | **P2 — N:1**（N session × 1 user，resource sharing）| 同 workspace N session 并行 | **IDE multi-window**（不同分支 / 子目录）；mobile app N conversations；后台 agent + 交互 session | 同 workspace N session 共 OAuth/cache/MCP |
+>
+> **关键**：IDE multi-window 是 **P2 不是 P1**——多窗口为并行不同的事，不是同 session 多视图（Cursor / Continue / Claude Code / OpenCode / Gemini CLI 均原生支持 P2 single-process N-session）。Stage 1 commit `6a170ef8` 解决的是 P2 拓扑的资源共享；P1 拓扑由 EventBus fan-out + first-responder permission 解决（决策 §1 + §6）。
+>
+> **wenshao 修正记录**（[comment 4431295082](https://github.com/QwenLM/qwen-code/pull/3889#issuecomment-4431295082)）：早先认为 P2 (N:1 cost) 是 "won't fix on main-line, 推到 §21 Path A/B/C 重构" 的框架是错的——P2 修复 **只需 bridge 层 refactor**（commit `6a170ef8` 已落地），不是 agent-layer 新工作流。本章下方 §3.6 / §五 已反映此修正。
+
 ## 一、TL;DR
 
 **Stage 1 (commit `6a170ef8`) 已经在同 workspace 内达到 in-process N-session 经济性**——跨 workspace 仍走 OS 进程隔离。整体是 "**Hybrid**" 模型——同 workspace 内 N session 共享应用层 ACP `sessions: Map`，跨 workspace 走进程级隔离。

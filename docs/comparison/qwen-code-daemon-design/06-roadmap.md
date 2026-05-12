@@ -237,13 +237,31 @@ qwen-code 主线 HA / 稳定性需求由 PR#3889 + PR#3739 已完整覆盖（详
 
 PR#3889 review 中 chiga0 第 3 轮 review（[#3889 comment 4427875644](https://github.com/QwenLM/qwen-code/pull/3889#issuecomment-4427875644)）从 IM bot / mobile companion / IDE extension 三个 downstream consumer 视角审计 Stage 1 protocol surface，得出结论："**Stage 1 promises 'real workloads' but the protocol surface is sized for demo / single-user / never-crashes**"。作者拒绝把 must-haves 加入 Stage 1（保持 Stage 1 scope honesty），全部推到 Stage 1.5。
 
-### Stage 1.5 拆分（1.5a 必需 + 1.5b 可并行 Mode A）
+### Stage 1.5 拆分（1.5a 必需 + 1.5b 可并行 Mode A + 1.5-prereq 架构 refactor）
 
 | Sub-stage | 内容 | 工作量 |
 |---|---|---|
+| **Stage 1.5-prereq** | chiga0 6 architecture findings 重构（lift `AcpChannel` / `EventBus` / `PermissionMediator` 到共享包；finding 1-6 见下方）| ~1-2 周 |
 | **Stage 1.5a** | chiga0 10 must-haves（blockers 3 + reliability 4 + ergonomics 3，其中 #10 已 shipped）| ~2-3 周 |
 | **Stage 1.5b** | Mode A `qwen --serve` flag | ~4d 增量 |
-| **合计**（1.5a + 1.5b 并行）| | **~3-4 周 / 1 人** |
+| **合计**（1.5-prereq → 1.5a + 1.5b 并行）| | **~4-5 周 / 1 人** |
+
+### Stage 1.5-prereq — chiga0 6 架构重构 findings（cross-module unification）
+
+> 来源：chiga0 PR#3889 第 2 轮 review [comment 4427773706](https://github.com/QwenLM/qwen-code/pull/3889#issuecomment-4427773706) "Follow-up architecture review — cross-module unification & extensibility"。指出 repo 已有 6 条独立 "expose agent capabilities" 路径（`acp-integration/` / `nonInteractive/` / `dualOutput/` / `remoteInput/` / `channels/` / `serve/`）+ 即将加入第 7 条（chiga0 #3930 `remote-control/`）；共享 ~80% machinery 但 ~0% abstractions。Stage 1 ships 4 个 inline `FIXME(stage-1.5, chiga0 finding N)` 标记作为 grep 锚点。
+
+| # | Finding | 改造方案 | PR Stage 1 标记位置 |
+|---|---|---|---|
+| **1** | **`HttpAcpBridge` 混淆 transport 与 bridging** | 抽 `AcpChannel` interface（`SpawnedAcpChannel` Stage 1 / `InProcessAcpChannel` Stage 2e 两个实现）+ `Transport` interface（`SseTransport` / `WebSocketTransport` / `InProcessTransport`）+ 把 `EventBus` lift 出来。新包 `@qwen-code/acp-bridge` 让 `channels/base/AcpBridge` 和 `serve/HttpAcpBridge` 共享同一组多 session primitives（tanzhenxin 同样观察 [4428974701](https://github.com/QwenLM/qwen-code/pull/3889#issuecomment-4428974701)）| `BridgeOptions` FIXME |
+| **2** | **`EventBus` 私有于 HTTP/SSE** | 把 `EventBus` lift 到 top-level building block（`packages/event-bus` 或 `packages/core/src/events/`）；让 6 个 consumer 都通过 `EventBus.subscribe()` 接：SSE / WebSocket / InProcessTUI / Channel / DualOutput / EventLog | `EventBus` class header FIXME |
+| **3** | **Permission flow 自实现 first-responder，不复用 `ControlDispatcher`** | Lift `PermissionMediator` interface + 4 种 strategy policy：`first-responder` / `designated(clientId)` / `consensus(minVotes)` / `local-only`（TUI behavior）。daemon / nonInteractive / channels 共享同一 mediator。同时 close chiga0 audit Risk 2（first-responder 缺 authorization model）| `BridgeClient.requestPermission` FIXME |
+| **4** | **`BridgeClient.readTextFile`/`writeTextFile` 是 fs 的 fork** | Inject `FileSystemService` ctor dep，让 daemon 不再重新实现 fs。统一 BOM handling / 非-UTF-8 / line endings 行为，避免 Stage 1 client 看到与 Stage 2 不同的 fs 语义 | `BridgeOptions` FIXME |
+| **5** | **Capability registry hard-coded** | `STAGE1_FEATURES` 9-tag 数组改成 plug-in capability registry；加 `POST /ext/:method` ACP extMethod 桥接给 vendor zero-fork 扩展；与 must-have #9 `/capabilities` actual feature negotiation 协同 | `STAGE1_FEATURES` FIXME |
+| **6** | **`dualOutput` / `remoteInput` convergence** | 把另外 2 条 expose 路径也接到 `AcpChannel` + `EventBus` 抽象上；删除 cross-cut 重复（~600 LOC）| 跨多文件 |
+
+**wenshao Stage 1 内已落地的关联工作**（[reply comment 4428724218](https://github.com/QwenLM/qwen-code/pull/3889#issuecomment-4428724218)）：4 个 inline `FIXME(stage-1.5, chiga0 finding N)` 标记 + URL backlink，让未来 maintainer grep `chiga0 finding` 直接拉到 review。
+
+### Stage 1.5a — chiga0 10 must-haves
 
 ### Stage 1.5a — chiga0 10 must-haves
 
@@ -305,7 +323,7 @@ PR#3889 review 中 chiga0 第 3 轮 review（[#3889 comment 4427875644](https://
 qwen --serve --port 7776 [--token-file ~/.qwen/local-token]
 
 # TUI 启动 + Express HTTP server 同进程
-# 远端 client 通过 :7776 接入；TUI 是 client #0（in-process EventBus）
+# 远端 client 通过 :7776 接入；TUI 是 super-client（保留 ~15 Ink dialogs + local-jsx，详 §02 §7）
 ```
 
 ### 工作清单

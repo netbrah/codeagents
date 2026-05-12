@@ -134,8 +134,11 @@ OpenCode 用单一 `OPENCODE_SERVER_PASSWORD`（粗粒度访问控制）。Qwen 
 │                          ↓                                      │
 │  ┌──────────────────────────────────────────────────────────┐  │
 │  │ EventBus（多 client 协作）                                 │  │
-│  │ ├─ in-process subscriber（Mode A 本地 TUI = client #0）    │  │
+│  │ ├─ Mode A 本地 TUI 是 super-client（持完整 Ink dialogs    │  │
+│  │ │  + local-jsx slash commands；in-process subscribe        │  │
+│  │ │  agent↔user conversation 流）                            │  │
 │  │ ├─ HTTP/SSE subscriber（远端 client：CLI / WebUI / IDE）   │  │
+│  │ │  看到的是 strict subset，不是 TUI mirror                  │  │
 │  │ └─ first-responder permission vote（任何 client 可应答）   │  │
 │  └──────────────────────────────────────────────────────────┘  │
 │                          ↓                                      │

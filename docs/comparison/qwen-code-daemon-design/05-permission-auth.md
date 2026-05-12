@@ -190,9 +190,24 @@ function handleAskInDaemonHttp(
 
 主线选 A；B（designated client）作为外部多用户企业部署的可选 UX 增强（[§14](./14-orchestrator-multi-tenancy.md) External Reference）。
 
-### 3.2.1 Permission policy 扩展设计（Stage 2+）
+### 3.2.1 Permission policy 扩展设计（Stage 1.5-prereq + Stage 2+）
 
 > chiga0 [PR#3889 external review](https://github.com/QwenLM/qwen-code/pull/3889) 指出 first-responder 缺 authorization model 风险：ACP `requestPermission` 设计为 1:1，daemon 升级为 1:N 广播后没有 client identity 区分，**bot client 可在 human 看到前自动 approve**。即使 Stage 1 只实现 first-responder，schema 应预留 policy 字段。
+>
+> **Stage 1.5-prereq finding 3 — `PermissionMediator` interface lift**（chiga0 [comment 4427773706](https://github.com/QwenLM/qwen-code/pull/3889#issuecomment-4427773706)）：当前 daemon 的 first-responder + `nonInteractive/ControlDispatcher` + `channels/BridgeClient` 是同一概念的 3 个独立实现。Stage 1.5-prereq 抽 `PermissionMediator` interface + 4 种 strategy policy 让 4 路 expose 路径共享同一 mediator：
+>
+> ```ts
+> interface PermissionMediator {
+>   request(req: PermissionRequest, policy?: PermissionPolicy): Promise<PermissionOutcome>;
+> }
+> type PermissionPolicy =
+>   | { kind: 'first-responder' }
+>   | { kind: 'designated'; clientId: string }
+>   | { kind: 'consensus'; minVotes: number }
+>   | { kind: 'local-only' };   // 当前 TUI behavior（local-jsx，不出 wire）
+> ```
+>
+> Stage 1.5-prereq 同时 close audit Risk 2（first-responder 无 authorization model）+ finding 3（permission 第三套实现）。详 [§06 Stage 1.5-prereq](./06-roadmap.md#stage-15-prereq--chiga0-6-架构重构-findingscross-module-unification)。
 
 permission_request event schema 加 `policy` 字段（向后兼容 / 老 client 视为 first-responder）：
 

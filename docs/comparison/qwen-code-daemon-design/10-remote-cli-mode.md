@@ -24,7 +24,42 @@
 | NAT 穿透 | Cloudflare Tunnel / Tailscale / SSH reverse tunnel |
 | 性能优化 | TUI 端 local echo 抹平 keystroke RTT；LLM streaming 50ms RTT 几乎无感 |
 | 重连 | SSE Last-Event-ID（[§03 §三 重连协议](./03-http-api.md#sse-last-event-id-重连协议)）|
+| Attach 状态恢复 | **必须 re-fetch state**（远程 client 看到 strict subset，不是 TUI mirror；详 §一·五）|
 | 离线降级 | `--daemon-or-local` flag：daemon 不可达自动 fallback 到本地子进程模式 |
+
+## 一·五、远程 client Attach / Reconnect 状态恢复（关键设计）
+
+> 来源：LaZzyMan PR#3889 [review #4270256721](https://github.com/QwenLM/qwen-code/pull/3889#pullrequestreview-4270256721) + wenshao option A [comment 4428675775](https://github.com/QwenLM/qwen-code/pull/3889#issuecomment-4428675775)：TUI 是 super-client（保留 ~15 Ink dialogs + local-jsx slash commands）；远程 client 看到的是 strict subset。
+
+**3 项远程 client 必须实现的要点**：
+
+| # | 要点 | 详情 |
+|---|---|---|
+| 1 | **Attach / reconnect 时必须 re-fetch state** | 用 `Last-Event-ID: 0` 重放（拿 `model_switched` 等终态 event），不能从增量 event 推断。`/capabilities` endpoint 拿当前 model / mode 等终态 |
+| 2 | **不要假设 TUI-side mutations 通过 event 推送** | `/approval-mode` / `/memory` / `/mcp` / `/agents` / `/tools` / `/auth` / `/init` 应视为 **opaque server state**（详 [§09 §〇 TUI 与 wire 的边界](./09-tui-compatibility.md#〇tui-与-wire-的边界--local-only-行为清单)）；可能在两次 connect 之间漂移 |
+| 3 | **每次 reconnect 后视为 cold state** | 除了 conversation 主流，其他 TUI 状态应当作 unknown。即使有 `Last-Event-ID` 续连，如果 daemon 重启过（必然 ring lost），client 应当走完整重新 attach 流程 |
+
+**与 SSE Last-Event-ID 重连的关系**：`Last-Event-ID` 解决的是网络抖动 / 短期断开（< 5 min, ring 4000 帧内），保证 conversation event 不丢；但 **不保证 TUI-side mutations 重放**——这些根本就不在 wire 上。
+
+**实现示例**（Pseudo-code）：
+
+```ts
+async function attachToDaemon(daemonUrl: string, sessionId: string) {
+  // 1. Re-fetch terminal state (don't trust 增量 events)
+  const caps = await fetch(`${daemonUrl}/capabilities`)
+  const currentModel = caps.modelServices[0]?.currentModel
+
+  // 2. Subscribe SSE with Last-Event-ID:0 (full replay if ring 内)
+  const stream = new EventSource(`${daemonUrl}/session/${sessionId}/events`, {
+    headers: { 'Last-Event-ID': '0' }
+  })
+
+  // 3. Treat TUI-local state (/approval-mode etc.) as unknown — don't render
+  ui.setApprovalMode('unknown')   // 不假设 default 是 'never-ask'
+  ui.setMemory('unknown')          // 不假设可读
+  // ...
+}
+```
 
 ## 二、3 类拓扑详细对比
 
@@ -879,7 +914,7 @@ PR#3930 协议层亮点：
 PR#3931 创新点：让现有 TUI（已经在运行的 `qwen` 交互式 CLI）**不重启**就 attach 到 remote-control server——复用现有 `--json-file <events.jsonl>` / `--input-file <input.jsonl>` dual-output 原语，通过 `TuiRemoteBridge` / `RemoteInputWatcher` 把文件流桥接到 WebSocket。
 
 **与 daemon Mode A 的区别**：
-- daemon Mode A（[§02 §7](./02-architectural-decisions.md#7-daemon-部署模式clihttpserver-vs-headlesshttpserver)）：TUI 是 client #0，**通过 in-process EventBus** 共享 session（daemon HTTP server 在同进程内常驻）
+- daemon Mode A（[§02 §7](./02-architectural-decisions.md#7-daemon-部署模式clihttpserver-vs-headlesshttpserver)）：TUI 是 super-client（保留 ~15 Ink dialogs + local-jsx；wire 只承载 agent↔user conversation），**通过 in-process EventBus** 订阅 session 事件流（daemon HTTP server 在同进程内常驻）
 - PR#3931：TUI **保留独立进程**，通过文件层 bridge 与独立运行的 remote-control server 同步——更轻的耦合
 
 **daemon Mode A 已经覆盖 PR#3931 的场景**：本地 TUI + 远端 mobile 同看 session = `qwen --serve` 即可，无需文件 bridge 中间层。

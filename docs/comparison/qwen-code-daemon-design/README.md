@@ -13,7 +13,7 @@
 | **Mode A: CLI + HttpServer** | `qwen --serve [--port N]` | ✅ 本地渲染 | 单用户在终端 + WebUI / IDE / IM bot 同时接入 |
 | **Mode B: Headless Daemon + HttpServer** | `qwen serve [--port N]` | ❌ | 服务器 / 容器 / 远端机器 |
 
-两种模式都遵循 Stage 1 channel-per-workspace + N session multiplexed 架构，区别仅在 daemon process 是否同时承载本地 TUI 客户端。TUI 是 client #0（in-process EventBus）绑定其中一个 session；同 daemon 内 daemon HTTP 路径可访问其他 N-1 session（详见 [§02 §7 TUI 语义澄清](./02-architectural-decisions.md#mode-a-在多-session-daemon-下的-tui-语义关键设计澄清)）。
+两种模式都遵循 Stage 1 channel-per-workspace + N session multiplexed 架构，区别仅在 daemon process 是否同时承载本地 TUI 客户端。**TUI 是 super-client**（保留 ~15 Ink dialogs + local-jsx slash commands；EventBus / wire 只承载 agent↔user conversation axis），通过 in-process EventBus 绑定其中一个 session；同 daemon 内 HTTP 路径可访问其他 N-1 session（详见 [§02 §7 TUI 语义澄清](./02-architectural-decisions.md#mode-a-在多-session-daemon-下的-tui-语义关键设计澄清) + [§09 §〇 TUI 与 wire 的边界](./09-tui-compatibility.md#〇tui-与-wire-的边界--local-only-行为清单)）。
 
 **Stage 1 特性**：
 - 同 workspace N session 内存 ~60-100 MB（commit `6a170ef8` 实测，5 session 同 child）

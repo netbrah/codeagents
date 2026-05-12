@@ -151,6 +151,14 @@
 - Qwen 默认服务对象包含 IM 用户（不只是开发者本地用），暴露到公网风险更高
 - 强制安全 default 是对用户负责
 
+### 5.5 多 expose 路径 convergence — Stage 1.5-prereq 抽 `@qwen-code/acp-bridge`
+
+> 来源：chiga0 PR#3889 [comment 4427773706](https://github.com/QwenLM/qwen-code/pull/3889#issuecomment-4427773706) "cross-module unification" + tanzhenxin [comment 4428974701](https://github.com/QwenLM/qwen-code/pull/3889#issuecomment-4428974701)。
+
+OpenCode 没有这个问题——HTTP daemon 是它唯一的 "expose agent" 路径。Qwen Code 已经有 6 条独立路径（`acp-integration/` / `nonInteractive/` / `dualOutput/` / `remoteInput/` / `channels/` / `serve/`）共享 ~80% machinery 但 ~0% abstractions。tanzhenxin 直接观察："`httpAcpBridge.ts` (~1820 LOC) 与 `channels/base/AcpBridge` (~360 LOC) 架构相似——都有 `spawnOrAttach` + per-session FIFO + sessionId map + `sessionScope: 'single' | 'thread'`"。
+
+Stage 1.5-prereq 工作：把 `AcpChannel` interface + `EventBus` + `PermissionMediator` 抽到 `@qwen-code/acp-bridge` 共享包（[§06 Stage 1.5-prereq 6 findings 详表](./06-roadmap.md#stage-15-prereq--chiga0-6-架构重构-findingscross-module-unification)）。**Qwen 此后比 OpenCode 多一层泛化**——OpenCode 的 Hono daemon 是单一 transport；Qwen 的 `AcpChannel` 通吃 stdio / HTTP-bridge / native-in-process / WebSocket / IM channel 5 种 transport。
+
 ## 六、性能对比预期
 
 | 维度 | OpenCode（实测）| Qwen Stage 1 channel-per-workspace（commit `6a170ef8`）| Qwen Stage 2e native in-process（预期）|

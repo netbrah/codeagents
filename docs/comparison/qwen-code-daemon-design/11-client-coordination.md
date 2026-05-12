@@ -13,6 +13,8 @@
 
 > 决策 §1 + §6 让一个 session 可被多 client 同时订阅；本章定义这些 client 如何协调（liveness / active typer / takeover / exclusive 模式 / IM bot 多用户分摊），保住 collaboration 红利的同时解决 stale connection 等运维痛点。
 
+> **拓扑澄清**（[§02 §1 P1 vs P2 拓扑](./02-architectural-decisions.md#1-session-是否跨-client-共享--两种拓扑p1-vs-p2)）：本章 **聚焦 P1 拓扑**（1:N，1 session × N clients 共享 conversation 事件流）—— 经典 multi-end sync（手机 mirror 桌面 TUI / Web UI attach / pair programming）。**P2 拓扑**（N:1，N session × 1 user，**IDE multi-window** 典型）的 N session 之间通过 daemon HTTP layer 隔离（commit `6a170ef8` channel-per-workspace + `QwenAgent.sessions: Map` multiplex），不涉及本章 subscriber 协议。本章 active typer / takeover / kind 限额 设计 **per-session 范围**——P2 下 N session 各自独立协调。
+
 ## 一、TL;DR
 
 | 维度 | 默认 | 可选（企业）|

@@ -14,6 +14,47 @@
 >
 > Mode A 的 TUI **不是 HTTP client**——它是 in-process subscriber，省了 HTTP 序列化成本但拿到字节级一致的事件流。本章下面的 HttpAcpAdapter 部分主要适用于 Mode B（远端 TUI）。Mode A 用 `InProcAdapter` 做同等抽象但内部直接订阅 EventBus。详见 [§02 §7](./02-architectural-decisions.md#7-daemon-部署模式clihttpserver-vs-headlesshttpserver)。
 
+> **关键澄清**（LaZzyMan PR#3889 [review #4270256721](https://github.com/QwenLM/qwen-code/pull/3889#pullrequestreview-4270256721) + wenshao 选 option A [comment 4428675775](https://github.com/QwenLM/qwen-code/pull/3889#issuecomment-4428675775)）：**TUI 是 "super-client"，不是 "subscriber #0"**。TUI 保留完整 local interaction layer——~15 Ink dialogs（`ModelDialog` / `MemoryDialog` / `SessionPicker` 等）+ local-jsx slash commands（`/ide` / `/auth` / `/init` / `/resume` 等）。EventBus / wire 只承载 **agent ↔ user conversation** axis；远程 client 看到的是 strict subset，**不是 TUI 的 mirror**。下方 §〇 列详细差异。
+
+## 〇、TUI 与 wire 的边界 — Local-only 行为清单
+
+> 来源：LaZzyMan PR#3889 第 1 轮 review 指出 TUI 大量 Ink dialogs / local-jsx slash commands 是 TUI-local；wenshao 选 option A（保持 wire 窄表面，不强制 TUI mutations 走 event）。
+
+### Local-only TUI 行为（远程 client **不会**收到 event 通知）
+
+| TUI 行为 | 实现位置 | 是否出 wire |
+|---|---|---|
+| `/approval-mode` 切换 | TUI Ink dialog | ❌ local-only |
+| `/memory` 编辑 | TUI Ink dialog | ❌ local-only |
+| `/mcp` 启停 / 配置 | TUI Ink dialog | ❌ local-only |
+| `/agents` 管理 | TUI Ink dialog | ❌ local-only |
+| `/tools` 启停 | TUI Ink dialog | ❌ local-only |
+| `/auth` 登录流 | TUI local-jsx | ❌ local-only |
+| `/init` 初始化 | TUI local-jsx | ❌ local-only |
+| `/resume <id>` session 切换 | TUI 退出 + spawn 新进程 | ❌ local-only（"切 session" = "重启 TUI"，[§02 §7 TUI 多 session 语义](./02-architectural-decisions.md#mode-a-在多-session-daemon-下的-tui-语义关键设计澄清)）|
+| `ModelDialog` 选模型 | TUI Ink dialog | ⚠️ TUI 内部切换 + 推 `model_switched` event 出 wire（model 是 wire 概念例外）|
+
+### Wire 推送的 agent ↔ user 事件（所有订阅 client 都能收）
+
+`message_part` / `tool_call` / `tool_result` / `permission_request` / `permission_resolved` / `model_switched` / `model_switch_failed` / `session_died` / `client_evicted` 等。
+
+### 远程 client 实现要点（commit `9352627f` 写入 `docs/users/qwen-serve.md` "Stage 1 scope boundaries"）
+
+| # | 要点 | 详情 |
+|---|---|---|
+| 1 | **Attach / reconnect 时必须 re-fetch state** | 用 `Last-Event-ID: 0` 重放 `model_switched` 等终态 event 拿当前 model；不能从增量 event 推断 |
+| 2 | **不要假设 TUI-side mutations 通过 event 推送** | `/approval-mode` / `/memory` / `/mcp` / `/agents` / `/tools` / `/auth` / `/init` 应视为 **opaque server state**，可能在两次 connect 之间漂移 |
+| 3 | **每次 reconnect 后视为 cold state** | 除了 conversation 主流，其他 TUI 状态应当作 unknown；如需 model 等终态可调 `GET /capabilities` 或重放 |
+
+### 为什么不把 TUI mutations 全推到 wire（option B）
+
+LaZzyMan 提议过 option B（promoting Gap 2 commands to a `session_state_changed` event family）。wenshao 选 option A 的理由（[comment 4428675775](https://github.com/QwenLM/qwen-code/pull/3889#issuecomment-4428675775)）：
+
+- **wire 表面收窄** = Stage 2 native in-process 重构余地大（避免 "wire 当死契约" 后无法演进）
+- **TUI / wire 边界清晰**——TUI 长出新 dialog 不需要 wire schema 演进
+- **远程 client 实现简化**——不需要订阅 9+ 种 `session_state_changed.*` event 然后做 state machine
+- session-state-event 完整 taxonomy 工作 **不撤销**，但其目的从 "enumerate wire events" 转为 "document which TUI flows are local-only by design"（移到 #3803 跟进）
+
 ## 一、TL;DR — 4 层兼容性矩阵
 
 | 层 | 单进程 TUI | Daemon TUI | 兼容性 |
