@@ -449,6 +449,94 @@
 
 ## 六、更新日志
 
+### 2026-05-12（~1d 增量 · 7 项业务 PR 合并 · Anthropic proxy + global prompt cache scope（PR#4020 +1320/-37）+ Ctrl+B promote PR-3 of 3 收官（PR#3969）+ 4 工具 deferral（PR#4022）+ legacy qwen auth CLI 移除（PR#3959 -2532）+ ask_user_question always-visible（PR#4041））
+
+扫描窗口：2026-05-11 → 2026-05-12 UTC。窗口内 **7 项业务 PR + 2 项 ci/refactor**。前次的 8 项"关键 OPEN"有 3 项已合并：PR#4020 / PR#3969 / PR#4022。本次主线：① **Anthropic-compat proxy + 跨 session prompt cache**（PR#4020 +1320/-37 · 体量从 OPEN 时 +577 翻倍）；② **foreground → background promote 3-PR 系列收官**（PR#3969 PR-3 of 3 暴露 Ctrl+B keybind · 与 PR#3842 signal.reason + PR#3894 shell.ts 集成形成完整链）；③ **4 个低频 built-in 工具 deferred**（PR#4022 Monitor / SendMessage / TaskStop / WebFetch + searchHint · 与 Claude Code 延迟策略对齐）；④ **ask_user_question always-visible**（PR#4041 与 PR#4022 互补 · 防 deferred 后模型用 prose 代替结构化 multi-choice）；⑤ **legacy `qwen auth` CLI subcommand 移除**（PR#3959 −2532 行 · redirect 到 `/auth` TUI dialog · 体量去除最大）；⑥ runtime.json sidecar cleanup（PR#4030）；⑦ /stats model 长 model 名字一行（PR#4032）。
+
+#### 🟢 MERGED（7 项业务）
+
+| PR | 标题 | 合并时间 | 影响 |
+|---|---|---|---|
+| **[PR#4020](https://github.com/QwenLM/qwen-code/pull/4020)** | feat(core): improve Anthropic proxy compatibility and enable global prompt cache scope | 2026-05-11 | 🌟 **关联 prompt cache + provider 系列**（**+1320/-37** 体量从 OPEN 时 +577 翻倍）—— ① 非 Anthropic-native baseURL 用 `authToken`（`Authorization: Bearer`）防 IdeaLab-style proxy 的双 header 冲突；② 真实 `api.anthropic.com` 保持 SDK-default `x-api-key` auth；③ Claude 4.6+ 自动 `thinking: { type: 'adaptive' }`（数字比较 `major > 4 || (major === 4 && minor >= 6)`，覆盖 haiku 4-10+ 未来版本）；④ **global prompt cache scope** 跨 session 复用 cache（之前 per-session 隔离，长 system prompt 浪费 cache hit）；⑤ User-Agent / x-app header 满足 proxy Team rules |
+| **[PR#3969](https://github.com/QwenLM/qwen-code/pull/3969)** | feat(cli): Ctrl+B promote keybind (#3831 PR-3 of 3) | 2026-05-11 | 🌟 **promote 3-PR 系列收官**（**+308/-15**）—— foreground → background promote 完整链路：PR#3842 (PR-1, MERGED · `ShellAbortReason = { kind: 'cancel' } \| { kind: 'background'; shellId? }` 基础) + PR#3894 (PR-2, MERGED · shell.ts 集成 + `bg_xxx.output` snapshot) + **PR#3969 (PR-3, MERGED · 用户可见 Ctrl+B keybind + status indicator + `/promote` slash 命令）**。Phase D part b of #3634 闭环 |
+| **[PR#4022](https://github.com/QwenLM/qwen-code/pull/4022)** | feat(tools): defer low-frequency built-in tools to reduce initial prompt size | 2026-05-11 | **关联 ToolSearch 延迟工具机制扩展**（+20/-0）—— 4 个低频 built-in tools 标记 `shouldDefer=true` + `searchHint`：Monitor / SendMessage / TaskStop / WebFetch。PR#3589 之前只 deferred Cron / AskUserQuestion / ExitPlanMode / LSP / MCP；**与 Claude Code 延迟策略对齐**——仅 core read/write/search/execute 工具保留在 initial function-declaration list（减小 system prompt size 节省 token） |
+| **[PR#4041](https://github.com/QwenLM/qwen-code/pull/4041)** | feat(tools): keep ask_user_question always-visible to surface clarification UX | 2026-05-11 | **关联 [item-15 AskUserQuestion](./qwen-code-improvement-report-p0-p1-platform.md)**（+10/-3）—— PR#4022 反向：`ask_user_question` 之前 deferred 时模型很少经 `tool_search` 发现就用，反而用 plain prose 提问，**丢失结构化 multi-choice UX**。改为 `shouldDefer === false` 强制在 initial tool list；加 unit-test guard pin 防 silent regression |
+| **[PR#3959](https://github.com/QwenLM/qwen-code/pull/3959)** | refactor(cli): remove legacy `qwen auth` CLI subcommand, redirect to /auth TUI dialog | 2026-05-11 | 🌟 **大型重构**（**+397/-2532** 净 −2135 行）—— 移除 5 个 `qwen auth` 子子命令（`qwen-oauth` / `coding-plan` / `api-key` / `openrouter` / `status`）+ 交互式 selector，重定向到 `/auth` TUI dialog。原 734 行 handler 逻辑完全归 TUI。**本期最大单 PR 删除量** |
+| **[PR#4030](https://github.com/QwenLM/qwen-code/pull/4030)** | chore(core): runtime.json sidecar follow-ups from #3714 review | 2026-05-11 | **关联 [runtime.json](./qwen-code-improvement-report-p2-stability.md)**（+166/-17）—— post-merge cleanup：删除 dead `typeof !== 'boolean'` clause（`Number.isInteger(true) === false` 已挡）+ dead `err.message.includes('utf-8')` branch（Node fs.readFile 不抛 invalid UTF-8）+ test 补充。纯 trim 无行为变化 |
+| **[PR#4032](https://github.com/QwenLM/qwen-code/pull/4032)** | fix(cli): keep long model stats header on one line | 2026-05-11 | **UI 修复**（+126/-6，fixes #4031）—— `/stats model` 渲染单 model + panel 宽度足够时扩展 model/source 列；保留 24-col compact 多 model 布局。修复 `ggml-org/gemma-4-E4B-it-GGUF` 等长 model ID wrap 的回归 |
+
+#### 🟡 ci / refactor（2 项，不计入业务计数）
+
+- **[PR#4061](https://github.com/QwenLM/qwen-code/pull/4061)** `refactor(telemetry): remove dead useCollector setting and unreachable TelemetryTarget.QWEN` —— −82 行 dead config（`useCollector` 从未被 telemetry SDK 调用）+ `TelemetryTarget.QWEN` enum 永远 throw FatalConfigError。Part of #3731 config 语义清理
+- **[PR#3984](https://github.com/QwenLM/qwen-code/pull/3984)** `ci: skip unnecessary release and SDK checks` —— `SDK Python` workflow 仅触发于 Python SDK 变更或 workflow 自身；release/version-sync PR 跳过 CI duplicate
+
+#### 🆕 新 OPEN（14 项，活跃开发）
+
+| PR | 方向 | 关联 |
+|---|---|---|
+| **[PR#4067](https://github.com/QwenLM/qwen-code/pull/4067)** | Use bundled Qwen Code for PR review automation | yiliang114 · 关联 [/review](./qwen-code-review-improvements.md) |
+| **[PR#4064](https://github.com/QwenLM/qwen-code/pull/4064)** | feat(rewind): add file restoration support to /rewind command | 🌟 **关联 [item-5 /rewind 检查点回退](./qwen-code-improvement-report-p2-tools-ui.md)**——`/rewind` 不仅恢复 transcript，还能恢复 session 期间被修改的文件状态 |
+| **[PR#4062](https://github.com/QwenLM/qwen-code/pull/4062)** | feat(cli): add configurable plansDirectory for Plan Mode | shenyankm · Plan Mode 计划文件目录可配 |
+| **[PR#4060](https://github.com/QwenLM/qwen-code/pull/4060)** | fix(cli): preserve debug session across sandbox relaunch | sandbox relaunch 保留 debug session |
+| **[PR#4059](https://github.com/QwenLM/qwen-code/pull/4059)** | feat(cli): add keyboard text selection and Ctrl+Backspace fix for MinTTY | MinTTY (Git Bash on Windows) 键盘文本选择 + Ctrl+Backspace |
+| **[PR#4053](https://github.com/QwenLM/qwen-code/pull/4053)** | Move startup context into system reminders | tanzhenxin · 关联 prompt 结构优化 |
+| **[PR#4051](https://github.com/QwenLM/qwen-code/pull/4051)** | docs: user + design docs for --json-schema structured output | wenshao · 关联 PR#4001 structured JSON |
+| **[PR#4050](https://github.com/QwenLM/qwen-code/pull/4050)** | fix(cli): preserve table ANSI color across wrapped lines | chiga0 · TUI table 渲染颜色保持 |
+| **[PR#4048](https://github.com/QwenLM/qwen-code/pull/4048)** | feat(cli): argument hint + --auto completion for /rename | qqqys · `/rename` 补全 |
+| **[PR#4045](https://github.com/QwenLM/qwen-code/pull/4045)** | fix(channels): expand tilde in channel cwd config | qqqys · channels `~` 展开 |
+| **[PR#4037](https://github.com/QwenLM/qwen-code/pull/4037)** | feat(cli): wrap markdown links in OSC 8 so wrapped URLs stay clickable | BZ-D · 关联 [item-7 OSC 8 终端超链接](./qwen-code-improvement-report-p2-stability.md) |
+| **[PR#3994](https://github.com/QwenLM/qwen-code/pull/3994)** | feat(perf): progressive MCP availability — MCP no longer blocks first input | chiga0 · 🌟 **关联 启动优化**——MCP server 启动不再阻塞用户首个 input |
+| **[PR#3973](https://github.com/QwenLM/qwen-code/pull/3973)** | fix(cli): MCP add/remove now correctly persists headers and server deletions | B-A-M-N · MCP config 持久化修复 |
+| **[PR#3975](https://github.com/QwenLM/qwen-code/pull/3975)** | feat(cli): add /directory remove subcommand | B-A-M-N · `/directory remove` 子命令 |
+
+#### 🎯 重点解析：promote 3-PR 系列完整收官
+
+`#3634` Phase D part b (foreground bash → background) 跨 3 个 PR 合并：
+
+| PR | 合并 | 角色 |
+|---|---|---|
+| PR#3842 | 早期 | PR-1：`signal.reason` 基础——`ShellAbortReason = { kind: 'cancel' } \| { kind: 'background'; shellId? }` |
+| PR#3894 | 2026-05-08 +935/-15 | PR-2：`shell.ts` 集成——检测 `result.promoted: true` → snapshot output to `bg_xxx.output` → 注册 `BackgroundShellEntry` |
+| **PR#3969** | **2026-05-11 +308/-15** | **PR-3：用户可见 Ctrl+B keybind + `/promote` slash + status indicator** |
+
+整体闭环：用户跑长命令 → `Ctrl+B` → 立即 detach 到后台（`bg_xxx.output` 持续累积）→ 后续可在 `/tasks` 列表看到 → 用 `task_stop` cancel 或 attach 重连。**与 Claude Code 的 background shell 体验对齐**。
+
+#### 🎯 重点解析：4022 + 4041 的"反向修复"
+
+PR#4022 把 4 个低频工具 deferred → PR#4041 把 ask_user_question **强制不 deferred**——后者纠正 PR#4022 一开始把 `ask_user_question` 也 deferred 导致模型用 prose 提问的 regression。两 PR 同日合并体现"快速反向 audit + 修复"模式：
+
+```
+PR#4022 (+20/-0)  延迟 Monitor/SendMessage/TaskStop/WebFetch
+                  ↓
+                  审计发现 ask_user_question 不该 deferred
+                  ↓
+PR#4041 (+10/-3)  强制 shouldDefer=false + unit test guard
+```
+
+#### 🎯 重点解析：PR#4020 体量翻倍（OPEN +577 → MERGED +1320）
+
+PR#4020 是 wenshao 的 Anthropic-compat 系列：OPEN 时 +577 行（基础 proxy 兼容），**MERGED 时 +1320 行（+743 增量）**——增加了：
+- Claude 4.6+ adaptive thinking 自动检测（数字版本比较，支持 4.6/4.7/4-10+/未来）
+- Global prompt cache scope（跨 session 复用 system prompt cache）
+- User-Agent / x-app header 适配 proxy Team rules
+- 测试覆盖 + IdeaLab proxy 集成验证
+
+#### 🟢 状态升级
+
+| Item | 旧状态 | 新状态 |
+|---|---|---|
+| **promote 3-PR 系列** | PR-1 / PR-2 合并 + PR-3 OPEN | ✅ **3-PR 全部合并** + 用户可用 Ctrl+B / /promote |
+| **Anthropic proxy + cross-session cache** | OPEN | ✅ **MERGED**（PR#4020 +1320/-37）|
+| **低频工具 deferral** | 5 项 (Cron/AUQ/ExitPlanMode/LSP/MCP) | ✅ **9 项** (+Monitor/SendMessage/TaskStop/WebFetch) - ask_user_question 例外保留 |
+| **legacy qwen auth subcommand** | 734 行 handler | ✅ **移除**，重定向到 `/auth` TUI dialog |
+
+#### 累计计数
+
+- 已合并 PR: 193 → **200**（+7 业务 + 2 ci/refactor 不计入业务）
+- 新 OPEN：14 项（PR#4067/4064/4062/4060/4059/4053/4051/4050/4048/4045/4037/3994/3973/3975 + 之前 5 项 wenshao 系列 PR#4023/4001/3990/3989/3970）
+
+---
+
 ### 2026-05-11（~5d 增量 · 28 项合并 · prior-read 守卫链闭环（PR#4002 close #3964 + #3945）+ reactive compression 落地+硬化（PR#3879 + PR#3985）+ LiveAgentPanel 完整化 + i18n coverage（PR#3871 +6253/-4423）+ Subagent isolation 5 PR 收官）
 
 扫描窗口：2026-05-08 → 2026-05-11 UTC。窗口内 **11 项合并 + 多项关键 OPEN**。本次主线：① **prior-read 守卫链完整闭环**（PR#4002 +707/-127 close #3964 + #3945 · 与 Claude Code 行为对齐 · 3 部分修复：cacheable 与 truncation 解耦 / `detectFileType` 优先 mime+扩展名 / WriteFile partial-read 死锁）；② **reactive compression 跟进硬化**（PR#3985 +189/-18 · setup-failure 释放 send lock + 显式失败 latch + AbortSignal 传播）；③ **LiveAgentPanel 完整化**（PR#3909 inline AgentExecutionDisplay → 始终 LiveAgentPanel；PR#3919 panel-ownership filter + post-delete statusChange）；④ **TUI resize 优化**（PR#3967 替换 `ESC[2J ESC[3J ESC[H]` 全屏清屏为 `cursorTo + eraseDown` 定向重绘 · 消除 resize 闪屏）；⑤ **subagent 审批 banner 补充工具详情**（PR#3956 +179/-53 · `general-purpose` subagent 工具调用现显示完整命令 / diff / MCP server）；⑥ **OTel diagnostics 静音**（PR#3986 +93/-3 · exporter 连接失败不再污染 UI surface · 走 debug log path）；⑦ **skills 热重载 slash commands**（PR#3923 +212/-4 · `SkillManager.addChangeListener` 触发 `slashCommandProcessor.reloadCommands()` · `/<skill>` 不再需要重启）；⑧ **Idealab 作为第三方 provider**（PR#3955）；⑨ **partial reads 在 prior-read enforcement 中被接受**（PR#3932 · Edit 路径 `lastReadWasFull` relaxed）。
@@ -496,10 +584,10 @@
 
 | PR | 方向 | 关联 |
 |---|---|---|
-| **[PR#4023](https://github.com/QwenLM/qwen-code/pull/4023)** | fix(cli): auto-restore prompt and preserve queue on cancel | wenshao · **+1199/-47** · **关联 item-6 Mid-Turn Queue Drain**——ESC 取消 prompt 时把 queue 流回 input buffer（drain on EVERY cancel path 包括 tool execution cancel）·镜像 Claude Code auto-restore-on-interrupt 行为 |
-| **[PR#4020](https://github.com/QwenLM/qwen-code/pull/4020)** | feat(core): improve Anthropic proxy compatibility and enable global prompt cache scope | wenshao · **+577/-34** · **关联 prompt cache + provider**——IdeaLab-style Anthropic-compat proxies（`Authorization: Bearer` 代 `x-api-key` 防双 header 冲突）+ 跨 session prompt caching（global cache scope）|
-| **[PR#4022](https://github.com/QwenLM/qwen-code/pull/4022)** | feat(tools): defer low-frequency built-in tools to reduce initial prompt size | wenshao · +20/-0 · **关联 ToolSearch 延迟工具机制**——Monitor / SendMessage / TaskStop / WebFetch 4 个低频 built-in tools 标记 `shouldDefer=true` + `searchHint` · 与 Claude Code 延迟策略对齐 · 减小 initial function-declaration list |
-| **[PR#3969](https://github.com/QwenLM/qwen-code/pull/3969)** | feat(cli): Ctrl+B promote keybind (#3831 PR-3 of 3) | wenshao · +290/-15 · foreground → background promote feature 收官（PR-1 #3842 signal.reason + PR-2 #3894 shell.ts 集成 → 本 PR 用户可见按键 Ctrl+B）|
+| **[PR#4023](https://github.com/QwenLM/qwen-code/pull/4023)** 🟡 OPEN | fix(cli): auto-restore prompt and preserve queue on cancel | wenshao · **+1199/-47** · **关联 item-6 Mid-Turn Queue Drain**——ESC 取消 prompt 时把 queue 流回 input buffer（drain on EVERY cancel path 包括 tool execution cancel）·镜像 Claude Code auto-restore-on-interrupt 行为 |
+| **[PR#4020](https://github.com/QwenLM/qwen-code/pull/4020)** ✅ 2026-05-11 MERGED | feat(core): improve Anthropic proxy compatibility and enable global prompt cache scope | wenshao · OPEN 时 **+577/-34** → MERGED 时 **+1320/-37** · **关联 prompt cache + provider**——IdeaLab-style Anthropic-compat proxies（`Authorization: Bearer` 代 `x-api-key` 防双 header 冲突）+ 跨 session prompt caching（global cache scope）|
+| **[PR#4022](https://github.com/QwenLM/qwen-code/pull/4022)** ✅ 2026-05-11 MERGED | feat(tools): defer low-frequency built-in tools to reduce initial prompt size | wenshao · +20/-0 · **关联 ToolSearch 延迟工具机制**——Monitor / SendMessage / TaskStop / WebFetch 4 个低频 built-in tools 标记 `shouldDefer=true` + `searchHint` · 与 Claude Code 延迟策略对齐 · 减小 initial function-declaration list |
+| **[PR#3969](https://github.com/QwenLM/qwen-code/pull/3969)** ✅ 2026-05-11 MERGED | feat(cli): Ctrl+B promote keybind (#3831 PR-3 of 3) | wenshao · OPEN 时 +290/-15 → MERGED 时 +308/-15 · foreground → background promote feature 收官（PR-1 #3842 signal.reason + PR-2 #3894 shell.ts 集成 → 本 PR 用户可见按键 Ctrl+B）|
 | **[PR#3989](https://github.com/QwenLM/qwen-code/pull/3989)** | feat(core,cli): two-phase session listing for instant /resume first frame | **+1601/-310** · `listSessionsLite`（stat-only）+ `enrichSessions`（后台 hydrate）· `/resume` first frame 立即渲染 |
 | **[PR#4001](https://github.com/QwenLM/qwen-code/pull/4001)** | feat(cli): add structured JSON schema output | **关联 [item-4 Structured Output](./qwen-code-improvement-report-p0-p1-platform.md#item-4)** · `--json-schema` flag |
 | **[PR#3990](https://github.com/QwenLM/qwen-code/pull/3990)** | feat(vscode): add Token Plan as first-class auth provider | VSCode 集成增强 |
