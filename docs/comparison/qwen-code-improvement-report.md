@@ -470,10 +470,12 @@
 - **[PR#4061](https://github.com/QwenLM/qwen-code/pull/4061)** `refactor(telemetry): remove dead useCollector setting and unreachable TelemetryTarget.QWEN` —— −82 行 dead config（`useCollector` 从未被 telemetry SDK 调用）+ `TelemetryTarget.QWEN` enum 永远 throw FatalConfigError。Part of #3731 config 语义清理
 - **[PR#3984](https://github.com/QwenLM/qwen-code/pull/3984)** `ci: skip unnecessary release and SDK checks` —— `SDK Python` workflow 仅触发于 Python SDK 变更或 workflow 自身；release/version-sync PR 跳过 CI duplicate
 
-#### 🆕 新 OPEN（14 项，活跃开发）
+#### 🆕 新 OPEN（16 项，活跃开发 · 含今日 2026-05-12 新创建 2 项）
 
 | PR | 方向 | 关联 |
 |---|---|---|
+| **[PR#4069](https://github.com/QwenLM/qwen-code/pull/4069)** 🆕 2026-05-12 | feat(cli): add tools.toolSearch.enabled setting for prefix-caching models | 🌟 **wenshao · 关键 cost regression 修复**（+110/-0 · closes discussions/4065）—— PR#3589 ToolSearch 延迟 MCP 工具节省 ~15K tokens，但**破坏了 DeepSeek 等 prefix-based KV cache**：用户报告 cache hit 97.5% → **81.5%**（-16.4%）/ 日成本 $1.05 → **$3.30**（+214%）/ 尽管处理 46% 更少 tokens。新增 `tools.toolSearch.enabled` 全局开关 + `deepseek-v4-*` 自动 disable（cache hit pricing 1/120 让 cache stability 远比 prompt size 重要）。**复用现有 eager-reveal fallback** 无 core logic 改动 |
+| **[PR#4070](https://github.com/QwenLM/qwen-code/pull/4070)** 🆕 2026-05-12 | perf(cli): code-split lowlight to cut startup V8 parse cost | 🌟 **chiga0 · 启动性能大优化**（+1203/-77）—— `lowlight` syntax highlighter（~1.5MB bundled / 36-60ms V8 parse）从 `cli.js` 同步入口拆出独立 esbuild chunk，**仅在首个代码块渲染时按需加载**。`cli.js` 体积 **25MB → 6.9MB**（-72%）。React/Ink 双 commit pattern：第一帧 plain text，第二帧 chunk 加载后切换 highlighted。**直接削减 1-3s cold-start 感知延迟**——module-eval 阶段是 perceived gap 的主导因素 |
 | **[PR#4067](https://github.com/QwenLM/qwen-code/pull/4067)** | Use bundled Qwen Code for PR review automation | yiliang114 · 关联 [/review](./qwen-code-review-improvements.md) |
 | **[PR#4064](https://github.com/QwenLM/qwen-code/pull/4064)** | feat(rewind): add file restoration support to /rewind command | 🌟 **关联 [item-5 /rewind 检查点回退](./qwen-code-improvement-report-p2-tools-ui.md)**——`/rewind` 不仅恢复 transcript，还能恢复 session 期间被修改的文件状态 |
 | **[PR#4062](https://github.com/QwenLM/qwen-code/pull/4062)** | feat(cli): add configurable plansDirectory for Plan Mode | shenyankm · Plan Mode 计划文件目录可配 |
@@ -485,7 +487,7 @@
 | **[PR#4048](https://github.com/QwenLM/qwen-code/pull/4048)** | feat(cli): argument hint + --auto completion for /rename | qqqys · `/rename` 补全 |
 | **[PR#4045](https://github.com/QwenLM/qwen-code/pull/4045)** | fix(channels): expand tilde in channel cwd config | qqqys · channels `~` 展开 |
 | **[PR#4037](https://github.com/QwenLM/qwen-code/pull/4037)** | feat(cli): wrap markdown links in OSC 8 so wrapped URLs stay clickable | BZ-D · 关联 [item-7 OSC 8 终端超链接](./qwen-code-improvement-report-p2-stability.md) |
-| **[PR#3994](https://github.com/QwenLM/qwen-code/pull/3994)** | feat(perf): progressive MCP availability — MCP no longer blocks first input | chiga0 · 🌟 **关联 启动优化**——MCP server 启动不再阻塞用户首个 input |
+| **[PR#3994](https://github.com/QwenLM/qwen-code/pull/3994)** | feat(perf): progressive MCP availability — MCP no longer blocks first input | chiga0 · 🌟 **关联 [item-8 启动优化](./qwen-code-improvement-report-p0-p1-core.md#item-8)**（+1121/-60，体量大幅扩展）—— **MCP server 启动不再阻塞用户首个 input**。具体测量 TTI（time to first prompt input）：无 MCP 480ms / 1 fast MCP 875ms / 2 fast + 1 slow (5s) MCP **7.1s** / 1 hung MCP **10.5s**。Progressive availability 模式：`Config.initialize()` built-in tools 就绪即返回，MCP discovery 后台 first-class promise |
 | **[PR#3973](https://github.com/QwenLM/qwen-code/pull/3973)** | fix(cli): MCP add/remove now correctly persists headers and server deletions | B-A-M-N · MCP config 持久化修复 |
 | **[PR#3975](https://github.com/QwenLM/qwen-code/pull/3975)** | feat(cli): add /directory remove subcommand | B-A-M-N · `/directory remove` 子命令 |
 
@@ -521,6 +523,57 @@ PR#4020 是 wenshao 的 Anthropic-compat 系列：OPEN 时 +577 行（基础 pro
 - User-Agent / x-app header 适配 proxy Team rules
 - 测试覆盖 + IdeaLab proxy 集成验证
 
+#### 🎯 重点解析：PR#4069 揭示 ToolSearch 与 prefix cache 的根本冲突
+
+[PR#4069](https://github.com/QwenLM/qwen-code/pull/4069) 揭示了 PR#3589 ToolSearch 设计的**与 prefix-based KV cache 的根本矛盾**——这是从 [discussions/4065](https://github.com/QwenLM/qwen-code/discussions/4065) 真实用户成本报告反推出来的：
+
+**ToolSearch 设计逻辑**：
+
+```
+Initial tool list 只发 ~5-10 个 core tools（read/write/search/execute）
+↓ 模型需要其他工具时
+tool_search("mcp filesystem") → 动态拉取 MCP / LSP / monitor / dream 等
+↓ 节省 ~15K tokens（每轮 initial prompt）
+```
+
+**但 prefix cache 的核心要求**：**prompt 前缀字节级稳定**。ToolSearch 动态注入工具描述破坏了这个前缀稳定性：
+
+| 维度 | ToolSearch 之前 | ToolSearch 之后 |
+|---|---|---|
+| Initial tool list | 稳定包含所有 ~30 工具 | 仅 core ~10 工具 + 动态发现 |
+| Token 数 | 较高 | 减少 ~46% |
+| Cache prefix | 稳定 → cache hit 97.5% | 动态 → cache hit **81.5%** |
+| DeepSeek 成本 | $1.05/day | **$3.30/day**（+214%） |
+
+**为什么 DeepSeek 成本爆炸**：DeepSeek `cache_hit` 定价是 `cache_miss` 的 **1/120**（约 0.83% 价格）。失去 cache hit = 输入 token 价格涨 120 倍，远超 ToolSearch 节省的 46% token 数。
+
+**PR#4069 的修复**：
+- 新增 `tools.toolSearch.enabled` 全局 settings 开关
+- 自动 disable for `deepseek-v4-*`（pattern match 默认 unless 显式覆盖）
+- 复用 PR#3589 的 eager-reveal fallback path（已有逻辑，0 core 改动）
+
+**设计教训**：**性能优化要按 cost model 评估，不能只看 token 数**。同样的"减少 prompt size"在 prefix-cache 模型上反成 cost regression。这与 [Reasoning Effort Deep-Dive](./reasoning-effort-deep-dive.md) cache 影响分析的"prefix stability > token count"哲学一致。
+
+#### 🎯 重点解析：PR#4070 cold-start V8 parse cost 直击
+
+[PR#4070](https://github.com/QwenLM/qwen-code/pull/4070) `perf(cli): code-split lowlight to cut startup V8 parse cost` (+1203/-77) 是 chiga0 的启动性能优化：
+
+**问题诊断**：
+- `cli.js` bundle: **25MB**（含 lowlight ~1.5MB）
+- lowlight V8 parse 时间：**36-60ms**
+- 但 lowlight 仅在首个 code block 渲染时才需要
+
+**修复方案**：esbuild code-split，lowlight 拆为独立 chunk，按需 `import()`。
+- `cli.js` 缩到 **6.9MB**（-72%）
+- Module-eval 阶段（perceived cold-start gap 1-3s 的主导）削减 36-60ms
+- React/Ink 双 commit pattern：第一帧 plain text，chunk loaded 后第二帧 highlighted（用户不感知切换）
+
+这是与 PR#3994 progressive MCP availability 互补的**冷启动优化方向**：
+- PR#3994 削减 TTI（time to first input）—— 解决"等 MCP 完成 handshake 才能输入"
+- PR#4070 削减 module-eval 时间 —— 解决"等 lowlight V8 parse 完成才能 render UI"
+
+合并后预期 cold-start 总收益 ~1-2s（具体取决于 MCP 配置 + 是否有代码块输出）。
+
 #### 🟢 状态升级
 
 | Item | 旧状态 | 新状态 |
@@ -529,11 +582,14 @@ PR#4020 是 wenshao 的 Anthropic-compat 系列：OPEN 时 +577 行（基础 pro
 | **Anthropic proxy + cross-session cache** | OPEN | ✅ **MERGED**（PR#4020 +1320/-37）|
 | **低频工具 deferral** | 5 项 (Cron/AUQ/ExitPlanMode/LSP/MCP) | ✅ **9 项** (+Monitor/SendMessage/TaskStop/WebFetch) - ask_user_question 例外保留 |
 | **legacy qwen auth subcommand** | 734 行 handler | ✅ **移除**，重定向到 `/auth` TUI dialog |
+| **ToolSearch 与 prefix cache 冲突** | 用户报 +214% 成本（PR#4065 discussion）| 🟡 PR#4069 OPEN —— 新增 `tools.toolSearch.enabled` settings + `deepseek-v4-*` 自动 disable |
+| **cold-start V8 parse 优化** | lowlight 36-60ms 同步 parse | 🟡 PR#4070 OPEN —— code-split lowlight 后 `cli.js` 25MB → 6.9MB |
+| **MCP 阻塞 TTI** | 1 hung MCP 阻塞 10.5s | 🟡 PR#3994 OPEN（体量扩到 +1121）—— progressive availability |
 
 #### 累计计数
 
 - 已合并 PR: 193 → **200**（+7 业务 + 2 ci/refactor 不计入业务）
-- 新 OPEN：14 项（PR#4067/4064/4062/4060/4059/4053/4051/4050/4048/4045/4037/3994/3973/3975 + 之前 5 项 wenshao 系列 PR#4023/4001/3990/3989/3970）
+- 新 OPEN：**16 项**（含今日 2026-05-12 新创建 PR#4069 / PR#4070）—— PR#4069/4070/4067/4064/4062/4060/4059/4053/4051/4050/4048/4045/4037/3994/3973/3975 + 之前 5 项 wenshao 系列 PR#4023/4001/3990/3989/3970
 
 ---
 
