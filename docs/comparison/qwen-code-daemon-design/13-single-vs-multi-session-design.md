@@ -30,7 +30,9 @@
 
 ## 二、22 维对比矩阵
 
-| # | 维度 | 单 Session | 多 Session |
+> 表头"单 Session" = PR#3889 Stage 1 child-process-per-session；"多 Session" = OpenCode single-process N-session / Qwen Stage 2 in-process。
+
+| # | 维度 | 单 Session（Stage 1）| 多 Session（OpenCode / Stage 2）|
 |---|---|---|---|
 | 1 | **实现复杂度** | ✅ 低（不需要 ALS / Effect-TS / cross-session managers）| ❌ 高（Map<workspaceId, Instance> + 路由 + per-session resource managers）|
 | 2 | **隔离强度** | ✅ **OS process 级**（V8 isolate + fd + memory）| ⚠️ 应用层（AsyncLocalStorage / LocalContext）|
@@ -86,7 +88,7 @@ N 个 cold session 启动总成本：
 
 **结论**：Cold start 在 **稳定长 session 工作流下不是 bottleneck**，在 **高频短 session 工作流下是 killer**。
 
-**缓解**：External SaaS 资源池化路径 的 daemon warm pool —— orchestrator 预热 N 个 idle daemon，按需绑 session，cold start ~1-3s → ~50-200ms。
+**缓解**：External SaaS 资源池化路径的 daemon warm pool —— orchestrator 预热 N 个 idle daemon，按需绑 session，cold start ~1-3s → ~50-200ms。（Stage 2 in-process N-session 重构后 cold start 直接降到 ~10ms，是更彻底的修法）
 
 ### 3.3 内存 baseline 在多大 N 时变得致命
 
@@ -174,7 +176,7 @@ N 个 cold session 启动总成本：
 - [ ] **强隔离 / 强安全需求**（多租户 / 合规场景）
 - [ ] **Crash 容忍度低**（单 session crash 不影响其他用户）
 - [ ] **团队不熟 ALS / Effect-TS**
-- [ ] **PR#3889 child-process 模型已落地**（→ 改回多 session 成本高）
+- [ ] **PR#3889 Stage 1 child-process 模型已落地**（→ 短期改回多 session 成本高；Stage 2 in-process 重构可控范围内）
 - [ ] **运维成熟度低**（多 daemon 进程管理负担小于多 session 内部管理）
 
 → **大多数 Qwen Code 真实用户场景命中此组**。
@@ -198,24 +200,24 @@ N 个 cold session 启动总成本：
 ```
 开始
 ├── N（并发 session/机）≤ 5？
-│   └─ 是 → ✅ 单 session（多 session 反而 baseline 更费）
+│   └─ 是 → ✅ Stage 1 child-process-per-session（多 session 反而 baseline 更费）
 ├── N ≤ 50 且长 session 工作流？
-│   └─ 是 → ✅ 单 session（当前默认）
+│   └─ 是 → ✅ Stage 1 child-process-per-session（PR#3889 默认）
 ├── N ≤ 100 但 cold start 敏感？
-│   └─ 是 → ✅ 单 session + External SaaS 资源池化（warm pool）~2-3w
+│   └─ 是 → ✅ Stage 1 + External SaaS 资源池化（warm pool）~2-3w
 ├── N ≤ 500 且同 workspace 高密度？
-│   └─ 是 → ⚠️ 单 session + External SaaS Worker threads hybrid ~3-4w
+│   └─ 是 → ⚠️ Stage 1 + External SaaS Worker threads hybrid ~3-4w
 └── N ≥ 500 大规模 SaaS？
-    └─ 是 → ❌ 多 session 模式（External 重写）~2-3 月
+    └─ 是 → 🟡 推进 Stage 2 in-process N-session（复用 `QwenAgent.sessions: Map`，主要重构 HttpAcpBridge，**远小于** OpenCode 那种 Effect-TS 重写）
 ```
 
-## 五、与 PR#3889 / OpenCode 现状的具体对齐
+## 五、与 PR#3889 / OpenCode / qwen-code 自身现状的具体对齐
 
-### 5.1 PR#3889 child-process model（单 session 事实标准）
+### 5.1 PR#3889 Stage 1 child-process model（HTTP daemon 的 Stage 1 实现路径）
 
 ```
 qwen serve（HTTP front）
-└─ spawn `qwen --acp` child per session
+└─ HttpAcpBridge: spawn `qwen --acp` child per session
    ├─ child 1：sess-A 的 ACP NDJSON stdio agent
    ├─ child 2：sess-B 的 ACP NDJSON stdio agent
    └─ child N：...
@@ -223,7 +225,7 @@ qwen serve（HTTP front）
 
 **命名约定**：
 - `qwen serve` HTTP front = **Orchestrator**（多 daemon spawn / route / cleanup，External Reference Architecture）
-- `qwen --acp` child = **Daemon Instance**（绑唯一 session，主线 building block）
+- `qwen --acp` child = **Daemon Instance**（Stage 1 框架下绑唯一 session，主线 building block）
 
 ### 5.2 OpenCode multi-session model
 
@@ -238,39 +240,51 @@ OpenCode daemon 进程
 └─ SQLite + drizzle-orm（跨 session 共享）
 ```
 
-**与 Qwen 当前架构的差异**：
+### 5.3 qwen-code 自身的 multi-session 现状（已在 main 分支）
 
-| 维度 | OpenCode | Qwen 当前架构 |
-|---|---|---|
-| 隔离机制 | Effect-TS LocalContext | OS process |
-| 资源管理 | per-workspace Map | per-daemon |
-| 持久化 | 跨 session SQLite | per-daemon JSONL |
-| Cold start | ~10ms | ~1-3s |
-| Crash 半径 | 整 daemon | 1 session |
+```
+qwen --acp 进程（stdio NDJSON）
+├─ class QwenAgent
+│   └─ private sessions: Map<sessionId, Session>  ← 已支持单进程 N session
+└─ ACP RPC：newSession / loadSession / unstable_listSessions / unstable_forkSession / session/resume
+
+VSCode 插件实际使用：
+└─ AcpConnection（1 child + N session + switchToSession()）
+```
+
+**这是 qwen-code 自身已验证的能力，不是新设计**——Stage 2 in-process 重构主要工作是把 HTTP daemon front 的 `HttpAcpBridge` 从 spawn-per-session 改成 attach-to-existing-agent（直接复用同一个 `QwenAgent` 实例并暴露 sessionId path 路由）。
+
+### 5.4 三种模型差异对照
+
+| 维度 | OpenCode | PR#3889 Stage 1（HttpAcpBridge child-per-session）| Stage 2 in-process（基于已有 `QwenAgent.sessions: Map`）|
+|---|---|---|---|
+| 隔离机制 | Effect-TS LocalContext | OS process | `AsyncLocalStorage`（Node 内建，不引 Effect-TS）|
+| 资源管理 | per-workspace Map | per-daemon-child | per-workspace（多 session 共 LSP/MCP/cache）|
+| 持久化 | 跨 session SQLite | per-daemon-child JSONL | 跨 session JSONL + SQLite（如需）|
+| Cold start | ~10ms | ~1-3s/session | ~10ms（attach to existing agent）|
+| Crash 半径 | 整 daemon | 1 session | 整 daemon |
 
 详见 [§07 与 OpenCode 详细对比](./07-comparison-with-opencode.md)。
 
 
-## 七、与各章节协同
+## 六、与各章节协同
 
 | 章节 | 协同点 |
 |---|---|
-| [§02 §2 状态进程模型](./02-architectural-decisions.md#2-状态进程模型) | 单 session 决策的来源 |
-| [§07 与 OpenCode 详细对比](./07-comparison-with-opencode.md) | 多 session 模式的现实参考 |
-|  | 多 session 的 17 攻击向量证据 |
-|  | 多 session 的 9 稳定性模式负担 |
-| [§12 vs Anthropic Managed Agents](./12-vs-anthropic-managed-agents.md) | Anthropic 的 per-session container 与 Qwen 单 session 模型架构相似 |
+| [§02 §2 状态进程模型](./02-architectural-decisions.md#2-状态进程模型) | PR#3889 Stage 1 选 child-process-per-session 的决策来源 |
+| [§07 与 OpenCode 详细对比](./07-comparison-with-opencode.md) | OpenCode multi-session 模式 + Stage 2 in-process 演进对照 |
+| [§12 vs Anthropic Managed Agents](./12-vs-anthropic-managed-agents.md) | Anthropic 的 per-session container 与 Stage 1 child-process model 架构相似 |
 
-## 八、一句话总结
+## 七、一句话总结
 
-**复杂度守恒**——选单 session 还是多 session 不是"哪个简单"的问题，是"复杂度放在哪"的问题：
+**复杂度守恒**——Stage 1 单 session 还是 Stage 2 in-process N-session 不是"哪个简单"的问题，是"复杂度放在哪"的问题：
 
-- **单 session：复杂度在 orchestrator 层 + 资源池化层**——新模块，问题域清晰，可独立演进
-- **多 session：复杂度散在 daemon 内部**——与 core 业务交织，每次新加 feature 都要考虑 isolation
+- **Stage 1 child-process-per-session：复杂度在 orchestrator 层 + 资源池化层**——新模块，问题域清晰，可独立演进
+- **Stage 2 in-process N-session：复杂度散在 daemon 内部**——与 core 业务交织，每次新加 feature 都要考虑 isolation
 
-**默认单 session**：因为（1）N < 50 时经济性可接受；（2）PR#3889 已落地；（3）OS 进程边界免费提供隔离；（4）触发条件多数项目永远不出现。
+**PR#3889 Stage 1 默认 child-process-per-session**：因为（1）N < 50 时经济性可接受；（2）Stage 1 工程简化让 GA-ready 快；（3）OS 进程边界免费提供隔离；（4）触发条件多数项目永远不出现。
 
-**多 session 仅在大规模 SaaS 必需时投**——届时按 External SaaS 资源池化路径演进，已实现代码不会白做。
+**Stage 2 in-process N-session 仅在大规模 SaaS 必需时推进**——技术路径已具备（`qwen --acp` agent 现成多 session 能力），届时主要重构 HttpAcpBridge 而非整体改写。
 
 ---
 

@@ -10,7 +10,7 @@
 |---|---|---|---|
 | 进程模型 | 单 daemon 多 session 共进程 | **PR#3889 Stage 1 HttpAcpBridge = 1 child = 1 session**（多 session 由 orchestrator spawn 多 daemon）| **Stage 1 工程简化选择**——不是 qwen-code 能力上限：`QwenAgent.sessions: Map` 已支持单进程 N session（VSCode 插件已生产用）；Stage 2 in-process 重构后可切到 OpenCode 同款模式 |
 | `process.cwd()` | 永不改变 | **同款** | OpenCode 已验证 |
-| 上下文传播 | Effect-TS `LocalContext` | **不需要**（daemon 进程本身就是 session ctx）| Qwen 不引入 Effect 重依赖；连 ALS Instance ctx 也不需要 |
+| 上下文传播 | Effect-TS `LocalContext` | **Stage 1：不需要**（daemon 进程本身就是 session ctx）；**Stage 2 in-process N-session：需要 `AsyncLocalStorage` per-request session ctx**，但仍不引入 Effect-TS（沿用 Node 内建 ALS）| Qwen 不引入 Effect 重依赖 |
 | HTTP 框架 | Hono | **Express 5（默认，复用 vscode-ide-companion 已有依赖）/ Hono 可选（External SaaS 高并发）** | 不强行对齐——Express 5 + zod 校验已够用，Hono 是性能 trigger 后再切 |
 | 协议 schema | OpenAPI codegen（13525 行）| **复用 ACP NDJSON zod schema** | Qwen 已有 838 行 ACP agent，0 设计成本 |
 | 多 channel 支持 | 仅 SDK / TUI / Web | **+ IM / IDE 全走 SessionRouter** | Qwen 已有 Channels 包 |
@@ -153,13 +153,13 @@
 
 ## 六、性能对比预期
 
-| 维度 | OpenCode（实测）| Qwen Daemon（预期）|
-|---|---|---|
-| 启动时间 | ~2-3s | 类似（同框架）|
-| 单 session 创建 | <100ms | 类似 |
-| 同 workspace 第二个 session | <50ms（LSP/MCP 已 ready）| 类似 |
-| Prompt 端到端延迟（SSE 首字节）| 主要由 LLM 决定 | 类似 |
-| 100 并发 session | 内存约 1-2GB（取决于 LLM 上下文）| 类似 |
+| 维度 | OpenCode（实测）| Qwen Stage 1 child-process-per-session | Qwen Stage 2 in-process N-session（预期）|
+|---|---|---|---|
+| 启动时间 | ~2-3s | ~2-3s（HTTP front 启动）| 类似（同框架）|
+| 单 session 创建 | <100ms | ~1-3s（spawn `qwen --acp` child + V8 / module load）| <100ms（attach to existing agent）|
+| 同 workspace 第二个 session | <50ms（LSP/MCP 已 ready）| **~1-3s 全量重启**（不共享）| <50ms 类似 OpenCode（LSP/MCP 已 ready）|
+| Prompt 端到端延迟（SSE 首字节）| 主要由 LLM 决定 | 类似 | 类似 |
+| 100 并发 session | 内存约 1-2GB（取决于 LLM 上下文）| ~3-5GB（N × ~30-50MB daemon baseline + LLM 上下文）| 类似 OpenCode |
 
 **Qwen 可能略高的地方**：
 - ACP zod schema 校验 vs OpenCode Effect Schema —— zod 在大 schema 上略慢但 Qwen 路由相对简单，影响可忽略
@@ -215,10 +215,10 @@ const q = query({ transport: new HttpTransport({
 | HTTP+SSE+WebSocket 协议层 | 2. 多 channel 路由（IM/IDE/Web/SDK 同源）|
 | 持久化分层（文件+RDBMS）| 3. **Express 5 复用 vscode-ide-companion**（Hono 是 External SaaS 高并发可选，不是默认）|
 | ACP / OpenAPI 协议表面 | 4. 复用 PR#3723 应用层权限流 |
-| **进程模型分歧** | 5. **1 daemon = 1 session**（OpenCode 是单进程多 session）—— OS 进程边界免费 + 避开应用层 ALS / Effect-TS 复杂度 |
-| 默认安全策略 | 5. 默认 0.0.0.0 + 无 token = 拒绝启动 |
+| **进程模型阶段性差异** | 5. **PR#3889 Stage 1 = child-process-per-session**（HttpAcpBridge 简化路径；OpenCode 是 single-process N-session）—— 不是 qwen-code 能力上限：`qwen --acp` agent 已支持单进程 N session（VSCode 插件生产用），Stage 2 in-process 重构后可切到 OpenCode 同款模式 |
+| 默认安全策略 | 6. 默认 0.0.0.0 + 无 token = 拒绝启动 |
 
-**Qwen daemon 不是"OpenCode 的复刻"，而是"借鉴 OpenCode 验证过的进程模型 + 复用 Qwen 自家的 ACP / Channels / PR#3723 / Background tasks 等成熟资产"** —— 这正是  表明的 ~75% 复用率的来源。
+**Qwen daemon 不是"OpenCode 的复刻"，而是"借鉴 OpenCode 验证过的进程模型 + 复用 Qwen 自家的 ACP / Channels / PR#3723 / Background tasks 等成熟资产"** —— ~75% 复用率的来源即此。
 
 ---
 
