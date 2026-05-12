@@ -479,6 +479,8 @@ t=30: [行消失，被驱逐]
 
 [PR#3684](https://github.com/QwenLM/qwen-code/pull/3684) ✓ 2026-05-02 12:57 UTC（**+6297/-147**）—— `feat(core): event monitor tool with throttled stdout streaming (Phase C)`。这是 Background tasks roadmap (#3634) 的第三阶段，与已合并的 Phase A（后台 subagents）+ Phase B（PR#3642 background shell pool）形成完整三件套。
 
+> **对齐说明**（2026-05-12 修订）：Claude Code v2.1.139 二进制 `strings` 确认同样内置 `Monitor` 工具（详见 [claude-code-vs-qwen-code-builtin-tools.md §3.12](./claude-code-vs-qwen-code-builtin-tools.md#312-monitor-工具claude-vs-qwen-详细对比)）。Phase C 是 Qwen 对齐 Claude Monitor 设计的工程实现，**真正的 Qwen 独有创新是 4 kinds Background tasks framework**（agent/shell/monitor/dream 统一调度抽象）而非 monitor 工具本身。
+
 **新增能力**：
 
 | 组件 | 实现 |
