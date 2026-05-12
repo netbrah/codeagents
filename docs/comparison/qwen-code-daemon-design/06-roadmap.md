@@ -178,7 +178,7 @@ qwen-code 主线 HA / 稳定性需求由 PR#3889 + PR#3739 已完整覆盖（详
 | **Daemon crash 自动重启** | 由外部进程管理器（systemd / k8s / orchestrator）负责 | 单 daemon 进程崩溃 → 重启 |
 | **Transcript-first fork resume** | PR#3739 已合并 | 新 daemon 启动 replay transcript JSONL 重建 session 状态 |
 | **SSE Last-Event-ID 重连** | PR#3889 commit `41aa95094` | client 网络抖动 / daemon 重启后断点续连（详细协议见 [§03 §三](./03-http-api.md#三sse--websocket-事件流核心)）|
-| **Crash isolation 免费** | OS 进程边界（决策 §2 1 daemon = 1 session）| 一 daemon 崩溃只影响其唯一 session，其他 daemon 不受影响 |
+| **Crash isolation 免费** | OS 进程边界（决策 §2 PR#3889 Stage 1 1 daemon = 1 session）| Stage 1：一 daemon 崩溃只影响其唯一 session，其他 daemon 不受影响。Stage 2 in-process N-session 下需引入 daemon 内 session-level crash 隔离（process-level uncaughtException → 当前所有 session 受波及，需 per-session error boundary + supervisor restart）|
 | **资源 cleanup 简单** | OS process exit | kill daemon = 清理所有 fd / child process / memory，无需主动 cleanup hooks |
 | **timing-safe bearer auth + 401 uniform** | PR#3889 commit `ad0e6ec06` | 防 side-channel 攻击 |
 
@@ -342,7 +342,7 @@ IM bot       ─────│  - Mode B (headless)      │
 
 ### Shell Sandbox
 
-主线 daemon 默认 **NoSandbox**——agent 跑 daemon 进程权限（PR#3889 现状）。1 daemon = 1 session 模型下 daemon 不感知 tenant，sandbox 是给 multi-tenant SaaS 部署的外部隔离方案，不在主线 scope。
+主线 daemon 默认 **NoSandbox**——agent 跑 daemon 进程权限（PR#3889 现状）。Stage 1 PR#3889 1 daemon = 1 session 模型下 daemon 不感知 tenant，sandbox 是给 multi-tenant SaaS 部署的外部隔离方案，不在主线 scope。Stage 2 in-process N-session 下同 daemon 多 session 共享 OS 权限，sandbox 重要性上升（不同 tenant session 跑 daemon 进程权限会互相污染），届时 ShellSandbox 抽象的 in-process Worker isolation 优先级应提升到 daemon 主线 scope。
 
 External 实施方向（按 ShellSandbox interface 抽象）：
 
@@ -393,7 +393,7 @@ External Reference Architecture（独立时间线，非项目路线图）:
 | 风险 | 缓解 |
 |---|---|
 | 单 daemon instance OOM / race condition | daemon crash 由外部 orchestrator（或 systemd / k8s）自动重启；transcript JSONL 持久化保证 PR#3739 fork-resume 恢复 |
-| MCP server 跨 session 状态泄漏 | per-server `requiresPerSession` flag fallback；1 daemon = 1 session 后此问题大部分自动消失 |
+| MCP server 跨 session 状态泄漏 | per-server `requiresPerSession` flag fallback；PR#3889 Stage 1 1 daemon = 1 session 后此问题大部分自动消失。Stage 2 in-process N-session 下需重新审计 `requiresPerSession` 工具——同 daemon 多 session 共 MCP server 时跨 session 状态共享重新成为问题 |
 | FileReadCache 与 history rewrite 同步问题 | PR#3810 已修 5 路径，新加 daemon 路径需类似 audit |
 | Bearer token 泄漏 | 默认 0.0.0.0 binding 拒绝启动（无 token）；timing-safe compare + 401 uniform |
 | `process.chdir()` 误调 | 落地后 grep audit + CI 守卫 |

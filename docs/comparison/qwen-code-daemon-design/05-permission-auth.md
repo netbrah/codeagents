@@ -13,7 +13,9 @@
 >
 > 本章详细的 Bearer token 生命周期、permission flow、first-responder vote 等机制 **两种模式完全一致**——只是 Mode A 默认关掉 bearer（loopback 信任）但仍可显式 `--token` 启用。
 >
-> Permission decisions cache 是 per-daemon（[§02 §2](./02-architectural-decisions.md#2-状态进程模型) "1 daemon = 1 session"模型下自然成立）；first-responder vote 仍是 per-daemon 内逻辑（同一 daemon 多 client 抢答 permission_request）。
+> **Stage 1**：Permission decisions cache 是 per-daemon（[§02 §2](./02-architectural-decisions.md#2-状态进程模型) PR#3889 1 daemon = 1 session 模型下自然成立）；first-responder vote 仍是 per-daemon 内逻辑（同一 daemon 多 client 抢答 permission_request）。
+>
+> **Stage 2 in-process N-session**：cache key 加 sessionId 维度（`(sessionId, toolName, resource) → decision`）防止跨 session 泄漏；first-responder vote 路由按 sessionId 隔离（A session 的 permission_request 不会 fan-out 到 B session 的 client）。
 
 > [← 上一篇：进程模型与工作目录隔离](./04-process-model.md) · [下一篇：路线图 →](./06-roadmap.md)
 
@@ -278,7 +280,10 @@ interface DaemonSessionPermissionConfig {
 
 每次 daemon 启动时加载 workspace + global scope 的决策；session scope 仅内存（重启即失效）。
 
-**多 daemon / 多 client 并发写 race condition** 由 orchestrator 层处理（SQLite `permission_decisions` 表 + WAL，详见 [§14 §四 持久化栈](./14-orchestrator-multi-tenancy.md#四持久化栈大致方向)）——主线 1 daemon = 1 session 模型下不会出现并发写 race（同 daemon 内串行 + 跨 daemon 不共享）。
+**多 daemon / 多 client 并发写 race condition** 由 orchestrator 层处理（SQLite `permission_decisions` 表 + WAL，详见 [§14 §四 持久化栈](./14-orchestrator-multi-tenancy.md#四持久化栈大致方向)）。
+
+- **Stage 1**：主线 PR#3889 1 daemon = 1 session 模型下不会出现并发写 race（同 daemon 内串行 + 跨 daemon 不共享）
+- **Stage 2 in-process N-session**：同 daemon 内多 session 并发写 `workspace` / `global` scope 决策时需引入 in-memory lock（per-file mutex）防 lost update；`session` scope 仍是 per-session 私有不冲突
 
 ## 五、PR#3726 Monitor permission namespace 在 daemon 模式下
 

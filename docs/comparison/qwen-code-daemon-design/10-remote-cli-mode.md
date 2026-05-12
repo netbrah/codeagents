@@ -2,12 +2,13 @@
 
 > [← 上一篇：TUI 兼容性](./09-tui-compatibility.md) · [回到 README](./README.md)
 
-> **远端 client 接入流程**（[§02 §2](./02-architectural-decisions.md#2-状态进程模型) "1 daemon = 1 session"下）：
+> **远端 client 接入流程**（[§02 §2](./02-architectural-decisions.md#2-状态进程模型) **PR#3889 Stage 1** 1 daemon = 1 session 下）：
 >
 > - **Multi-client per daemon 是核心价值**——CLI / WebUI / IM bot 连同一 daemon URL = 共享同一 session
 > - **远端 client 直连 daemon instance**——已知 daemonUrl 时不需要中间路由
 > - **Client capability 反向 RPC / NAT 穿透 / TLS / mTLS / Bearer token** 是 External Reference Architecture 范畴的设计（PR#3889 / Stage 2 不实现，仅本章作为外部集成方蓝图描述）
 > - **Discovery / 跨 daemon 路由**：多 daemon 部署下 client 通过 [§14 Orchestrator](./14-orchestrator-multi-tenancy.md) `POST /coordinator/sessions/:id/route` 解析 sessionId → daemonUrl，再直连
+> - **Stage 2 in-process N-session 影响**：单一 daemon URL 内通过 sessionId path 区分 session；同 daemon 内多 client 仍可 fan-out 共享 session（语义不变，路由从隐式变显式）
 
 > CLI 连接远端 daemon 的完整设计：3 类拓扑取舍、Client Capability 反向 RPC 协议（让 daemon 调起本地 editor/clipboard/browser）、TLS/mTLS auth 链、NAT 穿透方案、Local echo 性能优化、离线降级。
 
@@ -789,7 +790,7 @@ CLI 可缓存少量数据本地：
 
 ### 9.3 与 transcript-first 重建协调
 
-CLI 重连时传 `Last-Event-ID`：daemon 用 PR#3739 transcript-first fork resume 重建 session 状态 → 从 `Last-Event-ID + 1` 拉 missed events → 客户端 UI 无缝续接。多 pod failover（External Phase 3 HA）下 sticky cookie 把 client 路由到含其 sessionId 的 pod；主线 1 daemon = 1 session 不涉及多 pod。
+CLI 重连时传 `Last-Event-ID`：daemon 用 PR#3739 transcript-first fork resume 重建 session 状态 → 从 `Last-Event-ID + 1` 拉 missed events → 客户端 UI 无缝续接。多 pod failover（External Phase 3 HA）下 sticky cookie 把 client 路由到含其 sessionId 的 pod；PR#3889 Stage 1 / Stage 2 in-process N-session 都是单 pod 内的 session 模型，不涉及多 pod failover。
 
 ## 十、与 §09 TUI 兼容性的关系
 
@@ -842,7 +843,7 @@ CLI 重连时传 `Last-Event-ID`：daemon 用 PR#3739 transcript-first fork resu
 | **入口命令** | `qwen serve` (Mode B) / `qwen --serve` (Mode A) | `qwen remote-control` (worker) / `qwen --remote-control` (attach 当前 TUI) / `/remote-control` slash |
 | **传输协议** | HTTP + SSE / WebSocket（Express 5 + ACP NDJSON）| HTTP + WebSocket + stream-json 控制平面 + dual-output JSONL bridge |
 | **协议复用** | 100% 复用 ACP zod schema（§03 §二）| 复用 dual-output 现有 primitive + stream-json 包装 control plane |
-| **session 模型** | 1 Daemon Instance = 1 Session（§02 §2）| Worker server spawn worker session（PR#3930）或 attach 当前 TUI（PR#3931）|
+| **session 模型** | PR#3889 Stage 1 = 1 Daemon Instance = 1 Session（§02 §2）；Stage 2 in-process N-session 复用 `QwenAgent.sessions: Map` | Worker server spawn worker session（PR#3930）或 attach 当前 TUI（PR#3931）|
 | **多 client 共 session** | ✅ live collaboration 默认 + first-responder permission | ⚠️ mobile/browser 可 attach 同 session 但首要场景是单 mobile + 当前 TUI 双视图 |
 | **Mobile / browser UI** | ❌ §10 标 External Reference 范畴 | ✅ **自带最小化 mobile/browser UI**（PR#3930 +2564 行含 static 资产）|
 | **Pairing token + LAN URL** | ❌ 仅 bearer token | ✅ **一次性 pairing token + 客户端 token + LAN URL 报告** |
