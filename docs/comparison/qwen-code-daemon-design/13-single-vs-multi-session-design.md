@@ -2,13 +2,20 @@
 
 > [下一篇：Orchestrator 多租户与配额 →](./14-orchestrator-multi-tenancy.md) · [回到 README](./README.md)
 
-> 系统对比"1 Daemon Instance = 1 Session"（当前架构）与"单 daemon 多 session"（OpenCode 模式）两种设计的 tradeoff。**本章回答"为什么选这个"——为选型决策提供数据**；扩展到多 session 不在 qwen-code 主线设计目标（决策已定，本章解释为什么选 1 daemon = 1 session）。
+> **前置事实纠正（2026-05-12 维护者反馈）**：本章对比的不是 "qwen-code vs OpenCode" 的根本能力差异。**qwen-code 当前已通过 ACP 协议原生支持单进程 N session**：
+> - `packages/cli/src/acp-integration/acpAgent.ts:193` 的 `class QwenAgent` 持 `private sessions: Map<string, Session>`
+> - VSCode 插件 (`acpConnection.ts` + `qwenAgentManager.ts:1324`) 已生产使用 1 child + N session + `switchToSession()` 切换
+> - ACP SDK 定义了 `newSession` / `loadSession` / `unstable_listSessions` / `unstable_forkSession` / `session/resume` 5 个多 session RPC
+>
+> 故本章 22 维对比的真实题目是 "**HTTP daemon 模式下 PR#3889 Stage 1 选了 1 child = 1 session 的工程简化路径**，vs OpenCode 的 single-process N-session 路径"。PR#3889 选择 child-process-per-session 不是因为做不到 single-process N-session，而是 **Stage 1 简化** + **进程级隔离免费** + **与 PR#3889 时间表对齐**。Stage 2 in-process 重构后预期可切换到 OpenCode 同款模式。
+>
+> 系统对比"PR#3889 Stage 1 1 Daemon Instance = 1 Session"与"单 daemon 多 session"（OpenCode 模式 / `qwen --acp` 已有能力）两种设计的 tradeoff。**本章回答"PR#3889 Stage 1 为什么选这条路"——为选型决策提供数据**；扩展到 single-process N-session 是 Stage 2 in-process 范畴，本章解释 Stage 1 选 1 daemon = 1 session 的工程逻辑。
 
 ## 一、TL;DR
 
-**复杂度守恒**——单 session 把隔离卖给 OS（实现简单 + cold start/内存代价），多 session 自己实现隔离（资源经济 + 5 PR isolation 套路 + 17 HPE 攻击向量代价）。
+**复杂度守恒**——child-process-per-session 把隔离卖给 OS（实现简单 + cold start/内存代价），single-process N-session 自己实现隔离（资源经济 + 5 PR isolation 套路 + 17 HPE 攻击向量代价）。
 
-| 哲学 | 单 Session（当前架构）| 多 Session（OpenCode 模式）|
+| 哲学 | PR#3889 Stage 1 child-process-per-session | OpenCode 模式 / qwen-code Stage 2 in-process N-session |
 |---|---|---|
 | **隔离** | OS process 级（免费）| 应用层 ALS（自己实现）|
 | **代价主战场** | Orchestrator 层 + 资源池化 | Daemon 内部 + 长跑稳定性 + multi-tenant 安全 |
@@ -17,7 +24,7 @@
 | **Crash 半径** | 1 session | 整 daemon |
 | **Subagent isolation** | 自动成立 | 5 PR 套路 |
 | **大规模 SaaS（100+ session/机）** | 需资源池化 | 原生支持 |
-| **当前默认** | ✅ | ❌ 仅大规模 SaaS 必需时投（External Reference Architecture）|
+| **qwen-code 当前状态** | PR#3889 Stage 1 已实现（OPEN）| `qwen --acp` agent 已支持多 session（main 已有），HTTP daemon 模式留待 Stage 2 in-process 重构后接入 |
 
 **实务建议**：单 session 模式覆盖 95% 真实场景；多 session 模式仅在大客户压测必需时投。
 
@@ -145,16 +152,16 @@ N 个 cold session 启动总成本：
 
 ### 3.6 与现实约束的对齐
 
-**PR#3889 已实现 child-process-per-session**（+8883/-4 / 32 commits，Stage 1 scope 100% + 文档 100% 补全）—— 这是单 session 模型的事实标准。
+**PR#3889 已实现 child-process-per-session**（+8883/-4 / 32 commits，Stage 1 scope 100% + 文档 100% 补全）—— 这是 Stage 1 HttpAcpBridge 的事实标准。
 
-| 选择 | PR#3889 改造 | 与 PR#3889 一致性 |
+| 选择 | PR#3889 Stage 1 改造 | 与 PR#3889 Stage 1 一致性 |
 |---|---|---|
-| 单 session 模式（当前架构）| ~0 行 | ✅ 100%（PR#3889 child-process = 当前 daemon instance）|
-| 多 session 模式 | retrofit ~8800+ 行（拆分 child-process 为 in-process router）| ❌ 大改 |
+| Stage 1 child-process-per-session（当前 PR#3889 实现）| ~0 行 | ✅ 100%（PR#3889 child-process = 当前 daemon instance）|
+| Stage 2 in-process N-session（复用 `QwenAgent.sessions: Map` 已有能力）| **比想象的小**——`qwen --acp` agent 已支持多 session（VSCode 插件已用）；改造主要在 HttpAcpBridge 层从 spawn-per-session 改成 attach-to-existing-agent | ⚠️ 中等（需 HttpAcpBridge 重构 + EventBus per-session 路由）|
 
-**OpenCode 已实现多 session daemon ~半年**——经验和坑都踩过，但他们的 codebase 是 Effect-first，不能直接拷代码。
+**OpenCode 已实现多 session daemon ~半年**——经验和坑都踩过，但他们的 codebase 是 Effect-first，不能直接拷代码。**而 qwen-code 自己的 `qwen --acp` 已实现多 session ~更久**（VSCode 插件早就在用），Stage 2 可直接复用而无需 Effect-TS。
 
-**结论**：单 session 模式 = 与 PR#3889 0 改造成本对齐。多 session 模式不在主线。
+**结论**：PR#3889 Stage 1 选 child-process-per-session = 0 改造成本快速 GA。Stage 2 in-process N-session 是后续路径，**实现代价比"单 vs 多 session 重写"小得多**（只需重构 HttpAcpBridge，不动 ACP agent 内部）。
 
 ## 四、何时选哪个：决策树
 

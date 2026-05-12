@@ -2,13 +2,13 @@
 
 > [← 上一篇：3 阶段路线图](./06-roadmap.md) · [下一篇：协议兼容性 →](./08-protocol-compatibility.md)
 
-> 本设计与 OpenCode daemon 在 wire 协议、HTTP 路由、SQLite 持久化层面相似，但在**进程模型层面分歧**：OpenCode 走 single-process multi-session，Qwen 走 multi-process single-session（[§02 §2](./02-architectural-decisions.md#2-状态进程模型)）。代价权衡：Qwen 失去 OpenCode 的 cross-session 资源经济性（同 workspace 多 session 共享 LSP/MCP/cache），换取 process-level 隔离 + 实现简化。OpenCode 仍是 cross-session 资源共享场景的更优解；Qwen 模型更适合 [PR#3889](https://github.com/QwenLM/qwen-code/pull/3889) 已选的 child-process-per-session 路径。详见 [§13 单 vs 多 Session 设计深度对比](./13-single-vs-multi-session-design.md)。
+> 本设计与 OpenCode daemon 在 wire 协议、HTTP 路由、SQLite 持久化层面相似。**进程模型层面**：OpenCode HTTP daemon 走 single-process multi-session，**Qwen PR#3889 Stage 1 HttpAcpBridge 走 child-process-per-session**——后者是 PR#3889 的工程简化选择（[§02 §2](./02-architectural-decisions.md#2-状态进程模型)），**不是** qwen-code 的能力上限：`packages/cli/src/acp-integration/acpAgent.ts:193` 的 `QwenAgent.sessions: Map<sessionId, Session>` 已在 main 分支证明 qwen-code 同样支持 single-process multi-session（VSCode 插件 `AcpConnection` 已生产使用），与 OpenCode 在协议能力上**对等**。代价权衡：Stage 1 HttpAcpBridge child-process-per-session 失去 cross-session 资源经济性（同 workspace 多 session 共享 LSP/MCP/cache），换取 process-level 隔离 + 实现简化；Stage 2 in-process 重构后可切换到 OpenCode 同款 single-process N-session 模式。OpenCode 仍是 cross-session 资源共享场景的成熟参考；qwen-code Stage 1 选择简化路径，Stage 2 视场景再切换。详见 [§13 单 vs 多 Session 设计深度对比](./13-single-vs-multi-session-design.md)。
 
 ## 一、设计哲学对比
 
 | 维度 | OpenCode | Qwen Daemon（本设计）| 差异理由 |
 |---|---|---|---|
-| 进程模型 | 单 daemon 多 session 共进程 | **1 Daemon Instance = 1 Session**（多 session 由 orchestrator spawn 多 daemon）| 与 PR#3889 child-process-per-session 模型对齐；进程级隔离免费、避开跨 session 隔离复杂度 |
+| 进程模型 | 单 daemon 多 session 共进程 | **PR#3889 Stage 1 HttpAcpBridge = 1 child = 1 session**（多 session 由 orchestrator spawn 多 daemon）| **Stage 1 工程简化选择**——不是 qwen-code 能力上限：`QwenAgent.sessions: Map` 已支持单进程 N session（VSCode 插件已生产用）；Stage 2 in-process 重构后可切到 OpenCode 同款模式 |
 | `process.cwd()` | 永不改变 | **同款** | OpenCode 已验证 |
 | 上下文传播 | Effect-TS `LocalContext` | **不需要**（daemon 进程本身就是 session ctx）| Qwen 不引入 Effect 重依赖；连 ALS Instance ctx 也不需要 |
 | HTTP 框架 | Hono | **Express 5（默认，复用 vscode-ide-companion 已有依赖）/ Hono 可选（External SaaS 高并发）** | 不强行对齐——Express 5 + zod 校验已够用，Hono 是性能 trigger 后再切 |

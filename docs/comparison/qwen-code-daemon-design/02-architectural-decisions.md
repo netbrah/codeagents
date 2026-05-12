@@ -50,9 +50,13 @@
 
 **问题**：所有 session 都跑在 daemon 主进程？还是每 session 一个独立进程？
 
+> **前置事实纠正**（2026-05-12 维护者反馈）：ACP 协议**原生支持单进程 N session**，且 **qwen-code 当前已实现**——`packages/cli/src/acp-integration/acpAgent.ts:193` 的 `class QwenAgent` 持有 `private sessions: Map<string, Session>`，`newSession` / `loadSession` / `unstable_listSessions` / `unstable_forkSession` 5 个 RPC 在同一进程内多路复用 session。`packages/vscode-ide-companion` 的 `AcpConnection` 已经在生产用这套（1 个 `spawn(qwen --acp)` child + N session + `switchToSession()` 切换），见 `acpConnection.ts:454/487/547/562/579` + `qwenAgentManager.ts:1324`。
+>
+> 故下文"1 Daemon Instance = 1 Session"是 **PR#3889 `HttpAcpBridge` 的 Stage 1 工程简化选择**（作者在 PR 描述中明示 "intentionally a `qwen --acp` child-process per session — startup cost is not amortized across sessions, but no business-logic in core changes. Stage 2 in-process is the follow-up"），**不是** ACP / qwen-code 的固有约束，**也不是** "未来不能变" 的根本架构决策。Stage 2 in-process 重构后预期可切换到 1-process-N-session。
+
 ### 决策
 
-**1 Daemon Instance = 1 Session = 1 Process**。多 session 通过 orchestrator spawn 多个 daemon 实例实现，daemon 内部只承载一个 session 的状态。
+**PR#3889 Stage 1 选择 1 Daemon Instance = 1 Session = 1 Process**。多 session 通过 orchestrator spawn 多个 daemon 实例实现，daemon 内部只承载一个 session 的状态。**之所以选这条路而非复用 `QwenAgent.sessions: Map` 多 session 能力**：① HttpAcpBridge 实现简化（spawn child → 直接 stdio 桥接，无需 daemon 内 session 路由 / ALS / per-session resource manager）；② 进程级隔离免费（避开 Stage 1 引入跨 session 隔离的复杂度风险）；③ 与 Stage 1 GA-ready 时间表对齐（Stage 2 in-process 是后续大型重构）。
 
 ```
 ┌──────────────────────────────────────────────────────┐
@@ -96,14 +100,16 @@
 
 适用边界：单机 N < 50 经济性可接受；N ≥ 100 时投资源池化或迁移多 session（详见 [§13 设计对比](./13-single-vs-multi-session-design.md)）。
 
-### 必要的工程约束
+### 必要的工程约束（**仅适用于 PR#3889 Stage 1 HttpAcpBridge**）
 
 | 约束 | 验证 |
 |---|---|
 | daemon 主线程**永不**调用 `process.chdir()` | CI grep audit |
 | 顶层 `process.on('uncaughtException')` log + graceful exit | top-level handler |
 | Orchestrator 健康监测 daemon，超阈值 restart | `/health` + watchdog |
-| daemon 启动后**永不接受第二个 session** | session ID 启动时绑定 |
+| Stage 1 HttpAcpBridge daemon 启动后**永不接受第二个 session**（约束在 HttpAcpBridge 层，**不在** `qwen --acp` agent 层——agent 本身能多 session）| session ID 启动时绑定 |
+
+> **重要**：上表第 4 行约束是 PR#3889 HttpAcpBridge 的实现选择，不是 qwen-code 的能力上限。Stage 2 in-process 重构后可切换到 1-process-N-session 模式（与 VSCode 插件当前用 `qwen --acp` 的方式一致）。
 
 详见 [§04 进程模型](./04-process-model.md)。
 
