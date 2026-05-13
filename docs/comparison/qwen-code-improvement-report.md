@@ -449,6 +449,36 @@
 
 ## 六、更新日志
 
+### 2026-05-13 增量（~24h · 1 项关键新 OPEN · **`/goal` slash command PR#4088 新 OPEN**（+1800/-24 · 跟进 Claude Code v2.1.139 2026-05-11 引入的 `/goal` 命令，比 Anthropic 实现晚 ~24h；本质回追 Codex 2026-04-25 merged 的 5-PR `/goal` 系列设计）
+
+[**PR#4088**](https://github.com/QwenLM/qwen-code/pull/4088) `feat(cli): add session-scoped /goal command with judge-driven turn continuation`（qqqys，2026-05-12 OPEN，+1800/-24，closes [#4074](https://github.com/QwenLM/qwen-code/issues/4074)）—— 跟随 Claude Code v2.1.139（2026-05-11）+ Codex 5-PR 系列（2026-04-25 merged）的 `/goal` 设计模式：
+
+**与 Claude / Codex 实现对比**：
+
+| 维度 | Codex /goal | Claude /goal | Qwen PR#4088 /goal |
+|---|---|---|---|
+| 引入时间 | 2026-04-25 (5 PRs merged) | 2026-05-11 (v2.1.139) | 2026-05-12 OPEN |
+| 实现规模 | 5 PRs ~3-4w | ~1w（推测）| **1 PR +1800/-24** |
+| 完成判定 | 主 LLM 自判 + state machine | 主 LLM 自判 | **LLM-as-judge subquery**（独立 evaluator，更可靠）|
+| 底层机制 | 新 subsystem `thread_goals` SQL 表 | local-jsx + post-text | **复用 Stop hook + function hook plumbing**（0 新 subsystem）|
+| 持久化 | ✅ SQL `thread_goals` | ❌ | ❌ `/clear` `/resume` `/branch` 主动清除 |
+| 状态 | active/paused/budget-limited/complete | active/cleared | active/achieved/cleared |
+| UI | TUI 状态面板 | overlay panel | `◎ goal active` Footer pill |
+| Bootstrap | — | — | **`<system-reminder>` 首轮自动注入**（避免额外 user turn）|
+
+**PR#4088 3 个超越 Claude / Codex 的亮点**：
+1. **LLM-as-judge subquery 评估**——独立 evaluator (`runSideQuery`) 而非主 LLM 自判；完美利用 Qwen 的 fast-model 机制（主 LLM 干活、fast LLM 判 goal）
+2. **零新 subsystem**——纯复用 PR#3471/3488 的 hook plumbing，顺带 fix 一个 latent bug（`hasHooksForEvent` 忽略 session-scoped function hooks）
+3. **`<system-reminder>` 首轮 bootstrap**——避免 user 手动 "开始" prompt
+
+**PR#4088 已 deferred / 可补的 4 项**：
+- Plan mode 集成（参 Codex Issue #20838）：goal 与 `/plan` 互斥时应自动 paused 而非 cleared
+- **Budget enforcement guard rail**：`--max-turns` / `--max-tokens` 防 runaway loop（goal 设错可能跑数百轮，**重要 safety**）
+- **`paused` 中间态**：daemon 重启 / `/compact` / 临时切走时 paused 而非 cleared
+- Daemon HTTP route（`POST /session/:id/goal`）：[§09 §〇·五](./qwen-code-daemon-design/09-tui-compatibility.md#〇五mode-b-远端-client-限制--stage-1-scope-choice建议-stage-152-切到-option-b) Stage 1.5c daemon-side state CRUD 候选
+
+---
+
 ### 2026-05-12 第二轮（~6h 增量 · 1 项合并 + 3 项关键新 OPEN · **Worktree* 工具组 PR#4073 新 OPEN**（+1651/-4 · 直接闭合 [claude-code-vs-qwen-code-builtin-tools.md §3.10](./claude-code-vs-qwen-code-builtin-tools.md) 刚标注的 P1 借鉴项）+ Agent hooks via headless subagent PR#4072（+1401/-14）+ OTel hierarchical session tracing spans PR#4071（+1318/-409）+ chiga0 narrow terminal rendering PR#3968 合并）
 
 扫描窗口：2026-05-12 06:00 UTC 增量。窗口内 **1 项合并 + 3 项新 OPEN（今日全新创建）**。本轮关键发现：① **PR#4073 generic worktree** —— 与今日上午 binary 反编译刚发现的 Claude `EnterWorktree` / `ExitWorktree` 工具组**几乎同步落地 Qwen 端**（LaZzyMan 独立创建，非项目内 sync），闭合 [claude-code-vs-qwen-code-builtin-tools.md §3.10](./claude-code-vs-qwen-code-builtin-tools.md) 列出的 "Worktree* P1 借鉴" 缺口；② **PR#4072 agent hooks** —— 自述 "Aligns with Claude Code's `execAgentHook` / `SyntheticOutputTool` design"，把 hook 框架从单一 command-script 扩展到 headless subagent 多轮验证；③ **PR#4071 hierarchical session tracing** —— OpenTelemetry session-level interaction spans wrap `sendMessageStream` lifecycle 12 个 exit point，加 `NOOP_SPAN` sentinel + `WeakRef` + 30-min TTL cleanup 防 orphan span。
