@@ -265,7 +265,7 @@
 | **foreground subagent UI** | inline 渲染（v2.1.81 起未变）| **inline → 抑制（PR#3768）→ LiveAgentPanel 取代（PR#3909）** | — | — |
 | **subagent context overflow 防御** | 主 agent compaction | **subagent 也共享主 agent compaction trigger**（PR#3735，long-running Explore 不再 400）| — | — |
 | **Subagent Config 隔离** | tool registry 共享 parent | **`Object.create` 重建 tool registry**（PR#3873 + PR#3887 foreground-fork path 收尾，subagent 工具走自己 FileReadCache + approval mode）| — | — |
-| **云端 fleet 多 Agent** | ✨ **Ultrareview**（v2.1.132 Week 17，云端 fleet 并行 review agents → CLI/Desktop）| 无（本地 only · 设计参考 [Qwen daemon §20](./qwen-code-daemon-design/20-vs-anthropic-managed-agents.md)）| 无 | — |
+| **云端 fleet 多 Agent** | ✨ **Ultrareview**（v2.1.132 Week 17，云端 fleet 并行 review agents → CLI/Desktop）| 无（本地 only · 设计参考 [Qwen daemon §06 §七](./qwen-code-daemon-design/06-roadmap.md)）| 无 | — |
 | **跨设备协作 plan** | ✨ **Ultraplan**（v2.1.132 Week 15，本地 plan + 云端 web 评审 + 远程或本地执行）| 无 | 无 | — |
 | **Permission classifier** | ✨ **Auto Mode**（v2.1.132 Week 13，介于 manual / `--dangerously-skip-permissions` 之间）| 4 mode permission flow（PR#3723）| — | — |
 | **Computer Use（GUI 自动化）**| ✨ Week 14，CLI 内打开 app + 点击 + 视觉验证 | 无 | 无 | — |

@@ -123,7 +123,7 @@
 | [GitHub Code Review](./github-code-review-deep-dive.md) | 多 Agent 审查 |
 | [GitLab CI/CD](./gitlab-ci-cd-deep-dive.md) | GitLab 集成 |
 | [SDK / ACP / Daemon 架构](./sdk-acp-daemon-architecture-deep-dive.md) | 4 大 Agent 程序化接口对比（subprocess vs daemon vs ACP）|
-| [Qwen Code Daemon 架构设计（系列 9 篇）](./qwen-code-daemon-design/) | 完整 daemon 落地方案：架构 / 决策 / API / 进程模型 / 资源共享 / 鉴权 / 路线图 / 与 OpenCode 对比 |
+| [Qwen Code Daemon 架构设计（系列 6 篇）](./qwen-code-daemon-design/) | 完整 daemon 落地方案：架构 / 决策 / HTTP API / 部署与客户端 / 鉴权 / 路线图 |
 | [Agent SDK Python](./agent-sdk-python-deep-dive.md) | Python SDK |
 | [CI 脚本](./ci-scripting-deep-dive.md) | headless 模式 |
 | [CI 环境检测](./ci-environment-detection-deep-dive.md) | 平台检测 |

@@ -460,7 +460,7 @@ leaked 仓代码显示 Anthropic 在做"todo 关闭 → 自动启动 verificatio
 | 本文 | 相关 codeagents 文档 |
 |---|---|
 | Claude VerificationNudge → Verification Agent | [SubAgent 展示 Deep-Dive](./subagent-display-deep-dive.md)——LiveAgentPanel + 多 agent 设计 |
-| OpenCode Web SDK 同步 | [Qwen daemon §09 OpenCode 详细对比](./qwen-code-daemon-design/09-comparison-with-opencode.md) |
+| OpenCode Web SDK 同步 | [Qwen daemon §06 §六 OpenCode 详细对比](./qwen-code-daemon-design/06-roadmap.md) |
 | OpenCode 开源 Managed Code Agent | [Managed Code Agents 全景](./managed-agents-landscape.md) |
 | 4 方功能矩阵 | [features.md](./features.md) |
 | Claude Code v2.1.82 → v2.1.132 增量 | [Claude Code §23 近期更新](../tools/claude-code/23-recent-updates.md) |

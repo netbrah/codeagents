@@ -461,7 +461,7 @@
 - **9 STAGE1_FEATURES**：health / capabilities / session_create / session_list / session_prompt / session_cancel / session_events / session_set_model / permission_vote
 - **N=5 同 workspace session 内存**：300-500MB（早期）→ **60-100MB**（commit `6a170ef8` 后）
 
-**deferred 到 Stage 1.5**：chiga0 10 must-haves（详 [§06 Stage 1.5a](./qwen-code-daemon-design/06-roadmap.md#stage-15a--chiga0-10-must-haves)）+ Mode A `qwen --serve` flag（Stage 1.5b）+ daemon-side state CRUD（Stage 1.5c，[§09 §〇·五](./qwen-code-daemon-design/09-tui-compatibility.md)）+ chiga0 6 architecture findings refactor（Stage 1.5-prereq）。
+**deferred 到 Stage 1.5**：chiga0 10 must-haves（详 [§06 Stage 1.5a](./qwen-code-daemon-design/06-roadmap.md#stage-15a--chiga0-10-must-haves)）+ Mode A `qwen --serve` flag（Stage 1.5b）+ daemon-side state CRUD（[§06 Stage 1.5c](./qwen-code-daemon-design/06-roadmap.md)）+ chiga0 6 architecture findings refactor（Stage 1.5-prereq）。
 
 **经验沉淀**：78 commits 中 ~25 轮 audit + ~60+ review threads close + **架构能在 Stage 1 内重构**（commit `6a170ef8` 是最 expensive 但最有价值的 follow-up）。详 [§06 §5️⃣ 经验沉淀](./qwen-code-daemon-design/06-roadmap.md#5%EF%B8%8F⃣-经验沉淀)。
 
@@ -491,7 +491,7 @@
 - Plan mode 集成（参 Codex Issue #20838）：goal 与 `/plan` 互斥时应自动 paused 而非 cleared
 - **Budget enforcement guard rail**：`--max-turns` / `--max-tokens` 防 runaway loop（goal 设错可能跑数百轮，**重要 safety**）
 - **`paused` 中间态**：daemon 重启 / `/compact` / 临时切走时 paused 而非 cleared
-- Daemon HTTP route（`POST /session/:id/goal`）：[§09 §〇·五](./qwen-code-daemon-design/09-tui-compatibility.md#〇五mode-b-远端-client-限制--stage-1-scope-choice建议-stage-152-切到-option-b) Stage 1.5c daemon-side state CRUD 候选
+- Daemon HTTP route（`POST /session/:id/goal`）：[§06 Stage 1.5c](./qwen-code-daemon-design/06-roadmap.md) daemon-side state CRUD 候选
 
 ---
 

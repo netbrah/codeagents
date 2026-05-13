@@ -57,7 +57,7 @@
 - ❌ **monitor → `send_message` 集成** — PR#3684 自述"未做"清单第 2 项。`task_stop` 已通过 PR#3791 覆盖；`send_message` 因 monitor 语义模糊被推迟（详见 [§六.5](#已落地-5phase-c-event-monitor-toolpr3684-系列追踪以来最大单-pr)）
 - 🟡 **`/agents --history` 归档对比视图** — 当前 `BackgroundTasksDialog` 偏运行时管理，历史归档 + 对比 diff 仍未实现
 - 🆕 **Claude Code Ultrareview**（云端 fleet）— v2.1.132 Week 17 public preview，云端 fleet 并行 review agents → CLI/Desktop。与 Qwen 本地 background subagents 思路**正交**（云端 vs 本地）
-  - Qwen daemon Stage 6 SaaS 方向上能包装类似产品：[§16 HA + §20 vs Anthropic Managed Agents](./qwen-code-daemon-design/20-vs-anthropic-managed-agents.md)
+  - Qwen daemon External Reference Architecture SaaS 方向上能包装类似产品：[§06 §七 vs Anthropic Managed Agents](./qwen-code-daemon-design/06-roadmap.md)
   - Claude Code 端详见 [§23-recent-updates](../tools/claude-code/23-recent-updates.md)
 
 ### Claude Code 同期参照（v2.1.81 → v2.1.132，~6 周）

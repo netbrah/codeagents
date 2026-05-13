@@ -2,9 +2,17 @@
 
 > Qwen Code 引入 HTTP daemon 模式的完整设计方案。基于 [SDK / ACP / Daemon 架构 Deep-Dive](../sdk-acp-daemon-architecture-deep-dive.md) 第七章"Qwen Code 引入 daemon 的工作量评估"展开为可执行的工程蓝图。
 
-## 核心架构
+## 一、TL;DR
 
-**PR#3889 Stage 1 (commit `6a170ef8`, 2026-05-12)：1 daemon process + M `qwen --acp` children (1 per workspace) + N sessions multiplexed per workspace**——同 workspace 内通过 `QwenAgent.sessions: Map<sessionId, Session>` 多路复用 N session（OAuth × 1 / FileReadCache × 1 / CLAUDE.md parse × 1 / cold start <200ms after first），与 OpenCode 同款 in-process N-session 经济性；**跨 workspace** 走独立 child 进程级隔离（`acpAgent.ts:601 loadSettings(cwd)` 边界）。详见 [§02 §2](./02-architectural-decisions.md#2-状态进程模型)。
+```
+Qwen Code 已有 ACP agent + Channels 多路由设施 + WebUI 包 + SDK Transport 抽象
+                                  ↓
+        把 ACP NDJSON 协议通过 HTTP+SSE 桥接成 daemon
+                                  ↓
+              ~2-3 周 MVP，~1.5-2 月对标 OpenCode
+```
+
+**PR#3889 Stage 1（commit `6a170ef8`, MERGED 2026-05-13）：1 daemon process + M `qwen --acp` children (1 per workspace) + N sessions multiplexed per workspace**——同 workspace 内 N session 共 `QwenAgent.sessions: Map<sessionId, Session>`（OAuth × 1 / FileReadCache × 1 / CLAUDE.md parse × 1 / cold start <200ms after first），与 OpenCode 同款 in-process N-session 经济性；**跨 workspace** 走独立 child 进程级隔离（`acpAgent.ts:600 loadSettings(cwd)` 边界）。
 
 **双部署模式**：
 
@@ -13,157 +21,100 @@
 | **Mode A: CLI + HttpServer** | `qwen --serve [--port N]` | ✅ 本地渲染 | 单用户在终端 + WebUI / IDE / IM bot 同时接入 |
 | **Mode B: Headless Daemon + HttpServer** | `qwen serve [--port N]` | ❌ | 服务器 / 容器 / 远端机器 |
 
-两种模式都遵循 Stage 1 channel-per-workspace + N session multiplexed 架构，区别仅在 daemon process 是否同时承载本地 TUI 客户端。**Mode A 本地 TUI 是 super-client**（保留 ~15 Ink dialogs + local-jsx slash commands；EventBus / wire 只承载 agent↔user conversation axis），通过 in-process EventBus 绑定其中一个 session；同 daemon 内 HTTP 路径可访问其他 N-1 session（详见 [§02 §7 TUI 语义澄清](./02-architectural-decisions.md#mode-a-在多-session-daemon-下的-tui-语义关键设计澄清) + [§09 §〇 TUI 与 wire 的边界](./09-tui-compatibility.md#〇tui-与-wire-的边界--local-only-行为清单)）。**Mode B headless 部署下没有本地 TUI**——远端 client 只能是 Web UI / mobile / IM bot 或远端 TUI；**Stage 1 远端 client 是 thin shell（option A）**，但这是 Stage 1 scope choice 不是技术约束——[Stage 1.5c daemon-side state CRUD](./06-roadmap.md#stage-15c-daemon-side-state-crud远端-client-完整功能等价-mode-a补齐) ~3-5d 增量切到 option B 后，远端 client 拿到 6-8 项 daemon-side dialogs 能力，与 Mode A 本地 TUI 功能对齐（与 Cursor / Continue / Claude Code / OpenCode / Gemini CLI 同行竞品看齐，[§09 §〇·五](./09-tui-compatibility.md#〇五mode-b-远端-client-限制--stage-1-scope-choice建议-stage-152-切到-option-b)）。
+> ✅ **Stage 1 已合并**（2026-05-13 06:47 UTC）：[**PR#3889**](https://github.com/QwenLM/qwen-code/pull/3889) `feat(cli,sdk): qwen serve daemon (Stage 1)`，merge commit `870bdf2a`，**+12993/-194 / 84 commits**。Express 5 server / ACP NDJSON over HTTP+SSE / Bearer + Host allowlist + 0.0.0.0 拒绝默认 / SHA-256 timing-safe / EventBus + ring replay + Last-Event-ID 重连 / first-responder permission vote / DaemonClient SDK / capabilities envelope 9 tags / channel-per-workspace + N session multiplexed 全部已实现。
 
-**Stage 1 特性**：
-- 同 workspace N session 内存 ~60-100 MB（commit `6a170ef8` 实测，5 session 同 child）
-- 同 workspace 第 N session cold start <200ms（attach existing channel）
-- 同 workspace N session 共享 OAuth / FileReadCache / CLAUDE.md parse / MCP children
-- 跨 workspace 仍 OS 进程级隔离（独立 child）
+> ⏳ **Stage 1.5 / 2 后续**：chiga0 10 must-haves（pair tokens / unsubscribe API / lifecycle audit）+ 6 architecture findings（PermissionMediator / EventBus / FileSystemService / capability registry / AcpChannel lift / dualOutput-remoteInput convergence）+ Mode A 本地 TUI super-client wire 平权 + Mode B 远端 client option B daemon-side state CRUD（详见 [§06 Roadmap](./06-roadmap.md)）。
 
-**何时考虑 Stage 2e native in-process**：跨 workspace 高密度场景（N ≥ 500），先解 `acpAgent.ts:601 loadSettings(cwd)` 跨 workspace 污染，再 daemon 直接 import `QwenAgent`（省 bridge child ~50MB/workspace + IPC 延迟）。详见 [§13 单 vs 多 Session 设计深度对比](./13-single-vs-multi-session-design.md)。
+> 平行推进的 [PR#3929/3930/3931](https://github.com/QwenLM/qwen-code/pull/3929) `qwen remote-control` 3-stack（不同作者，独立开发）走 stream-json + dual-output + mobile UI 路线，**不引用 issue #3803**——是 daemon-design **平行参照而非实现**，未来或在 Stage 1.5/2 与 PR#3889 协调融合。
 
+## 二、6 章总览
 
-> **关于 Stage 编号约定**：本系列文档中的 Stage 编号有两个语境：
-> - **qwen-code 主线路线图**（[§06](./06-roadmap.md)）：Stage 1 / 1.5 / 2，三档锁定，~3 周内 feature complete
-> - **External Reference Architecture 实施 Phase**（[§14](./14-orchestrator-multi-tenancy.md#五4-个-phase演进路径)）：Phase 1-4 SaaS 实施
-> - **平台层章节内"Stage 3 / 4 / 5 / 6"标签**（§14 / External SaaS HA / §10 / §11 /  / §12 /  等中出现）：作为外部 SaaS 演进阶段的非正式渐进标签，与上面 External Phase 对应（不属于 qwen-code 主线 Stage）
->
-> 简记：**主线 Stage 1/1.5/2 = qwen-code 项目路线图；其他 Stage 编号 = External Reference 演进阶段**。
+简化前 14 章 7441 行 → 简化后 6 章 ~1540 行（-79%）。文件序号与 Stage 编号无关，章节命名按主题。
 
-> **✅ Stage 1 已合并**（2026-05-13 06:47 UTC）：[**PR#3889**](https://github.com/QwenLM/qwen-code/pull/3889) `feat(cli,sdk): qwen serve daemon (Stage 1)` —— **MERGED** merge commit `870bdf2a`，**+12993/-194 / 84 commits**（5 轮 multi-model self-audit + 7 轮 reviewer round + chiga0 三轮 follow-up + LaZzyMan/tanzhenxin reviews + 维护者 N:1 framing 反馈 + 架构重构 commit `6a170ef8` channel-per-workspace + Stage 1 docs 补全）。明确引用 [issue #3803](https://github.com/QwenLM/qwen-code/issues/3803)（本系列对应 issue），**100% Stage 1 scope 设计决策 1:1 落地（含部分超规格实现）** + **文档 100% 补全**——Express 5 server / ACP NDJSON over HTTP+SSE / Bearer + Host allowlist + 0.0.0.0 拒绝默认 / SHA-256 timing-safe compare / EventBus + ring replay + Last-Event-ID 重连 / first-responder permission vote / DaemonClient SDK / capabilities envelope 9 tags / channel-per-workspace + N session multiplexed 全部已实现；commit `27a164c` 补全用户 quickstart + HTTP 协议 reference + SDK ts 示例 591 行 docs。详见 [§06 路线图 Stage 1 实现 audit](./06-roadmap.md#stage-1-pr3889-实现-audit最近更新-2026-05-12-第三轮)。
->
-> 平行推进的 [PR#3929/3930/3931](https://github.com/QwenLM/qwen-code/pull/3929) `qwen remote-control` 3-stack（不同作者，独立开发）走 stream-json + dual-output + mobile UI 路线，不引用 issue #3803——是 daemon-design **平行参照而非实现**，未来或在 Stage 1.5/2 与 PR#3889 协调融合（mobile UI / pairing token / LAN URL 移植到 daemon）。
+| # | 文档 | 核心内容 | 行数 |
+|---|---|---|---:|
+| **01** | [Overview](./01-overview.md) | TL;DR + 3 层术语（daemon process / channel / session）+ 架构图 + 双 mode 对照 + Stage 进展 + 阅读指南 | 135 |
+| **02** | [Architectural Decisions](./02-architectural-decisions.md) | 7 个核心决策：session 共享语义 P1/P2 / 进程模型 / MCP 生命周期 / FileReadCache / Permission flow / 多 client 并发 / Mode A vs Mode B（含老 §04 进程模型 + §13 单 vs 多 session 决策树）| 286 |
+| **03** | [HTTP API & Protocol](./03-http-api.md) | Route table（含 Stage 1.5c daemon-side state CRUD）+ ACP wire 4 层兼容性矩阵 + SSE + Last-Event-ID + 双向 RPC 异步化 + Capability negotiation（含老 §08 协议兼容性）| 289 |
+| **04** | [Deployment & Client](./04-deployment-and-client.md) | Mode A/B 对照 + TUI super-client vs thin shell 9 dialogs 分析 + P1 多 client 协调（subscriber protocol）+ Remote CLI 3 拓扑 + Client Capability 反向 RPC（含老 §09 TUI / §10 远端 CLI / §11 多 client 协调）| 295 |
+| **05** | [Security & Permission](./05-permission-auth.md) | Bearer token + Host allowlist + 0.0.0.0 拒绝 / PR#3723 4-mode evaluatePermissionFlow / first-responder vote + per-session 隔离 / Multi-tenant 关键约束 | 214 |
+| **06** | [Roadmap & Ecosystem](./06-roadmap.md) | Timeline + Stage 1 audit + Stage 1.5（chiga0 10 must-haves + Mode A + daemon-side state CRUD + 6 architecture findings）+ Stage 2（2a-2d + 2e native）+ External Reference Architecture（含老 §07 vs OpenCode / §12 vs Anthropic / §14 orchestrator 多租户）| 324 |
 
-## 阅读路径
+**总计** ~1543 行（含 README 169 行）。
 
-| 路径 | 时间 | 文档 | 适合 |
+## 三、阅读路径
+
+| 路径 | 时间 | 顺序 | 适合 |
 |---|---|---|---|
-| 🚀 **快速理解** | ~30 min | §01 → §02 → §06 → §07 | 评估方案是否值得做 |
-| 🔧 **MVP 实施** | ~2 h | §01 → §02 → §03 → §04 → §02 → §05 → §06 | 准备开 PR 写代码 |
-| 📖 **完整设计** | ~6 h | Part I → II → III → IV → V → VI 顺序 | 全面理解 |
-| 🔒 **安全 / 多租户专题** | ~2 h |  → §14 → §05 → External SaaS HA → §11 | 企业部署评估 |
-| 🌐 **远端 / 协作专题** | ~2 h | §11 | 客户端体验设计 |
-| 💾 **数据架构专题** | ~1 h |  → §14 → External SaaS HA §三-§九 | 持久化 / HA 设计 |
+| 🚀 **快速理解** | ~20 min | §01 → §02 → §06 §〇/§一/§六 | 评估方案是否值得做 |
+| 🔧 **MVP 实施** | ~1 h | §01 → §02 → §03 → §04 → §05 → §06 | 准备开 PR 写代码 |
+| 📖 **完整设计** | ~2 h | §01 → §06 顺序 6 章读完 | 全面理解 |
+| 🔒 **安全 / 多租户** | ~40 min | §05 → §06 §五 | 企业部署评估 |
+| 🌐 **远端 / 多 client** | ~30 min | §04 §三/§四 + §06 §四 | 客户端体验设计 |
 
-## 文档结构
+## 四、核心架构关键概念
 
-文档按主题分 6 组（文件序号保持不变以避免链接 churn；推荐按 Part 顺序阅读）：
+### 4.1 3 层术语模型
 
-### Part I — 基础（必读）
+| 层 | 数量 | 边界 | 共享资源 |
+|---|---|---|---|
+| **Daemon process** | 1 | OS 进程 | TLS / Bearer token / Express server / HTTP transport |
+| **Channel** | M（per workspace）| 独立 `qwen --acp` child process | settings / OAuth / FileReadCache / CLAUDE.md / MCP children |
+| **Session** | N（per channel）| `QwenAgent.sessions: Map<sessionId, Session>` | per-session transcript / pending tool calls / cancellation token |
 
-理解整个系列前需要掌握的核心概念。
+详见 [§01](./01-overview.md) + [§02 §〇 术语](./02-architectural-decisions.md)。
 
-| # | 文档 | 一句话 |
+### 4.2 关键设计决策
+
+| 决策 | 选择 | 理由 |
 |---|---|---|
-| 01 | [架构总览](./01-overview.md) | daemon 模型本质 + 与 subprocess 模型对比 + 与 OpenCode 设计差异概述 |
-| 02 | [6 个架构决策](./02-architectural-decisions.md) | session 共享语义 / 状态进程模型 / MCP 生命周期 / FileReadCache / Permission flow / 多 client 并发——所有后续设计的基石 |
+| Session 共享语义 | 默认 P1（多 client 同 session live collaboration）+ P2（N 独立 session per channel）| P1 = OpenCode "watch-from-anywhere"；P2 = SDK "N parallel jobs" |
+| 进程模型 | Stage 1 channel-per-workspace + N session multiplexed | `acpAgent.ts:600 loadSettings(cwd)` 跨 workspace 污染前 N session per workspace 已足够省 |
+| MCP 生命周期 | per-`qwen --acp` child | 同 workspace N session 共享 MCP children，跨 workspace 隔离 |
+| FileReadCache | session-private（PR#3717 已实现）| daemon 不破坏 cache 语义 |
+| Permission flow | 复用 PR#3723 + daemon 作为第 4 种 mode | bug 修一处全 mode 受益 |
+| 多 client 并发 | FIFO prompt 串行 + fan-out 事件 + first-responder permission vote | OpenCode 同款模型 |
+| Mode A vs Mode B | Mode A 本地 TUI super-client（保留 ~15 Ink dialogs）/ Mode B 远端 client 默认 thin shell（Stage 1.5c 可切 option B daemon-side state CRUD）| Mode A 简化 Stage 1 scope；Mode B 远端补齐留到 Stage 1.5+ |
 
-### Part II — 协议与运行时
+详 [§02](./02-architectural-decisions.md)。
 
-daemon 与外部世界对话的协议层、daemon 进程内部的运行时机制。
+### 4.3 Stage 进展（at 2026-05-13）
 
-| # | 文档 | 一句话 |
+| Stage | 状态 | 范围 |
+|---|:---:|---|
+| **Stage 1** | ✅ MERGED | PR#3889 - channel-per-workspace + N session multiplexed |
+| Stage 1.5a | ⏳ 待开 | chiga0 10 must-haves（Blockers / Reliability / Ergonomics）|
+| Stage 1.5b | ⏳ 待开 | Mode A TUI super-client wire 平权 |
+| Stage 1.5c | ⏳ 待开 | Mode B daemon-side state CRUD 切 option B（~3-5d，6-8 wire 路由）|
+| Stage 1.5-prereq | ⏳ 待开 | chiga0 6 architecture findings（PermissionMediator / EventBus / FileSystemService / capability registry / AcpChannel lift / dualOutput-remoteInput）|
+| Stage 2a-2d | ⏳ 待开 | session 共享 P1/P2 / multi-region orchestrator / observability / pluggable storage |
+| Stage 2e | 可选 | native in-process（跨 workspace 高密度 N ≥ 500 场景）|
+
+详 [§06](./06-roadmap.md)。
+
+## 五、与已合并 PR 的关系
+
+| PR | 内容 | 对 daemon 的意义 |
 |---|---|---|
-| 03 | [HTTP API 设计](./03-http-api.md) | 路由结构、请求/响应 schema（复用 ACP zod schema）、WebSocket / SSE 事件 |
-| 04 | [进程模型与工作目录隔离](./04-process-model.md) | AsyncLocalStorage 上下文传播、子进程 spawn 边界、`process.cwd()` 不变性 |
-| 05 | [权限流与认证](./05-permission-auth.md) | bearer token 鉴权 + user permission flow（PR#3723 共享 L3→L4 复用）+ 跨 client 审批 UX |
-| 08 | [SDK / ACP 协议兼容性](./08-protocol-compatibility.md) | 单进程 vs Daemon 4 层兼容性矩阵 + 双向 RPC 同步→异步处理 + 用户代码 0 改动证明 |
+| **PR#3717** ✅ | FileReadCache（session-scoped + `(dev,ino)` key）| daemon 模式下天然支持跨 client 共享 |
+| **PR#3723** ✅ | 共享 L3→L4 permission flow | Interactive / Non-Interactive / ACP 三模式权限决策合一，daemon 是第 4 种 |
+| **PR#3739** ✅ | Background agent resume + transcript-first fork resume | daemon 重启 / failover 后 session 可恢复（SSE 重连协议的隐藏基础设施）|
+| **PR#3810** ✅ | FileReadCache invalidation 5 路径修复 | 长 session 正确性保障 |
+| **PR#3889** ✅ | qwen serve daemon Stage 1 | 本系列设计落地 |
 
-### Part III — 客户端形态
+## 六、决策与文档对应
 
-不同 client（TUI / 远端 / 多端）如何与 daemon 协同工作。
-
-| # | 文档 | 一句话 |
-|---|---|---|
-| 09 | [TUI 单进程 vs Daemon 兼容性](./09-tui-compatibility.md) | 4 层兼容性矩阵（显示层 100% / 状态层 100% / 数据源层替换 / 本地依赖 5 类 fallback）+ 多 TUI 共 session + 同 host fast path vs 跨 host RPC + 12 项兼容性测试 |
-| 10 | [远端 CLI 模式与 Client Capability 协议](./10-remote-cli-mode.md) | 3 类拓扑（Local-Local / Local-Remote 不推荐 / **Remote-Remote 推荐**）+ Client Capability 反向 RPC 协议 + 5 类 capability + TLS/mTLS auth + NAT 穿透 + Local echo + VSCode Remote-SSH 对比 |
-| 11 | [多端协调策略](./11-client-coordination.md) | 不限同类型 client 数量（保 collaboration 哲学）+ 6 类 client kind 分桶上限 + liveness（PR#3889 server-push 15s SSE keepalive + 90s 超时 + TCP RST 即时剔除）+ active typer 协调 + 显式 takeover + 可选 exclusive_per_type 模式 + IM bot 一对多用户 |
-
-### Part IV — 数据与状态
-
-实体之间的关系、在哪里持久化、如何演进。
-
-| # | 文档 | 一句话 |
-|---|---|---|
-
-### Part V — 平台层能力（External Reference Architecture）
-
-> **注**：以下能力**不在 qwen-code 主线路线图**中（[§06](./06-roadmap.md)），是给外部集成方（商业平台 / k8s operator / 云厂商定制）的设计参考蓝图。qwen-code daemon protocol surface 在 [Stage 2](./06-roadmap.md#stage-2daemon-完善拆分-2a-2d3-4-周总计) 锁定后，下面这些能力可基于此自由实现。
-
-| # | 文档 | 一句话 |
-|---|---|---|
-| 14 | [Orchestrator 多租户与配额](./14-orchestrator-multi-tenancy.md) | **External Reference Architecture，给 qwen-code 开发者的"大致方向"指引** —— Layer 模型 + orchestrator 4 件事（AuthN / AuthZ / Quota / Audit）+ 持久化栈渐进路径（SQLite → Postgres + Redis + drizzle）+ 4 个 Phase 演进 ~10-14w 完整 SaaS 蓝图 |
-
-### Part VI — 路线图与外部对比
-
-实施时间线和与同类产品的对照。
-
-| # | 文档 | 一句话 |
-|---|---|---|
-| 07 | [与 OpenCode 详细对比](./07-comparison-with-opencode.md) | 路由 / 技术栈 / 设计哲学逐项对照 |
-| 12 | [与 Anthropic Managed Agents 对比](./12-vs-anthropic-managed-agents.md) | **5 层架构对照**（client / agent runtime / tool / sandbox / persistence）+ **内置工具映射** + **协议层差异**（Anthropic 私有 vs ACP 标准）+ **双向 migration path**（Anthropic→Qwen / Qwen→Anthropic 兼容 API）+ **6 类客户场景推荐** + **决策树 6 问选型** + **3 种混合部署模式** + **"Managed Qwen Agents" 产品蓝图**（基于 External Reference Architecture 完整实施 (External Phase 1-4) 包装，6 月可建）|
-| 13 | [单 vs 多 Session 设计深度对比](./13-single-vs-multi-session-design.md) | **22 维对比矩阵 + 6 项关键 tradeoff 深度分析**（隔离昂贵性 / cold start 平方根 / 内存 baseline 建模 / 隔离失败代价 / 复杂度守恒原理 / PR#3889 现实约束）+ **决策树 N≤5/50/100/500/500+** + 作为选型决策入口（不在主线扩展多 session 模型）|
-
-## 一句话 TL;DR
-
-```
-Qwen Code 已有 ACP agent 838 行 + Channels 多路由设施 + WebUI 包 + SDK Transport 抽象
-                                  ↓
-        把 ACP NDJSON 协议通过 HTTP+WebSocket 桥接成 daemon
-                                  ↓
-              ~2-3 周 MVP，~1.5-2 月对标 OpenCode
-```
-
-**核心设计哲学**：
-- daemon HTTP front 不直接 import core；spawn `qwen --acp` child per workspace + 通过 ACP NDJSON 桥接（Stage 1）；Stage 2e 可选去 child 直接 import
-- **PR#3889 Stage 1 (commit `6a170ef8`)：1 daemon + M children (per workspace) + N sessions multiplexed per workspace**——`QwenAgent.sessions: Map` 复用，同 workspace 内 in-process N-session 经济性已达成
-- LSP / MCP server / PTY 仍是 per-`qwen --acp` child (= per-workspace) 子进程（同 workspace N session 共享，跨 workspace 进程级隔离）
-- 持久化：每 session 自己的 transcript JSONL（同 channel N session 各一份）；外部 orchestrator 可选 SQLite/Postgres 做 cross-daemon 聚合（详见 [§14 持久化栈](./14-orchestrator-multi-tenancy.md#四持久化栈大致方向)）
-
-**与 OpenCode 不同的地方**：
-- **进程模型**：OpenCode 单进程 N session 跨 workspace 共享；qwen-code Stage 1 channel-per-workspace 模型——同 workspace 已 in-process N-session（与 OpenCode 同款经济性），跨 workspace 仍 OS 进程隔离。Stage 2e native in-process 是可选演进解决跨 workspace 共享
-- **复用 ACP NDJSON schema 作为内部 RPC**（OpenCode 用自定义 OpenAPI schema codegen）
-- **Channels 多路由复用**（IM / WebUI / IDE 都走 SessionRouter）—— OpenCode 没有等价物
-- **bearer token + PR#3723 共享 L3→L4 权限流**（OpenCode 用单密码）
-- **默认跨 client 共享同一 channel 的同一 session（live collaboration 模型）**：CLI + IDE + WebUI + 手机微信同时观察同一 daemon 同 workspace 的 sessionScope:single 共享 session；任何 client 都可代为审批权限请求；prompt 串行 / 事件 fan-out / 任意 client 取消（OpenCode 是每 SDK call 独立 session）
-
-## 决策与文档的对应
-
-| 上游决策点（[SDK/ACP/Daemon Deep-Dive §七](../sdk-acp-daemon-architecture-deep-dive.md#七qwen-code-引入-daemon-的工作量评估)）| 本系列对应 |
+| 上游决策点（[SDK/ACP/Daemon Deep-Dive §七](../sdk-acp-daemon-architecture-deep-dive.md#七qwen-code-引入-daemon-的工作量评估)）| 本系列章节 |
 |---|---|
-| Session 共享语义 | [§02 决策](./02-architectural-decisions.md) §1 默认 'single' scope |
-| 状态进程模型 | [§02 决策](./02-architectural-decisions.md) §2 + [§04 进程模型](./04-process-model.md) |
-| MCP server 生命周期 | [§02 决策](./02-architectural-decisions.md) §3 per-workspace + §02 §1 |
-| FileReadCache 共享 | [§02 决策](./02-architectural-decisions.md) §4 session-private + §02 §2 |
-| Permission flow | [§02 决策](./02-architectural-decisions.md) §5 + [§05 权限/认证](./05-permission-auth.md) |
-| 多 client 并发请求 | [§02 决策](./02-architectural-decisions.md) §6 FIFO + fan-out + first responder + [§11 多端协调](./11-client-coordination.md) |
-| 持久化 | [§14 持久化栈](./14-orchestrator-multi-tenancy.md)（持久层） JSON → SQLite → Postgres 演进 |
-| HA / SaaS 部署 |  |
-| 远端 CLI / 协作 | [§10 远端 CLI](./10-remote-cli-mode.md) + [§11 多端协调](./11-client-coordination.md) |
+| Session 共享语义 | §02 §1 |
+| 状态进程模型 | §02 §2 |
+| MCP server 生命周期 | §02 §3 |
+| FileReadCache 共享 | §02 §4 |
+| Permission flow | §02 §5 + §05 |
+| 多 client 并发请求 | §02 §6 + §04 §三 |
+| 持久化（External Reference）| §06 §五 |
+| 远端 CLI / 协作 | §04 §三/§四 |
 
-## 与已合并 PR 的关系
-
-5 月份的几个关键 PR**正在为 daemon 化扫清障碍**——本设计假设它们都已合并：
-
-| PR | 内容 | 对 daemon 化的意义 |
-|---|---|---|
-| **PR#3717** ✓ | FileReadCache（session-scoped + `(dev,ino)` key）| daemon 模式下天然支持跨 client 共享 |
-| **PR#3739** ✓ | Background agent resume + transcript-first fork resume | daemon 重启 / failover 后 session 可恢复（ SSE 重连协议的隐藏基础设施）|
-| **PR#3723** ✓ | 共享 L3→L4 permission flow | Interactive / Non-Interactive / ACP 三模式权限决策合一，daemon 是第 4 种（[§05](./05-permission-auth.md)）|
-| **PR#3642** ✓ | `/tasks` + managed background shell pool | 跨 session 任务调度框架（[§subagent-display](../subagent-display-deep-dive.md)）|
-| **PR#3810** ✓ | FileReadCache invalidation 5 路径修复 | 长 session 正确性保障 |
-
-加上 PR#3739 / PR#3717 提供的 session resume + cache 基础，daemon 化在 5 月初已经具备**全部前置条件**。
-
-## 系列演化简史
-
-| 阶段 | 文档 | 主题 |
-|---|---|---|
-| 第一轮 | §01-§07 | 基础架构 + 协议 + 路线图 + OpenCode 对比 |
-| 第二轮 | §08 | 协议兼容性补强（SDK/ACP 单进程 vs Daemon）|
-| 第三轮 | -§09 | 多租户 + 沙箱 + 越权防御 + TUI 兼容性 |
-| 第四轮 | -External SaaS HA | 实体模型 + 持久层 + HA |
-| 第五轮 | §10-§11 | 远端 CLI + 多端协调（client capability 协议）|
+---
 
 > **免责声明**：本系列是 codeagents 项目的设计提案，不代表 Qwen Code 团队官方路线图。所有"工作量估算"是基于源码可见复用度的推测，实际开发可能因团队优先级、API 稳定性要求等变化。

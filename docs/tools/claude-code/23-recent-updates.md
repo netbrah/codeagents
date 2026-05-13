@@ -54,7 +54,7 @@ Auto Mode (新):
 
 **对 Code Agent 开发者的借鉴**：
 - 比单纯 allowlist 更智能（基于上下文，不只是 pattern match）
-- 与 Qwen Code daemon 的 [§07 permission flow 4 mode](../../comparison/qwen-code-daemon-design/07-permission-auth.md) 互补 —— 可作为第 5 mode "auto-classified"
+- 与 Qwen Code daemon 的 [§05 permission flow 4 mode](../../comparison/qwen-code-daemon-design/05-permission-auth.md) 互补 —— 可作为第 5 mode "auto-classified"
 
 ### 2.3 Ultraplan（early preview）
 
@@ -281,11 +281,11 @@ claude --continue --fork-session            # 续上一个但 fork
 | Claude Code 新特性 | 对应 Qwen daemon 设计的位置 / 借鉴 |
 |---|---|
 | Computer Use in CLI | ❌ Qwen 无等价；可作差异化考虑 |
-| Auto Mode | [§07 permission flow](../../comparison/qwen-code-daemon-design/07-permission-auth.md) 可加第 5 mode "auto-classified" |
-| Ultraplan / Ultrareview（云端 fleet）| [§20 vs Anthropic Managed Agents](../../comparison/qwen-code-daemon-design/20-vs-anthropic-managed-agents.md) 同方向；Stage 6 SaaS 可包装类似产品 |
-| Routines on Web | [§16 HA + §11 多租户](../../comparison/qwen-code-daemon-design/16-high-availability.md) 集群部署的应用层场景 |
+| Auto Mode | [§05 permission flow](../../comparison/qwen-code-daemon-design/05-permission-auth.md) 可加第 5 mode "auto-classified" |
+| Ultraplan / Ultrareview（云端 fleet）| [§06 §七 vs Anthropic Managed Agents](../../comparison/qwen-code-daemon-design/06-roadmap.md) 同方向；External Reference Architecture 可包装类似产品 |
+| Routines on Web | [§06 §五 External Reference 多租户](../../comparison/qwen-code-daemon-design/06-roadmap.md) 集群部署的应用层场景 |
 | Monitor tool（背景事件流入对话）| Qwen 已有 [PR#3684/3791 monitor task kind](../../comparison/subagent-display-deep-dive.md)，趋同设计 |
-| Native binaries | 启动优化方向；Qwen daemon 设计中 [§19 长跑稳定性](../../comparison/qwen-code-daemon-design/19-stability-and-longevity.md) 与之协同 |
+| Native binaries | 启动优化方向；Qwen daemon 设计 [§06 §五 External Reference 长跑稳定性](../../comparison/qwen-code-daemon-design/06-roadmap.md) 与之协同 |
 | Conditional `if` hooks | Qwen Code hooks 系统是否引入此机制可参考 |
 
 ## 十二、一句话总结
