@@ -82,6 +82,25 @@ qwen serve (1 Daemon process)
 - **Cross-workspace 进程级隔离**：跨 workspace 不同 `qwen --acp` child
 - **同 bridge session crash 半径**：`channel.exited` cleanup（代码 hook 名）触发该 workspace 全部 session 收到 `session_died`；其他 workspace 不受影响
 
+### 为什么 1 Daemon 支持多 Workspace（不是 "1 daemon = 1 workspace"）
+
+**另一种可能的设计**："1 daemon process = 1 workspace"——每开新 workspace 启新 daemon process，省 `byWorkspaceChannel: Map` 这层抽象 + bridge 隔离天然由 OS 进程提供（跨 daemon 即跨进程）。**Stage 1 不选这条路径，理由**：
+
+| 因素 | 1 daemon = 1 workspace | **Stage 1: 1 daemon + M bridges**（选择）|
+|---|---|---|
+| **Daemon baseline 累积** | 每 workspace = Express server + SSE replay + bearer auth + EventBus + Host allowlist + ring buffer ~30-50 MB | 这层 baseline 只一份；M workspace 共享 |
+| **客户端发现成本** | client 需 daemon discovery：哪个 port？token 怎么协调？多 daemon 时 IDE/WebUI/IM bot 需路由表 | 单 endpoint + `/workspace/:id` 路由 |
+| **多端协调** | user 跨 workspace 切换 = 换 daemon 换 SSE 流；手机查多 workspace 状态需多连接 | 单 SSE 流可观察不同 workspace 事件流；多端 1 token 看全部 |
+| **IM Channels 路由**（`packages/channels/`）| IM bot 需管 N daemon 连接 + channel→daemon→workspace 三级路由 | IM bot 单连接 daemon + channel→workspace 二级路由 |
+| **OS 进程上限 / 端口紧张** | N workspace × full daemon = N OS process + N port + N service registration | 1 daemon + M bridge child = M+1 OS process + 1 port |
+| **External Reference tenant 模型** | daemon = workspace 时无法表达 "1 tenant 多 workspace"（SaaS user 多项目）| daemon = tenant 隔离单位，tenant 内允许多 workspace；本地单用户 daemon ↔ user 1:1 |
+| **隔离强度** | 跨 workspace 完全 OS 隔离（更强）| 跨 workspace OS 隔离（同样强；bridge 是独立 `qwen --acp` child）|
+| **同 workspace N session 经济性** | 同 workspace 仍是 N session 共 1 daemon — 无区别 | 同 workspace N session 共 1 bridge — 同等 |
+
+**关键观察**：跨 workspace 隔离强度**两种设计都是 OS 进程级**（bridge 本身就是独立 `qwen --acp` child），但 1 daemon + M bridges 多收益：daemon 层 baseline + client discovery + IM routing + 端口经济。1 daemon = 1 workspace 唯一独占好处是"省 `byWorkspaceChannel: Map` + 路由代码"——代价不值得。
+
+**OpenCode 也是单 daemon 多 workspace**——Map<workspace, Instance> 跨 workspace 共享 in-process。Qwen Stage 1 与 OpenCode 同方向（同 daemon 多 workspace）但隔离更强（bridge 进程级 vs in-process）；Stage 2e native in-process 是去 child 化的可选演进。
+
 ### 为什么不允许跨 workspace 共 bridge
 
 源码硬约束（`acpAgent.ts:600`）：
