@@ -17,7 +17,7 @@
 ## 一、整体进程拓扑（PR#3889 Stage 1 commit `6a170ef8`：channel per workspace + N session multiplexed）
 
 ```
-qwen serve daemon instance 进程（绑定唯一 session，process.cwd() 启动后不变）
+qwen serve daemon process（HTTP front + byWorkspaceChannel: Map + M channels per workspace；详 §02 术语表）
 │
 ├─ Express 5 HTTP server + express-ws（Hono 可选 External SaaS 高并发）
 │   ├─ Auth middleware（Mode A loopback / Mode B bearer）

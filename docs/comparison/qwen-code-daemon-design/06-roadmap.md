@@ -447,7 +447,7 @@ Operator UX：
 
 | 任务 | 工作量 | 说明 |
 |---|---|---|
-| 单 daemon instance 性能基准 | 2-3d | TTI / streaming throughput / memory baseline 测量 + README 公开数字 |
+| 单 daemon process 性能基准 | 2-3d | TTI / streaming throughput / memory baseline 测量 + README 公开数字 |
 | 文档 + 示例 + cookbook | 2d | Mode A / Mode B / multi-token / `/ext` 使用示例 + README 顶部明确 "local-collaboration grade, not service grade"（[chiga0 audit Risk 1](https://github.com/QwenLM/qwen-code/pull/3889)）|
 | **合计** | **~4-5d / 1 人** | 锁定 protocol surface 前的最后一道 |
 
@@ -591,7 +591,7 @@ External Reference Architecture（独立时间线，非项目路线图）:
 
 | 风险 | 缓解 |
 |---|---|
-| 单 daemon instance OOM / race condition | daemon crash 由外部 orchestrator（或 systemd / k8s）自动重启；transcript JSONL 持久化保证 PR#3739 fork-resume 恢复。Stage 1.5 must-have #2 把 `loadSession` 暴露到 HTTP 之后 client 也能跨 daemon restart 重建 |
+| 单 daemon process OOM / race condition | daemon crash 由外部 orchestrator（或 systemd / k8s）自动重启；transcript JSONL 持久化保证 PR#3739 fork-resume 恢复。Stage 1.5 must-have #2 把 `loadSession` 暴露到 HTTP 之后 client 也能跨 daemon restart 重建 |
 | MCP server 跨 session 状态泄漏 | per-server `requiresPerSession` flag fallback；PR#3889 Stage 1 同 workspace N session 共享同 `qwen --acp` child + 同 MCP children——需审计 `requiresPerSession` 工具。跨 workspace 不同 daemon child 自然隔离不受影响。Stage 2e native in-process 下跨 workspace 共享 MCP 时需再审计 |
 | FileReadCache 与 history rewrite 同步问题 | PR#3810 已修 5 路径，新加 daemon 路径需类似 audit |
 | Bearer token 泄漏 | 默认 0.0.0.0 binding 拒绝启动（无 token）；timing-safe compare + 401 uniform |

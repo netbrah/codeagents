@@ -8,7 +8,7 @@
 
 > **免责声明**：本对比基于 Anthropic 公开文档（截至 2026 Q1），Managed Agents 是闭源服务，具体实现细节、定价、内置工具列表可能已变更。本系列是 codeagents 项目的设计提案，与 Anthropic / Qwen 团队均无关联。
 
-> **架构哲学相似性**：Anthropic Managed Agents 的内部模型很可能是"per-session container/process"（云原生隔离的最自然形态）；**PR#3889 Stage 1 (commit `6a170ef8`) Qwen daemon = channel-per-workspace + N session multiplexed** 在同 workspace 内偏离 Anthropic 的 per-session 隔离（同 workspace N session 共 OS 权限 + 共 MCP），跨 workspace 仍保持进程级隔离（[§02 §2](./02-architectural-decisions.md#2-状态进程模型)）。主要差异是 self-host 多进程 vs cloud 多容器，加上 Stage 1 同 workspace 内 in-process N-session 的资源经济性 vs Anthropic 假定的纯进程隔离。Anthropic 内部具体实现未公开，可能也走类似 hybrid 模型节省 container baseline。External SaaS 部署路径：daemon instance per-pod + orchestrator 路由（[§14 SaaS Phase 1-4](./14-orchestrator-multi-tenancy.md#五4-个-phase演进路径)）。
+> **架构哲学相似性**：Anthropic Managed Agents 的内部模型很可能是"per-session container/process"（云原生隔离的最自然形态）；**PR#3889 Stage 1 (commit `6a170ef8`) Qwen daemon = channel-per-workspace + N session multiplexed** 在同 workspace 内偏离 Anthropic 的 per-session 隔离（同 workspace N session 共 OS 权限 + 共 MCP），跨 workspace 仍保持进程级隔离（[§02 §2](./02-architectural-decisions.md#2-状态进程模型)）。主要差异是 self-host 多进程 vs cloud 多容器，加上 Stage 1 同 workspace 内 in-process N-session 的资源经济性 vs Anthropic 假定的纯进程隔离。Anthropic 内部具体实现未公开，可能也走类似 hybrid 模型节省 container baseline。External SaaS 部署路径：daemon process per-pod + orchestrator 路由（[§14 SaaS Phase 1-4](./14-orchestrator-multi-tenancy.md#五4-个-phase演进路径)）。
 
 ## 一、TL;DR
 

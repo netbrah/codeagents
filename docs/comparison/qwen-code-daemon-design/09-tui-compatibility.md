@@ -676,7 +676,7 @@ Stage 1.5 / Stage 2 (Mode A + daemon 完善): 新增 qwen tui --connect 命令
   └─ TUI 通过 HttpAcpAdapter 连 daemon
   └─ HttpBackgroundTaskProvider / HttpSessionProvider 等新 Provider
   └─ 单进程 qwen 命令保留作 reference
-  └─ 多 TUI 共同一 daemon instance 的唯一 session（决策 §1 默认 single）
+  └─ 多 TUI 共同一 channel 的同一 session（决策 §1 默认 sessionScope:single）
   └─ 本地 fast path（同 host 文件补全 / git）
 
 External Phase 1 (对标 OpenCode): TUI 默认 daemon mode
@@ -940,7 +940,7 @@ Mode B 节省 daemon 端资源**有实际意义**的场景：
 | 场景 | 为什么 Mode B 更省 |
 |---|---|
 | **服务器 / 容器部署** | daemon 跑在受限内存配额（如 k8s pod 256MB limit）；client 在用户机器，内存不属于 daemon 配额 |
-| **多 daemon instance**（Mode B 多 session）| N 个 daemon 各省 20-30MB → N=50 时省 1-1.5GB |
+| **多 daemon process**（Mode B 多 session）| N 个 daemon 各省 20-30MB → N=50 时省 1-1.5GB |
 | **无人值守 daemon**（idle 长跑）| client 不连时 daemon 也在跑；省 TUI 内存 = 长期净节省 |
 | **远端 client**（手机 / 浏览器 / IDE）| client 端 UI 必然存在；让 daemon 跑 TUI 是浪费 |
 | **Cold start 敏感**（serverless / FaaS）| 启动时 200-500ms 差距重要 |

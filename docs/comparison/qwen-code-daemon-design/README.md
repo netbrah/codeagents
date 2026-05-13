@@ -126,7 +126,7 @@ Qwen Code 已有 ACP agent 838 行 + Channels 多路由设施 + WebUI 包 + SDK 
 - **复用 ACP NDJSON schema 作为内部 RPC**（OpenCode 用自定义 OpenAPI schema codegen）
 - **Channels 多路由复用**（IM / WebUI / IDE 都走 SessionRouter）—— OpenCode 没有等价物
 - **bearer token + PR#3723 共享 L3→L4 权限流**（OpenCode 用单密码）
-- **默认跨 client 共享同一 daemon instance（live collaboration 模型）**：CLI + IDE + WebUI + 手机微信同时观察同一 daemon 的唯一 session；任何 client 都可代为审批权限请求；prompt 串行 / 事件 fan-out / 任意 client 取消（OpenCode 是每 SDK call 独立 session）
+- **默认跨 client 共享同一 channel 的同一 session（live collaboration 模型）**：CLI + IDE + WebUI + 手机微信同时观察同一 daemon 同 workspace 的 sessionScope:single 共享 session；任何 client 都可代为审批权限请求；prompt 串行 / 事件 fan-out / 任意 client 取消（OpenCode 是每 SDK call 独立 session）
 
 ## 决策与文档的对应
 

@@ -4,7 +4,7 @@
 
 > 单进程模式（当前 `qwen --acp` stdio NDJSON）与 Daemon 模式（设计中 `qwen serve` HTTP）的协议兼容性分析。**结论：Schema 层完全兼容、Wire 层不兼容、SDK 抽象层用户代码 0 改动**。
 
-> **双部署模式 wire 一致性**：[§02 §7](./02-architectural-decisions.md#7-daemon-部署模式clihttpserver-vs-headlesshttpserver) Mode A（`qwen --serve`）与 Mode B（`qwen serve`）跑同一套 Express HTTP + ACP NDJSON over SSE，本章 4 层兼容性矩阵两种部署都成立。SDK 客户端可选择是否经过 orchestrator 路由（多 daemon instance 场景），orchestrator 也走同套 wire。
+> **双部署模式 wire 一致性**：[§02 §7](./02-architectural-decisions.md#7-daemon-部署模式clihttpserver-vs-headlesshttpserver) Mode A（`qwen --serve`）与 Mode B（`qwen serve`）跑同一套 Express HTTP + ACP NDJSON over SSE，本章 4 层兼容性矩阵两种部署都成立。SDK 客户端可选择是否经过 orchestrator 路由（多 daemon process 场景），orchestrator 也走同套 wire。
 
 ## 一、TL;DR — 4 层兼容性矩阵
 

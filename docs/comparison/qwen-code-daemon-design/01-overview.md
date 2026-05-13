@@ -22,33 +22,38 @@ Qwen Code 当前的程序化访问形态：
 ```
                                    ┌──────────────────────────────┐
                                    │ Orchestrator（External 实施）  │
-                                   │ - sessionScope routing        │
-                                   │ - daemon instance discovery   │
+                                   │ - cross-daemon-process routing│
+                                   │ - daemon process discovery    │
                                    │ ⚠️ 项目范围外（参考 §13/§14）  │
                                    └──────────────┬───────────────┘
                                                   │ spawn / route
                                                   ↓
 ┌─────────────────────┐  HTTP/WS  ┌──────────────────────────────┐
-│ SDK 客户端 1         │──────────▶│ daemon instance（绑唯一 session）│
+│ SDK 客户端 1         │──────────▶│ daemon process (qwen serve)  │
 └─────────────────────┘           │ ├─ Express 5 + express-ws     │
                                    │ ├─ EventBus（多 client fan-out）│
-┌─────────────────────┐  HTTP/WS  │ ├─ core in-process（库调用）  │
-│ Web UI / VSCode     │──────────▶│ │  ├─ Session（唯一）          │
-└─────────────────────┘           │ │  ├─ FileReadCache（per-daemon）│
-                                   │ │  ├─ Permission flow          │
-┌─────────────────────┐  HTTP/WS  │ │  └─ Background tasks         │
-│ Channel adapters    │──────────▶│ ├─ LSP server（per-daemon）    │
-│ (IM / Telegram)     │           │ └─ MCP servers（per-daemon）   │
-└─────────────────────┘           └──────────────────────────────┘
+┌─────────────────────┐  HTTP/WS  │ ├─ byWorkspaceChannel: Map<>  │
+│ Web UI / VSCode     │──────────▶│ │  ├─ Channel-A (workspace=A) │
+└─────────────────────┘           │ │  │  └─ Sessions: Map<sid>   │
+                                   │ │  ├─ Channel-B (workspace=B) │
+┌─────────────────────┐  HTTP/WS  │ │  │  └─ Sessions: Map<sid>   │
+│ Channel adapters    │──────────▶│ │  └─ Channel-C (workspace=C) │
+│ (IM / Telegram)     │           │ │     └─ Sessions: Map<sid>   │
+└─────────────────────┘           │ └─ Per-channel: LSP/MCP/cache │
+                                   └──────────────────────────────┘
                                        qwen-code 主线 scope
-                                       （Stage 1/1.5/2，~3 周 feature complete）
+                                       （Stage 1 ✅ MERGED + 1.5/2 路线图）
 
-Mode A: daemon instance 同时含本地 TUI 客户端（qwen --serve）
-Mode B: daemon instance 无 TUI 全 HTTP（qwen serve）
+Mode A: daemon process 同时含本地 TUI 客户端（qwen --serve）
+Mode B: daemon process 无 TUI 全 HTTP（qwen serve）
 
-启动 daemon 一次 → N 个 client 共享同一 session（live collaboration）
-多 session = 多 daemon instances（由 External orchestrator spawn / route）
+启动 daemon 一次 → 单 daemon process 内 M channels × N sessions per channel；
+   - 同 workspace 多 client → 共享同一 channel 同一 session（live collaboration）
+   - 跨 workspace 多 session → 走独立 channel（不同 qwen --acp child）
+   - 跨 daemon process 多 session → 由 External orchestrator spawn / route
 ```
+
+> **术语**：本系列统一使用 `daemon process`（`qwen serve` HTTP front）/ `channel`（`qwen --acp` child = 1 workspace）/ `session`（per-channel `sessions: Map` 内一条）三层术语。详 [§02 §〇 术语表](./02-architectural-decisions.md#〇术语表commit-6a170ef8-之后)。
 
 ## 二、本质差异（与 OpenCode 共识 + Qwen 特色）
 
@@ -108,16 +113,16 @@ OpenCode 用单一 `OPENCODE_SERVER_PASSWORD`（粗粒度访问控制）。Qwen 
 
 ## 三、整体架构图
 
-**核心原则**：
-- 每个 daemon 进程**只承载唯一一个 session**——daemon 内无 multi-session 路由
-- **Mode A（CLI + HttpServer）/ Mode B（Headless Daemon）双部署模式**（[§02 §7](./02-architectural-decisions.md#7-daemon-部署模式clihttpserver-vs-headlesshttpserver)）—— 区别仅在 daemon 进程是否同时承载本地 TUI
+**核心原则**（[§02 §〇 术语表](./02-architectural-decisions.md#〇术语表commit-6a170ef8-之后)）：
+- 1 daemon process 持 M channels（每 workspace 1 channel via `byWorkspaceChannel: Map`）+ 每 channel N sessions（via `QwenAgent.sessions: Map`）
+- **Mode A（CLI + HttpServer）/ Mode B（Headless Daemon）双部署模式**（[§02 §7](./02-architectural-decisions.md#7-daemon-部署模式clihttpserver-vs-headlesshttpserver)）—— 区别仅在 daemon process 是否同时承载本地 TUI
 - **单机多 session 已被 daemon 自身 in-daemon orchestration 解决**（commit `6a170ef8`：`byWorkspaceChannel: Map` + workspace channel pool + N session multiplexed per workspace via `QwenAgent.sessions: Map`）；**跨 daemon process / 跨机器 / 多 tenant SaaS 场景**才由 External orchestrator（`qwen-coordinator` 角色）spawn 多 daemon —— **不在 qwen-code 主线路线图**，由商业平台 / k8s operator / 云厂商基于 daemon building block 实现，参考 [§13 设计对比](./13-single-vs-multi-session-design.md) / [§14 多租户配额](./14-orchestrator-multi-tenancy.md) / [§03 §8.2 orchestrator API](./03-http-api.md#82-orchestrator-层-apiexternal-reference-architecture)
 
-### 3.1 单 Daemon Instance 内部架构（Mode A / Mode B 共用）
+### 3.1 单 Daemon Process 内部架构（Mode A / Mode B 共用）
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  qwen daemon instance 进程（1 个 session 绑定）                   │
+│  qwen daemon process（M channels × N sessions per channel）      │
 │                                                                 │
 │  ┌──────────────────────────────────────────────────────────┐  │
 │  │ HTTP / WebSocket 入口（Express 5 + express-ws）            │  │
@@ -162,7 +167,7 @@ OpenCode 用单一 `OPENCODE_SERVER_PASSWORD`（粗粒度访问控制）。Qwen 
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 3.2 多 session 场景：External Orchestrator + 多 Daemon Instances
+### 3.2 跨 daemon process 场景：External Orchestrator + 多 daemon processes
 
 > **⚠️ 此节描述的 Orchestrator 不在 qwen-code 主线路线图**——是给外部集成方（商业平台 / k8s operator / 云厂商）的设计参考蓝图。qwen-code 主线（Stage 1/1.5/2）只交付 daemon building block；下面的多 session 拓扑由外部基于 [§03 §8.2 Orchestrator API](./03-http-api.md#82-orchestrator-层-apiexternal-reference-architecture) 实现。详见 [§13 设计对比](./13-single-vs-multi-session-design.md) + [§14 多租户配额](./14-orchestrator-multi-tenancy.md) + [§06 External Reference Architecture](./06-roadmap.md#external-reference-architecture参考实现非项目路线图)。
 
@@ -170,7 +175,7 @@ OpenCode 用单一 `OPENCODE_SERVER_PASSWORD`（粗粒度访问控制）。Qwen 
 ┌────────────────────────────────────────────────────────────────────┐
 │  External Orchestrator (qwen-coordinator) ⚠️ 项目范围外             │
 │  - sessionScope routing: single / user / thread                    │
-│  - daemon instance discovery / spawn / cleanup                     │
+│  - daemon process discovery / spawn / cleanup                      │
 │  - cross-daemon aggregate API（Web UI 跨 session 聚合视图）         │
 │  - daemon pool / warm pool（External SaaS 资源池化优化）        │
 └────────────────────┬───────────────────────────────────────────────┘
@@ -192,13 +197,13 @@ OpenCode 用单一 `OPENCODE_SERVER_PASSWORD`（粗粒度访问控制）。Qwen 
    ┌───┴─────────────┴─────────────┴──────────────┴───┐
    │  client 层（CLI / WebUI / IDE / IM bot）           │
    │  - client 通过 External orchestrator discovery 找目标 daemon│
-   │  - 之后直连 daemon instance HTTP 端口（少一跳）      │
+   │  - 之后直连 daemon process HTTP 端口（少一跳）       │
    │  - 同 session 多 client 共享同一 daemon 的 EventBus  │
    └──────────────────────────────────────────────────┘
 ```
 
 **关键性质**：
-- **Daemon instance 内 0 cross-session 复杂度**（qwen-code 主线 scope）——AsyncLocalStorage Instance ctx / Map<workspaceId, Instance> / per-session resource managers 全部不需要
+- **Channel 内同 workspace N session 共享应用层 ACP `sessions: Map`；跨 workspace 走独立 channel 进程级隔离**（commit `6a170ef8` 后，qwen-code 主线 scope）——daemon process 不需要 AsyncLocalStorage 跨 channel 路由（HTTP route handler 通过 URL `sessionId` 直接定位 channel；channel 内 sessionId 路由通过 ACP wire 自带）
 - **进程级隔离免费**——一 daemon crash 只影响其 session，由外部 orchestrator（或 systemd / k8s 等进程管理器）重启
 - **资源池化在 External 层做**（External SaaS 资源池化：用户级 LSP daemon / 共享 MCP / 共享 cache）—— N ≥ 50 时再投，单 session 模型 N < 50 已够用
 
@@ -206,7 +211,7 @@ OpenCode 用单一 `OPENCODE_SERVER_PASSWORD`（粗粒度访问控制）。Qwen 
 
 | # | 决策 | 选择 | 详细 |
 |---|---|---|---|
-| 1 | session 是否跨 client 共享 | **默认共享同一 daemon instance**；scope 由 External orchestrator 路由 | [03 §1](./02-architectural-decisions.md#1-session-是否跨-client-共享) |
+| 1 | session 是否跨 client 共享 | **默认 sessionScope:single 同 workspace 多 client 共享 channel 内同一 session**；跨 daemon process scope 由 External orchestrator 路由 | [02 §1](./02-architectural-decisions.md#1-session-是否跨-client-共享) |
 | 2 | 状态进程模型 | **PR#3889 Stage 1 = channel per workspace + N session multiplexed**（commit `6a170ef8`，2026-05-12）；Stage 2e native in-process 是可选演进解决跨 workspace 共享 | [02 §2](./02-architectural-decisions.md#2-状态进程模型) |
 | 3 | MCP server 生命周期 | **per-`qwen --acp` child (= per-workspace)** + PR#3818 in-flight coalesce + 30s 健康检查；同 workspace N session 共享 MCP children，跨 workspace 进程级隔离 | §02 |
 | 4 | FileReadCache 共享 | **per-session 严格私有**（同 workspace N session 各自实例不共享；跨 workspace 自然独立）+ PR#3774 prior-read 守卫 + PR#3810 5 路径 invalidation | §02 §4 |
