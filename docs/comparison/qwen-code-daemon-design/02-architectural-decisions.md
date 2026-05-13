@@ -129,6 +129,22 @@ qwen serve (绑定 cwd = /work/repo-a)
 
 commit `6a170ef8`（2026-05-12）做了第一轮重构：bridge-per-workspace + N session multiplexed（即 multi-workspace 路由）。**第二轮简化（follow-up PR）**：移除 multi-workspace 路由，回归 "1 daemon = 1 workspace × N session" 最纯粹形态——与 `qwen --acp` stdio 心智完全对齐。
 
+### 与 IM Channels 实际用法 / ACP 协议能力的对比
+
+tanzhenxin reviewer 反馈："ACP channels 是支持 working dir 的"——澄清三层支持现状：
+
+| 层级 | 是否支持 multi-cwd | 实际用法 |
+|---|---|---|
+| **ACP 协议**（`newSession({cwd})`）| ✅ 协议层支持 per-call cwd | 协议设计意图："1 ACP child 可服多 cwd session" |
+| **`packages/channels/base/`**（`AcpBridge.newSession(cwd)` + `SessionRouter.resolve(..., cwd?)`）| ✅ API 保留 per-session cwd 能力 | ❌ **实际只用 `this.config.cwd` 单 cwd**（`ChannelBase.ts:270`）—— 每个 IM channel 绑定 1 固定 cwd × N session |
+| **`acpAgent.ts:600`** 实现 | ❌ `this.settings = loadSettings(cwd)` 是 instance-wide，新 cwd 覆盖旧值 | **阻止跨 cwd 多 session**（污染 settings / userHooks / projectHooks）|
+
+**关键结论**：channels 当前生产用法 = "1 AcpBridge child = 1 cwd × N session"——**与 "1 daemon = 1 workspace × N session" 100% 同构，不冲突**。
+
+**ACP 协议的 per-session cwd 能力当前在 qwen-code 实现层不可用**——commit `6a170ef8` 的 multi-workspace 路由实际是绕过 `loadSettings(cwd)` 污染（每 workspace 独立 child），不是真正打开 ACP 的 per-session cwd 能力。**新设计回归 "1 daemon = 1 workspace × N session" 与 channels 实际用法完全一致**。
+
+**想真正打开 ACP per-session cwd 能力**：需重构 `acpAgent.ts` 把 `settings` / `userHooks` / `projectHooks` 从 instance-wide 改为 per-session 字段——属于 Stage 2e native in-process 前置任务，**不在 Stage 1.5a follow-up PR 范围内**。届时一个 daemon process 内可同时服多 cwd session（不需要 multi-workspace 路由层，因为 `acpAgent` 自己能区分）。
+
 ### 与 OpenCode 的设计哲学差异
 
 **OpenCode**：default 是 single daemon multi workspace（`Map<workspace, Instance>` ALS in-process）—— 主场景是 IDE + Web SDK + 个人开发者多项目，1 daemon 多 workspace 自然契合。
