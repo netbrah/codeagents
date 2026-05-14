@@ -274,6 +274,8 @@ ExecutionMode = 'interactive' | 'non-interactive' | 'acp' | 'daemon-http'
 
 **决策**：**同 session 串行 prompt（FIFO 队列）+ 多 client 同时观察事件流（fan-out SSE/WS）+ 跨 session 并行**。
 
+> **术语**：**fan-out** = 1 事件源 → N 订阅者的广播模式（pub-sub / multicast 同义概念，反义词 fan-in）。在 daemon 上下文中：1 session 产生 `SessionNotification` 事件流（agent 思考 / tool call / text chunk），daemon 把每个事件**遍历推给该 session 的所有订阅 client**（CLI / WebUI / mobile / IM bot 同时观察）。实现：`Map<sessionId, Set<ClientSubscription>>` —— 见 `packages/cli/src/serve/eventBus.ts`。Per-session 路由：A session 事件只 fan-out 到 A session 的订阅者，不泄漏到 B session（隔离边界，详 [§05 first-responder](./05-permission-auth.md)）。
+
 PR#3889 commit `ca996ecb5` 实现 per-session FIFO + no-poison（一个 prompt 失败不阻塞队列）。
 
 ### 多 client 事件分发
