@@ -28,8 +28,8 @@ ACP NDJSON 协议 → HTTP+SSE daemon
 **当前状态**：
 - ✅ [PR#3889](https://github.com/QwenLM/qwen-code/pull/3889) Stage 1 MERGED 2026-05-13（`qwen serve` headless daemon）
 - ✅ [PR#4113](https://github.com/QwenLM/qwen-code/pull/4113) MERGED 2026-05-15（1 daemon = 1 workspace 收紧 + `--workspace` flag + `400 workspace_mismatch`）
-- 🔧 [Issue #4156](https://github.com/QwenLM/qwen-code/issues/4156) Stage 1.5b Mode A 进行中（doudouOUC 3-phase plan，A1 [PR#4160](https://github.com/QwenLM/qwen-code/pull/4160) ✅ MERGED 2026-05-15）
-- ⏳ Stage 1.5 剩余：chiga0 10 must-haves / Mode A Phase A2/A3 + B + C / daemon-side state CRUD / `AcpChannel` lift（详 [§06 Roadmap](./06-roadmap.md)）
+- 🔧 **Mode B 优先**（2026-05-15 决策）：Stage 1.5a must-haves（9 项）+ Stage 1.5c daemon-side state CRUD 优先；Mode A（[Issue #4156](https://github.com/QwenLM/qwen-code/issues/4156)，A1 [PR#4160](https://github.com/QwenLM/qwen-code/pull/4160) ✅ MERGED）推迟到 1.5c 后
+- ⏳ 详 [§06 §三 Stage 1.5 推进顺序](./06-roadmap.md)
 
 ## 二、6 章总览
 
@@ -82,11 +82,12 @@ ACP NDJSON 协议 → HTTP+SSE daemon
 | Stage | 状态 | 范围 |
 |---|:---:|---|
 | **Stage 1** | ✅ MERGED | [PR#3889](https://github.com/QwenLM/qwen-code/pull/3889)（2026-05-13）|
-| **Stage 1.5a** | 部分 ship | [PR#4113](https://github.com/QwenLM/qwen-code/pull/4113)（✅ 2026-05-15）+ chiga0 10 must-haves 剩余 9 项 |
-| Stage 1.5b | 🔧 进行中 | Mode A `qwen --serve` flag — [Issue #4156](https://github.com/QwenLM/qwen-code/issues/4156) doudouOUC 3-phase plan；A1 [PR#4160](https://github.com/QwenLM/qwen-code/pull/4160) ✅ MERGED 2026-05-15；剩余 ~5-6d |
-| Stage 1.5c | ⏳ 待开 | daemon-side state CRUD（~3-5d）|
-| Stage 1.5-prereq | ⏳ 待开 | chiga0 6 architecture findings — `AcpChannel` / `EventBus` / `PermissionMediator` lift（~1-2 周）|
-| Stage 2a-2d | ⏳ 待开 | 协议补齐（WebSocket / mDNS / OpenAPI / Prometheus / `/ext`）|
+| **Stage 1.5a §02** | ✅ MERGED | [PR#4113](https://github.com/QwenLM/qwen-code/pull/4113)（2026-05-15）1 daemon = 1 workspace |
+| **Stage 1.5a must-haves** | ⏳ **P0** | chiga0 10 must-haves 剩 9 项 — Mode B 生产 blocker（~2 周，9 PRs 可并行）|
+| **Stage 1.5c** | ⏳ **P0** | daemon-side state CRUD 8 routes — Mode B 远端 client 摆脱 thin shell（~3-5d）|
+| Stage 1.5-prereq | ⏳ **P1** | chiga0 6 architecture findings — `AcpChannel` / `EventBus` / `PermissionMediator` lift（~1-2 周）|
+| **Stage 1.5b** Mode A | ⏳ **P2 推迟** | Mode A `qwen --serve` flag — [Issue #4156](https://github.com/QwenLM/qwen-code/issues/4156)；A1 [PR#4160](https://github.com/QwenLM/qwen-code/pull/4160) ✅；剩余推迟到 1.5c 后 |
+| Stage 2a-2d | ⏳ 待开 | 协议补齐（WebSocket / mDNS / OpenAPI / Prometheus / `/ext` + Reverse RPC）|
 | Stage 2e | 可选 | native in-process（去 `qwen --acp` child）|
 
 详 [§06](./06-roadmap.md)。

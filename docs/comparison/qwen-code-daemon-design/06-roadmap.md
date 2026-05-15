@@ -85,17 +85,51 @@ qwen-code 主线
 
 ---
 
-## 三、Stage 1.5：chiga0 10 must-haves + Mode A + daemon-side state CRUD（~3-4 周）
+## 三、Stage 1.5：Mode B 优先 + Mode A 后置（~3-4 周）
 
-### 拆分
+> **优先级重排（2026-05-15 决策）**：Mode B 已 ship Stage 1 + PR#4113 §02，需先做完 Mode B 生产化（must-haves + daemon-side state CRUD）让远端 client 完整可用；Mode A 价值依赖 1.5c daemon-side state CRUD（否则 Mode A 也只能服 thin shell 远端 client），故 1.5b 后置。
 
-| Sub-stage | 内容 | 状态 / 工作量 |
-|---|---|---|
-| **1.5a** | [PR#4113](https://github.com/QwenLM/qwen-code/pull/4113) 1 daemon = 1 workspace 收紧 + chiga0 10 must-haves | ✅ PR#4113 MERGED；剩余 must-haves ~2-3 周 |
-| **1.5b** | Mode A `qwen --serve` flag（TUI co-host HTTP server） | 🔧 [Issue #4156](https://github.com/QwenLM/qwen-code/issues/4156)；A1 [PR#4160](https://github.com/QwenLM/qwen-code/pull/4160) ✅ MERGED；剩余 ~5-6d |
-| **1.5c** | daemon-side state CRUD（远端 client 功能等价 Mode A） | ~3-5d |
-| **1.5-prereq** | chiga0 6 architecture refactor findings（lift `AcpChannel` / `EventBus` / `PermissionMediator` 到 `@qwen-code/acp-bridge`） | ~1-2 周 |
-| **合计**（并行）| | **~3-4 周** |
+### 拆分（按优先级排序）
+
+| 优先级 | Sub-stage | 内容 | 状态 / 工作量 |
+|:---:|---|---|---|
+| ✅ | **1.5a §02** | [PR#4113](https://github.com/QwenLM/qwen-code/pull/4113) 1 daemon = 1 workspace 收紧 | ✅ MERGED 2026-05-15 |
+| **P0** | **1.5a must-haves** | chiga0 10 must-haves 剩 9 项（生产 blocker）| ~2 周（9 PRs 可并行）|
+| **P0** | **1.5c** | daemon-side state CRUD 8 routes（Mode B 远端 client 摆脱 thin shell）| ~3-5d |
+| **P1** | **1.5-prereq** | chiga0 6 architecture refactor findings（lift `AcpChannel` / `EventBus` / `PermissionMediator` 到 `@qwen-code/acp-bridge`）| ~1-2 周 |
+| **P2** | **1.5b** Mode A | Mode A `qwen --serve` flag — [Issue #4156](https://github.com/QwenLM/qwen-code/issues/4156) doudouOUC 3-phase plan；A1 [PR#4160](https://github.com/QwenLM/qwen-code/pull/4160) ✅ MERGED；剩余 ~5-6d **推迟到 P0 完成后** | ~5-6d |
+| **合计**（按 P0 → P1 → P2 顺序）| | | **~4 周 + Mode A 1 周** |
+
+### 推进顺序（4 周窗口）
+
+```
+Week 0 (now, 2026-05-15)
+└─ 9 个 1.5a must-have PRs 并行启动（multi-contributor 友好）
+   ★ 优先开 #2 loadSession HTTP（3-4d，最大用户痛点）
+   + #1 sessionScope override + #3 pair tokens（生产 blocker）
+   + #4-7 reliability + #8-9 ergonomics（小 PR，1-2d each）
+
+Week 1
+├─ must-haves PRs review + merge
+└─ 1.5c daemon-side state CRUD 开 PR（独立开发 ~3-5d）
+
+Week 2
+├─ must-haves 剩余 merge
+├─ 1.5c merge → Mode B 远端 client 摆脱 thin shell ✅
+└─ 1.5-prereq AcpChannel lift 启动（refactor 全部 stacks）
+
+Week 3
+├─ 1.5-prereq merge → Stage 2 协议层准备就绪
+└─ 1.5b Mode A 启动（Issue #4156 A0/A2/A3 + Phase B/C） ← 此时 1.5c 已 ship，
+  Mode A 本地 TUI super-client 与远端 client 共享 daemon-side state CRUD
+
+Week 4
+└─ 1.5b Mode A merge + 部署生态（Dockerfile / systemd / k8s manifest）
+```
+
+### Why Mode A 推迟到 1.5c 之后
+
+Mode A 价值是 "本地 TUI super-client + 远端 client 同时接入同 daemon"——但**远端 client 在 1.5c 之前是 thin shell**（只能渲染 wire 流，看不到 daemon-side `/memory` / `/mcp` / `/agents` 状态）。先 ship 1.5c 让远端 client 完整功能 → 再 ship 1.5b 让本地 TUI 加进来，**远端 client 体验从 Day 1 就完整**，避免"Mode A 上线后远端 client 还是残废"的 UX 断层。
 
 ### 1.5a — chiga0 10 must-haves
 
