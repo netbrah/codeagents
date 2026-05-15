@@ -114,7 +114,7 @@ External Reference Architecture 提供 orchestrator 层（详 [§06 §五 Extern
 |---|---|---|
 | **Stage 1** | Mode B headless `qwen serve` + N session multiplexed + EventBus + first-responder permission + 9 STAGE1_FEATURES | ✅ **MERGED 2026-05-13** (PR#3889) |
 | **Stage 1.5a** | [PR#4113](https://github.com/QwenLM/qwen-code/pull/4113) 1 daemon = 1 workspace 收紧（✅ MERGED 2026-05-15）+ chiga0 10 must-haves 剩余 9 项（#10 已 shipped）| 部分 ship；剩余 ~2-3 周 |
-| **Stage 1.5b** | Mode A `qwen --serve` flag | ~4d |
+| **Stage 1.5b** | Mode A `qwen --serve` flag — [Issue #4156](https://github.com/QwenLM/qwen-code/issues/4156) doudouOUC 3-phase plan（Phase A 拆 A0/A1/A2/A3 stacked PRs；A1 [PR#4160](https://github.com/QwenLM/qwen-code/pull/4160) ✅ MERGED 2026-05-15）| 🔧 进行中，剩余 ~5-6d |
 | **Stage 1.5c** | daemon-side state CRUD（远端 client 功能等价 Mode A）| ~3-5d |
 | **Stage 1.5-prereq** | chiga0 6 architecture findings（lift `AcpChannel` / `EventBus` / `PermissionMediator` 到 `@qwen-code/acp-bridge`）| ~1-2 周 |
 | **Stage 2** | 协议补齐（WebSocket / mDNS / OpenAPI / Prometheus / `/ext`）| ~3-4 周（拆 2a-2d）|

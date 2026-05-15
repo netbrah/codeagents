@@ -92,7 +92,7 @@ qwen-code 主线
 | Sub-stage | 内容 | 状态 / 工作量 |
 |---|---|---|
 | **1.5a** | [PR#4113](https://github.com/QwenLM/qwen-code/pull/4113) 1 daemon = 1 workspace 收紧 + chiga0 10 must-haves | ✅ PR#4113 MERGED；剩余 must-haves ~2-3 周 |
-| **1.5b** | Mode A `qwen --serve` flag（TUI co-host HTTP server） | ~4d |
+| **1.5b** | Mode A `qwen --serve` flag（TUI co-host HTTP server） | 🔧 [Issue #4156](https://github.com/QwenLM/qwen-code/issues/4156)；A1 [PR#4160](https://github.com/QwenLM/qwen-code/pull/4160) ✅ MERGED；剩余 ~5-6d |
 | **1.5c** | daemon-side state CRUD（远端 client 功能等价 Mode A） | ~3-5d |
 | **1.5-prereq** | chiga0 6 architecture refactor findings（lift `AcpChannel` / `EventBus` / `PermissionMediator` 到 `@qwen-code/acp-bridge`） | ~1-2 周 |
 | **合计**（并行）| | **~3-4 周** |
@@ -132,7 +132,31 @@ qwen-code 主线
 
 ### 1.5b — Mode A `qwen --serve` flag
 
-`qwen --serve` flag 解析 + TUI 启动后挂 HttpServer + TUI 作为 in-process subscriber + 默认 auth/CORS 区分本地 vs 远端 + 生命周期协同（Ctrl+C drain HTTP）+ e2e 测试 = **~4 天 / 1 人**。
+🔧 **进行中**：[**Issue #4156**](https://github.com/QwenLM/qwen-code/issues/4156) `proposal(serve): qwen --serve (Mode A) — TUI + in-process HTTP daemon, 3-phase plan (Stage 1.5b)`（doudouOUC，引用本系列 §04/§06 作为设计依据）—— 拆 3-phase plan ~6.3d 总：
+
+| Phase | 范围 | 工作量 | 状态 |
+|---|---|---|---|
+| **Phase A** | Loopback-only minimal skeleton（`qwen --serve` + 远端 `curl` 走 loopback；本地 debug only）| ~4.3d（拆 A0/A1/A2/A3 stacked）| 🔧 进行中 |
+| ↳ A0 | 抽 `validateAndCanonicalizeWorkspace` helper from PR#4113 | ~50 LOC | ⏳ 待开 |
+| ↳ A1 | 抽 `createInMemoryChannel` helper（paired NDJSON channel）| ~73 LOC | ✅ [PR#4160](https://github.com/QwenLM/qwen-code/pull/4160) MERGED 2026-05-15 |
+| ↳ A2 | 新 `inProcessAcpBridge.ts` 实现 `HttpAcpBridge` interface（wrap in-process `QwenAgent`，~200 LOC）| | ⏳ 待开 |
+| ↳ A3 | 集成到 `gemini.tsx` —— `--serve` flag 解析 + lazy import + boot 路径 | | ⏳ 待开 |
+| **Phase B** | Remote bind + auth/CORS defaults（`--serve-host 0.0.0.0` + bearer token；团队 / 容器 alpha）| ~1d | ⏳ 待开 |
+| **Phase C** | Lifecycle coordination（Ctrl+C / `/quit` drain HTTP + 5s force-close + 协调 ink 的 SIGINT handler；production-ready）| ~1d | ⏳ 待开 |
+
+**关键技术决策**（Issue #4156 §3）：
+
+1. **In-process bridge 用 paired channel + 完整 ACP**——`server.ts` / `eventBus.ts` 0 改动；ACP 协议演进自动跟随；估算 ~180-220 LOC（vs PR#4113 `httpAcpBridge.ts` ~2400 LOC，因为 in-process 无 child / spawn race / SIGTERM grace，不需 `ChannelInfo.isDying` / `aliveChannels` / BkUyD invariant）
+2. **TUI ↔ daemon session decoupled**——daemon 在同进程跑独立 `QwenAgent`；TUI session 和 daemon session 互不可见（Phase D 才统一）
+3. **默认 port 0**（OS-assigned）避免与 Mode B 默认 4170 冲突
+4. **Phase A 拒绝远端 `authenticate`** request（直接返 ACP error，避免 `clearCachedCredentialFile` 清掉 TUI credentials）
+5. **复用 #4113 `--workspace`** flag（不引入 `--serve-workspace`）；`boundWorkspace` 启动时 snapshot + canonical
+
+**Phase A 已知限制**（必须 documented 给用户）：
+- TUI 和 daemon sessions 不共享（Phase D 才统一）
+- 远端 `authenticate` 被拒绝（同上）
+- daemon 异常会 kill TUI（同进程，无 child isolation；Phase E in-process Stage 2e 反向重构才彻底解决）
+- MCP child 数量放大（N MCP × (1 + daemon session) child；通过 `--max-sessions` 默认 5 缓解）
 
 Mode A daemon 同样能持 N session（继承 Stage 1 `QwenAgent.sessions: Map` multiplexing）；TUI 绑定其中一个 session（详 [§04 §三 TUI](./04-deployment-and-client.md)）。
 
