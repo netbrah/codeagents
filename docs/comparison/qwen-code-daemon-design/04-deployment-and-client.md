@@ -35,11 +35,87 @@
 | 顺序 | Client | 适配方向 |
 |---|---|---|
 | 第一波 | TUI | attach-to-daemon render target；HTTP/SSE + shared reducer |
-| 第一波 | channels | 新 daemon transport，保留 channel routing |
-| 第一波 | web/debug | [PR#4132](https://github.com/QwenLM/qwen-code/pull/4132) `/demo` 作为最薄验证面 |
+| 第一波 | channels | 新 daemon transport，保留 channel routing — 适配 plan 详 [PR#4197](https://github.com/QwenLM/qwen-code/pull/4197) `docs(channel): draft daemon adapter plan` |
+| 第一波 | web/debug | [PR#4132](https://github.com/QwenLM/qwen-code/pull/4132) `/demo` 作为最薄验证面 + [PR#4197](https://github.com/QwenLM/qwen-code/pull/4197) web BFF 安全边界 |
 | 第二波 | IDE | daemon transport behind flag，先覆盖 session/prompt/events/cancel/model |
 | 并行 | JSONL / stream-json / dual-output | daemon event sinks |
 | P2 deferred | remote-control | 后置；primary clients 收敛后作为 daemon facade |
+
+### Channel / Web BFF 适配安全边界（[PR#4197](https://github.com/QwenLM/qwen-code/pull/4197) 摘要）
+
+> chiga0 [PR#4197](https://github.com/QwenLM/qwen-code/pull/4197) 在 `docs/developers/daemon-client-adapters/channel-web.md` 起草了 channel bot + web chat backend 接入 Mode B 的 server-side-only 适配 plan。**关键安全边界**：
+
+```
+✅ ALLOWED:
+   Channel bot backend  → qwen serve                (server-side direct)
+   Browser → Web BFF → qwen serve                   (server-side BFF only)
+
+❌ DENIED:
+   Browser → qwen serve direct                      (daemon rejects browser Origin)
+```
+
+**核心 invariant**：browser **永远不直接** call daemon；daemon bearer token **永远不进入 browser/frontend code**。这是 daemon Origin 拒绝策略的合理推论。
+
+**Proposed entry points**：
+
+```bash
+# Channel
+QWEN_CHANNEL_DAEMON_URL=http://127.0.0.1:4170 qwen channel start telegram
+
+# Web backend (BFF)
+QWEN_WEB_DAEMON_URL=http://127.0.0.1:4170 qwen web-chat-backend
+
+# Shared
+QWEN_DAEMON_TOKEN=...
+QWEN_DAEMON_WORKSPACE=/repo
+```
+
+### Stage 1 Session isolation constraint（重要安全 guidance）
+
+Stage 1 daemon 当前是 daemon-wide `sessionScope: 'single'`。**Until per-request `sessionScope` 落地（Issue #4175 Wave 2 PR 5），多 user channel / web 部署必须三选一**：
+
+| 选项 | 含义 |
+|---|---|
+| 1 daemon per channel thread / web room | 每个会话独立 daemon 进程 |
+| 1 daemon per user workspace | 1 user 共享同 daemon 内多 session（合理 trust 域）|
+| single-user demo only | 仅原型 / 验证 |
+
+⚠️ **Do NOT silently multiplex unrelated channel threads into one daemon session** —— 避免不同用户 conversation context 污染 / 隐私越界。
+
+### Event mapping contract（[PR#4197](https://github.com/QwenLM/qwen-code/pull/4197) 7 events → channel/web actions）
+
+| Daemon SSE event | Channel/web backend 处理 |
+|---|---|
+| `session_update` / `agent_message_chunk` | Append assistant 文本 |
+| `session_update` / `agent_thought_chunk` | Optional hidden/debug stream |
+| `session_update` / `tool_call` | Emit tool status card / message |
+| `permission_request` | Platform-specific approval interaction |
+| `permission_resolved` | Close / update approval |
+| `model_switched` | Update backend session metadata |
+| `session_died` | Notify user + stop stream |
+| **Unknown events** | **Ignore or forward as debug, NOT fatal** |
+
+### 5 Blockers before channel/web default migration
+
+[PR#4197](https://github.com/QwenLM/qwen-code/pull/4197) 明确：channel / web client 默认切换 daemon 前必须先 ship 以下 5 项（全部来自 [Issue #4175](https://github.com/QwenLM/qwen-code/issues/4175) Wave 2-3）：
+
+| # | Blocker | 对应 PR |
+|---|---|---|
+| 1 | Per-request `sessionScope` | Wave 2 PR 5 |
+| 2 | Session metadata + close/delete lifecycle | Wave 2 #8 |
+| 3 | Daemon-stamped client identity | Wave 2 PR 7 |
+| 4 | Session-scoped permission route | Wave 2 PR 8 |
+| 5 | Read-only diagnostics for MCP / skills / providers / environment | Wave 3 PR 9 / 10 |
+
+详 [§06 §三·一 Wave 2-3](./06-roadmap.md#wave-2--session-lifecycle--minimum-multi-client-safety)。
+
+### Channel/Web Explicit non-goals（PR#4197 列出）
+
+- ❌ Browser direct-to-daemon fetch / EventSource
+- ❌ CORS relaxation in adapter PR
+- ❌ Default migration of Telegram / Weixin / Dingtalk / plugin channels
+- ❌ File CRUD / memory CRUD / MCP restart / provider mutation（Wave 4 范围）
+- ❌ Client-side `sessionScope` emulation（必须等 daemon 端 Wave 2 PR 5）
 
 ---
 
