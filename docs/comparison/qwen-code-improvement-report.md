@@ -455,7 +455,44 @@
 
 ## 六、更新日志
 
-### 2026-05-13 增量（~24h · 1 项关键合并 + 1 项关键新 OPEN · **🌟 PR#3889 qwen serve daemon Stage 1 MERGED**（+12993/-194 / 84 commits / merge commit `870bdf2a` / 06:47 UTC merge · 收敛 5 轮 multi-model audit + chiga0 三轮 follow-up + LaZzyMan/tanzhenxin reviews）+ `/goal` slash command **PR#4088 新 OPEN**（+1800/-24 · 跟进 Claude Code v2.1.139 2026-05-11 引入的 `/goal` 命令，比 Anthropic 实现晚 ~24h；本质回追 Codex 2026-04-25 merged 的 5-PR `/goal` 系列设计）
+### 2026-05-16 增量（`/goal` 系列收官 · **PR#4123 MERGED** 替代 PR#4088 CLOSED · +3476/-25 / 40 files / merge commit `0dde1ad70` / 10:14 UTC）
+
+[**PR#4123**](https://github.com/QwenLM/qwen-code/pull/4123) `feat(cli): add session-scoped /goal command with judge-driven turn continuation`（qqqys，2026-05-16 10:14 UTC MERGED，+3476/-25）—— 原 PR#4088 已 CLOSED，按 review 反馈整体 rebuild 后以 PR#4123 形态合入。规模较初版（+1800/-24）几乎翻倍，主要增量在测试覆盖（4 个测试文件共 ~1061 LOC，占 ~30%）+ `restoreGoal.ts` (158 LOC) session resume 协同 + 4 个 cli hook 适配。
+
+**与 Claude / Codex 实现对照（按源码核实，2026-05-16）**：
+
+| 维度 | Codex `/goal` | Claude `/goal` | Qwen PR#4123 `/goal` |
+|---|---|---|---|
+| 落地时间 | 2026-04-25（5 PR 系列 #18074–#18078）| 2026-05-11 (v2.1.139) | **2026-05-16 MERGED** |
+| 实现规模 | core +1641 LOC / tools +280 LOC / TUI 5 文件 ≈ 2300 LOC + SQL schema + protocol events | 二进制混淆，未开源 | **2089 LOC 业务**（+ ~1061 LOC 测试 = 40 files +3476/-25）|
+| 完成判定 | **模型自判 + 工具调用**：`create_goal`/`update_goal(complete)`/`get_goal` 三件套；continuation 模板内嵌 completion-audit 指令 | **Stop prompt-hook evaluator**（`cRK` 函数）：同 session 内的判官 prompt，要求基于 transcript evidence 判定 | **LLM-as-judge subquery**：独立 evaluator（可走 fast model）+ 严格 JSON schema `{ok, reason}` 结构化输出 |
+| 底层机制 | **新 subsystem** `GoalRuntimeState` + `GoalRuntimeEvent` 10+ 事件状态机 | local-jsx + post-text（推断） | **0 新 subsystem**——复用 PR#3471/3488 的 Stop function-hook plumbing |
+| 持久化 | ✅ SQLite `thread_goals` 表，`StateDbHandle` 跨重启 | ❌ session 内存 | ❌ `activeGoalStore` 进程内存；`/clear` `/resume` `/branch` 主动清；`restoreGoal.ts` 仅协助同进程内 history 重渲染 |
+| 状态机 | `active` / `paused`（plan/mode 切换）/ `budget_limited` / `complete` | `active` / `cleared` | `set` / `achieved` / `aborted` / `cleared`（**仍无 `paused`**）|
+| Token 预算 | ✅ `token_budget` 字段 + `budget_limit.md` 模板 steering | ❌（推断）| ❌；**仅迭代数 cap**：`MAX_GOAL_ITERATIONS=50` |
+| Judge 超时 | — | — | `GOAL_JUDGE_TIMEOUT_MS=25s` + `AbortController` 防泄漏；`GOAL_HOOK_TIMEOUT_SECONDS=30` 对齐 Claude `cRK` 默认 |
+| Prompt 注入防护 | `<untrusted_objective>` 标签 + "untrusted prompt data" 显式声明 | unknown | `sanitizeConditionForPrompt`（去换行 + 双引号降级单引号）|
+| Bootstrap | continuation 模板由模型读取 | — | **首轮 `submit_prompt` 自动注入** `goalInstructionPrompt(q)`，免去 user 手动"开始" |
+| 安全门禁 | mode/plan 切换自动 paused | unknown | `isTrustedFolder()` + `getHookSystem()` 必备 + `disableAllHooks` 短路 + 4000-char cap |
+
+**PR#4123 vs Claude / Codex 的设计哲学**：
+1. **LLM-as-judge subquery 评估**——独立 evaluator (`runSideQuery`) 走 fast model；比 Claude 的"判官嵌在同 prompt 里"更可控、比 Codex 的"模型自己 audit 自己"更不容易自欺
+2. **零新 subsystem**——纯复用现有 hook plumbing，顺带 fix latent bug（`hasHooksForEvent` 忽略 session-scoped function hooks）
+3. **测试覆盖率最高**：~1061 LOC 测试覆盖业务 2089 LOC（含 `goalLoop.integration.test.ts` 209 LOC 端到端），Codex 5 PR 拆分中测试比 Qwen 单 PR 集中得多
+
+**PR#4123 仍 deferred / 可补的 3 项**（已从 PR#4088 列表收敛，daemon HTTP route 项已转入 [§06 Stage 1.5c](./qwen-code-daemon-design/06-roadmap.md)）：
+- **Plan mode 集成**：goal 与 `/plan` 互斥时应自动 paused 而非 cleared（Codex commit `3463324a29` "keep plan mode from pausing goals" 是参照）
+- **Budget enforcement guard rail**：仅有 `MAX_GOAL_ITERATIONS=50` 硬上限，无 token budget。50 轮 × 几万 tokens 仍可能是 \$\$\$，**重要 safety 缺口**
+- **`paused` 中间态**：daemon 重启 / `/compact` / 临时切走时仍 `cleared` 而非 paused，goal 上下文丢失
+
+源码核实（commit `0dde1ad70`）：
+- `packages/core/src/goals/goalHook.ts:34-91`（迭代/超时常量）
+- `packages/core/src/goals/goalJudge.ts:23-54`（JSON schema judge + Claude `cRK` 对齐注释）
+- `packages/cli/src/ui/commands/goalCommand.ts:79-216`（命令分支：状态/清除/长度 cap/门禁/注册 + bootstrap）
+
+---
+
+### 2026-05-13 增量（~24h · 1 项关键合并 + 1 项关键新 OPEN · **🌟 PR#3889 qwen serve daemon Stage 1 MERGED**（+12993/-194 / 84 commits / merge commit `870bdf2a` / 06:47 UTC merge · 收敛 5 轮 multi-model audit + chiga0 三轮 follow-up + LaZzyMan/tanzhenxin reviews）+ `/goal` slash command **PR#4088 新 OPEN**（+1800/-24 · 跟进 Claude Code v2.1.139 2026-05-11 引入的 `/goal` 命令，比 Anthropic 实现晚 ~24h；本质回追 Codex 2026-04-25 merged 的 5-PR `/goal` 系列设计；**注：PR#4088 后被 CLOSED，重做后以 PR#4123 2026-05-16 MERGED**——详上方 2026-05-16 条）
 
 #### 🌟 PR#3889 daemon Stage 1 MERGED — 系列追踪以来最大单 PR
 
@@ -473,27 +510,29 @@
 
 ---
 
-[**PR#4088**](https://github.com/QwenLM/qwen-code/pull/4088) `feat(cli): add session-scoped /goal command with judge-driven turn continuation`（qqqys，2026-05-12 OPEN，+1800/-24，closes [#4074](https://github.com/QwenLM/qwen-code/issues/4074)）—— 跟随 Claude Code v2.1.139（2026-05-11）+ Codex 5-PR 系列（2026-04-25 merged）的 `/goal` 设计模式：
+[**PR#4088**](https://github.com/QwenLM/qwen-code/pull/4088) `feat(cli): add session-scoped /goal command with judge-driven turn continuation`（qqqys，2026-05-12 OPEN，+1800/-24，closes [#4074](https://github.com/QwenLM/qwen-code/issues/4074)）—— 跟随 Claude Code v2.1.139（2026-05-11）+ Codex 5-PR 系列（2026-04-25 merged）的 `/goal` 设计模式。**⚠️ PR#4088 后被 CLOSED**，按 review 反馈整体 rebuild 后以 [PR#4123](https://github.com/QwenLM/qwen-code/pull/4123) 2026-05-16 MERGED（+3476/-25，详上方 2026-05-16 条目的最新对照表）。下文为 2026-05-13 当时的 snapshot：
 
-**与 Claude / Codex 实现对比**：
+**与 Claude / Codex 实现对比（2026-05-13 snapshot）**：
 
 | 维度 | Codex /goal | Claude /goal | Qwen PR#4088 /goal |
 |---|---|---|---|
 | 引入时间 | 2026-04-25 (5 PRs merged) | 2026-05-11 (v2.1.139) | 2026-05-12 OPEN |
 | 实现规模 | 5 PRs ~3-4w | ~1w（推测）| **1 PR +1800/-24** |
-| 完成判定 | 主 LLM 自判 + state machine | 主 LLM 自判 | **LLM-as-judge subquery**（独立 evaluator，更可靠）|
+| 完成判定 | 模型工具调用自判 + state machine | **Stop prompt-hook evaluator**（`cRK` 函数，同 prompt 内判官）| **LLM-as-judge subquery**（独立 evaluator，可走 fast model）|
 | 底层机制 | 新 subsystem `thread_goals` SQL 表 | local-jsx + post-text | **复用 Stop hook + function hook plumbing**（0 新 subsystem）|
 | 持久化 | ✅ SQL `thread_goals` | ❌ | ❌ `/clear` `/resume` `/branch` 主动清除 |
 | 状态 | active/paused/budget-limited/complete | active/cleared | active/achieved/cleared |
 | UI | TUI 状态面板 | overlay panel | `◎ goal active` Footer pill |
 | Bootstrap | — | — | **`<system-reminder>` 首轮自动注入**（避免额外 user turn）|
 
+> **历史更正**：早期版本此表将 Claude 完成判定写作"主 LLM 自判"，与 qwen `goalJudge.ts:18` 注释（"aligned with Claude Code 2.1.140's `Stop` prompt-hook evaluator (function `cRK` in the compiled binary)"）不符。Claude `cRK` 是独立 evaluator prompt，**evaluator-style** 而非裸自判；Qwen 在此基础上把 evaluator 进一步剥出为 fast-model subquery。
+
 **PR#4088 3 个超越 Claude / Codex 的亮点**：
-1. **LLM-as-judge subquery 评估**——独立 evaluator (`runSideQuery`) 而非主 LLM 自判；完美利用 Qwen 的 fast-model 机制（主 LLM 干活、fast LLM 判 goal）
+1. **LLM-as-judge subquery 评估**——独立 evaluator (`runSideQuery`) 走 fast model 而非走主模型上下文；完美利用 Qwen 的 fast-model 机制（主 LLM 干活、fast LLM 判 goal）
 2. **零新 subsystem**——纯复用 PR#3471/3488 的 hook plumbing，顺带 fix 一个 latent bug（`hasHooksForEvent` 忽略 session-scoped function hooks）
 3. **`<system-reminder>` 首轮 bootstrap**——避免 user 手动 "开始" prompt
 
-**PR#4088 已 deferred / 可补的 4 项**：
+**PR#4088 已 deferred / 可补的 4 项**（PR#4123 收敛后仍 deferred 3 项 + 1 项转入 §06 Stage 1.5c，详 2026-05-16 条）：
 - Plan mode 集成（参 Codex Issue #20838）：goal 与 `/plan` 互斥时应自动 paused 而非 cleared
 - **Budget enforcement guard rail**：`--max-turns` / `--max-tokens` 防 runaway loop（goal 设错可能跑数百轮，**重要 safety**）
 - **`paused` 中间态**：daemon 重启 / `/compact` / 临时切走时 paused 而非 cleared
