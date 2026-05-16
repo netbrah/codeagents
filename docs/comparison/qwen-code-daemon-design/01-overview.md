@@ -127,7 +127,11 @@ External Reference Architecture 提供 orchestrator 层（详 [§06 §五 Extern
 >
 > 💡 **Implementation tracker**：[Issue #4175](https://github.com/QwenLM/qwen-code/issues/4175) doudouOUC 的 Mode B v0.16 production-ready 25-PR rollout plan（6 Wave）—— 上表的 Stage 1.5a/c/-prereq 映射到 Wave 1-5；Wave 6 是 release hardening + v0.16。详 [§06 §三·一 Wave breakdown](./06-roadmap.md#三一-issue-4175--25-pr-wave-breakdown-production-ready-tracker)。
 >
-> 🔧 **Wave 1 已启动**（2026-05-16）：[PR#4191](https://github.com/QwenLM/qwen-code/pull/4191) `feat(serve): capability registry + protocol versions`（Wave 1 PR 2，doudouOUC `[codex]`，+170/-39，OPEN）—— 关闭 chiga0 finding 5 FIXME，引入 additive capability registry + `/capabilities.protocolVersions`。textbook 满足 7 项 engineering principles。
+> 🔧 **Wave 1 火力全开**（2026-05-16）：
+> - ✅ Wave 1 **PR 2** [PR#4191](https://github.com/QwenLM/qwen-code/pull/4191) capability registry + protocol versions — **MERGED 10:07** (doudouOUC)
+> - 🔧 Wave 1 **PR 1** [PR#4205](https://github.com/QwenLM/qwen-code/pull/4205) baseline harness — OPEN (doudouOUC)
+> - 🔧 Wave 1 **PR 3** [PR#4201](https://github.com/QwenLM/qwen-code/pull/4201) DaemonSessionClient skeleton — OPEN (chiga0；前身 PR#4195 CLOSED 因 review)
+> - 🔧 **Bonus** client adapter spikes：[PR#4202](https://github.com/QwenLM/qwen-code/pull/4202) TUI / [PR#4203](https://github.com/QwenLM/qwen-code/pull/4203) channel / [PR#4199](https://github.com/QwenLM/qwen-code/pull/4199) IDE (chiga0)
 
 详 [§06 Roadmap & Ecosystem](./06-roadmap.md)。
 

@@ -108,7 +108,7 @@ capability registry → DaemonSessionClient → typed events
 
 | Wave | 范围 | PRs | 对应 codeagents Stage |
 |:---:|---|---|---|
-| **1** Protocol foundation（无依赖）| baseline harness + capability registry + DaemonSessionClient skeleton + typed event schema | PR 1-4 — 🔧 PR 2 OPEN ([#4191](https://github.com/QwenLM/qwen-code/pull/4191)) | 1.5a #9 + 1.5-prereq |
+| **1** Protocol foundation（无依赖）| baseline harness + capability registry + DaemonSessionClient skeleton + typed event schema | PR 1-4 — ✅ PR 2 [#4191](https://github.com/QwenLM/qwen-code/pull/4191) MERGED 2026-05-16；🔧 PR 1 [#4205](https://github.com/QwenLM/qwen-code/pull/4205) + PR 3 [#4201](https://github.com/QwenLM/qwen-code/pull/4201) OPEN；PR 4 待开 | 1.5a #9 + 1.5-prereq |
 | **2** Session lifecycle + min multi-client safety | per-request sessionScope + loadSession HTTP + minimal client identity + session-scoped permission | PR 5-8 | 1.5a #1/#2/#3 (minimal)/#5 |
 | **3** Read-only control plane + diagnostics | read-only status routes + `runtime-diagnostics` + MCP guardrails (measurement, not full pool) | PR 9-11 | 1.5c read-only + chiga0 diagnostics |
 | **4** Auth-gated mutation/control routes | **mutation gating helper** + memory/agents CRUD + approval/tools/init + safe file read + file write/edit + auth device-flow | PR 12-17 | 1.5c CRUD + 文件 routes |
@@ -119,10 +119,22 @@ capability registry → DaemonSessionClient → typed events
 
 | PR | 内容 | 状态 |
 |---|---|:---:|
-| **PR 1** `test/perf: daemon baseline harness` | RSS curve + same-workspace attach latency + prompt p50/p99 + MCP child count + SSE replay/backpressure basics — **measure before optimize** | ⏳ |
-| **PR 2** `feat(serve): capability registry + protocol versions` | 替换 hard-coded `STAGE1_FEATURES` 为 additive registry（新 `capabilities.ts` +52 LOC，每 feature `{ since: 'v1' }` descriptor，留 `deprecated` / `requires` 扩展位）+ `/capabilities.protocolVersions: { current, supported }`；`STAGE1_FEATURES` 保留为 `@deprecated` alias；SDK 加 `DaemonProtocolVersions` type；测试验证 backward compat（accepts old v1 envelopes without `protocolVersions`）；关闭 chiga0 finding 5 FIXME | 🔧 **OPEN [PR#4191](https://github.com/QwenLM/qwen-code/pull/4191)** (doudouOUC, 2026-05-16 02:08, `[codex]` 前缀, +170/-39, 84+43 tests passing) |
-| **PR 3** `feat(sdk): DaemonSessionClient skeleton` | SDK helper over `DaemonClient`：create/attach/prompt/events/cancel/model；给 TUI/channels/web/IDE adapters 共用（依赖 PR 2）| ⏳ |
-| **PR 4** `feat(protocol): typed daemon event schema v1` | SDK-layer discriminated union + reducer skeleton；保留 raw `DaemonEvent { data: unknown }` 兼容（依赖 PR 2, 3）| ⏳ |
+| **PR 1** `test/perf: daemon baseline harness` | RSS curve + same-workspace attach latency + prompt p50/p99 + MCP child count + SSE replay/backpressure basics — **measure before optimize** | 🔧 **OPEN [PR#4205](https://github.com/QwenLM/qwen-code/pull/4205)** (doudouOUC, 2026-05-16 08:41) |
+| **PR 2** `feat(serve): capability registry + protocol versions` | 替换 hard-coded `STAGE1_FEATURES` 为 additive registry（新 `capabilities.ts` +52 LOC，每 feature `{ since: 'v1' }` descriptor，留 `deprecated` / `requires` 扩展位）+ `/capabilities.protocolVersions: { current, supported }`；`STAGE1_FEATURES` 保留为 `@deprecated` alias；SDK 加 `DaemonProtocolVersions` type；测试验证 backward compat（accepts old v1 envelopes without `protocolVersions`）；关闭 chiga0 finding 5 FIXME | ✅ **MERGED 2026-05-16 10:07** [PR#4191](https://github.com/QwenLM/qwen-code/pull/4191) (doudouOUC, `[codex]` 前缀, +170/-39, 84+43 tests passing) |
+| **PR 3** `feat(sdk): DaemonSessionClient skeleton` | SDK helper over `DaemonClient`：create/attach/prompt/events/cancel/model；tracks `Last-Event-ID` replay state；给 TUI/channels/web/IDE adapters 共用（依赖 PR 2）| 🔧 **OPEN [PR#4201](https://github.com/QwenLM/qwen-code/pull/4201)** (chiga0, 2026-05-16 08:00；前身 [PR#4195](https://github.com/QwenLM/qwen-code/pull/4195) CLOSED 因 review 发现 `event.id` undefined 守卫分支无测试) |
+| **PR 4** `feat(protocol): typed daemon event schema v1` | SDK-layer discriminated union + reducer skeleton；保留 raw `DaemonEvent { data: unknown }` 兼容（依赖 PR 2, 3）| ⏳ 待开（依赖 PR 3 merge）|
+
+#### Bonus: 提前到 Wave 1 阶段的 client adapter spikes
+
+> chiga0 把原 Wave 5 client adapter 工作的 design draft 升级为 **implementation spike**（design + code 同 PR，避免脱节）。这些 spike 可以与 Wave 1 PRs 并行 review，但默认 off，等 Wave 2/3 blockers 落地后才能切换默认。
+
+| PR | 内容 | 状态 |
+|---|---|:---:|
+| [PR#4202](https://github.com/QwenLM/qwen-code/pull/4202) `feat(tui): add daemon adapter spike` | `DaemonTuiAdapter` reduce daemon SSE → TUI updates；forward prompt/cancel/model/permission；default-off layer before touching Ink runtime（+864 LOC）| 🔧 OPEN |
+| [PR#4203](https://github.com/QwenLM/qwen-code/pull/4203) `feat(channel): add daemon bridge spike` | `DaemonChannelBridge` in `@qwen-code/channel-base`：bind daemon session + consume SSE + route permission/cancel/model；server-side BFF only（+813 LOC）| 🔧 OPEN |
+| [PR#4199](https://github.com/QwenLM/qwen-code/pull/4199) `feat(ide): add daemon connection spike` | IDE daemon transport behind flag | 🔧 OPEN |
+
+详 [§04 §一 Channel / Web BFF 适配安全边界](./04-deployment-and-client.md#channel--web-bff-适配安全边界pr4203-摘要)。
 
 ### Wave 2 — Session lifecycle + minimum multi-client safety
 

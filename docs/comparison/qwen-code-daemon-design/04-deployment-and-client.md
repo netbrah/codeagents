@@ -34,16 +34,18 @@
 
 | 顺序 | Client | 适配方向 |
 |---|---|---|
-| 第一波 | TUI | attach-to-daemon render target；HTTP/SSE + shared reducer |
-| 第一波 | channels | 新 daemon transport，保留 channel routing — 适配 plan 详 [PR#4197](https://github.com/QwenLM/qwen-code/pull/4197) `docs(channel): draft daemon adapter plan` |
-| 第一波 | web/debug | [PR#4132](https://github.com/QwenLM/qwen-code/pull/4132) `/demo` 作为最薄验证面 + [PR#4197](https://github.com/QwenLM/qwen-code/pull/4197) web BFF 安全边界 |
-| 第二波 | IDE | daemon transport behind flag，先覆盖 session/prompt/events/cancel/model |
+| 第一波 | TUI | attach-to-daemon render target；HTTP/SSE + shared reducer — 实施 spike 详 [PR#4202](https://github.com/QwenLM/qwen-code/pull/4202) `feat(tui): add daemon adapter spike` (+864 LOC) |
+| 第一波 | channels | 新 daemon transport，保留 channel routing — 实施 spike 详 [PR#4203](https://github.com/QwenLM/qwen-code/pull/4203) `feat(channel): add daemon bridge spike` (+813 LOC) |
+| 第一波 | web/debug | [PR#4132](https://github.com/QwenLM/qwen-code/pull/4132) `/demo` 作为最薄验证面 + [PR#4203](https://github.com/QwenLM/qwen-code/pull/4203) channel/web BFF 共用安全边界 |
+| 第二波 | IDE | daemon transport behind flag — 实施 spike 详 [PR#4199](https://github.com/QwenLM/qwen-code/pull/4199) `feat(ide): add daemon connection spike` |
 | 并行 | JSONL / stream-json / dual-output | daemon event sinks |
 | P2 deferred | remote-control | 后置；primary clients 收敛后作为 daemon facade |
 
-### Channel / Web BFF 适配安全边界（[PR#4197](https://github.com/QwenLM/qwen-code/pull/4197) 摘要）
+> 📌 **chiga0 把 docs drafts 升级为 implementation spikes**（2026-05-16 ~08:00）：原 docs-only PR#4196 (TUI) / #4197 (channel) / #4198 (IDE) 已 CLOSED，改为 [PR#4202](https://github.com/QwenLM/qwen-code/pull/4202) (TUI +864 LOC) / [PR#4203](https://github.com/QwenLM/qwen-code/pull/4203) (channel +813 LOC) / [PR#4199](https://github.com/QwenLM/qwen-code/pull/4199) (IDE) **implementation spikes**——把设计文档与代码 spike 放同 PR，避免文档与实现脱节。
 
-> chiga0 [PR#4197](https://github.com/QwenLM/qwen-code/pull/4197) 在 `docs/developers/daemon-client-adapters/channel-web.md` 起草了 channel bot + web chat backend 接入 Mode B 的 server-side-only 适配 plan。**关键安全边界**：
+### Channel / Web BFF 适配安全边界（[PR#4203](https://github.com/QwenLM/qwen-code/pull/4203) 摘要）
+
+> chiga0 [PR#4203](https://github.com/QwenLM/qwen-code/pull/4203) `feat(channel): add daemon bridge spike` 在 `@qwen-code/channel-base` 内引入 `DaemonChannelBridge`，让 channel bot + web chat backend 接入 Mode B 的 server-side-only 适配。**关键安全边界**：
 
 ```
 ✅ ALLOWED:
@@ -82,7 +84,7 @@ Stage 1 daemon 当前是 daemon-wide `sessionScope: 'single'`。**Until per-requ
 
 ⚠️ **Do NOT silently multiplex unrelated channel threads into one daemon session** —— 避免不同用户 conversation context 污染 / 隐私越界。
 
-### Event mapping contract（[PR#4197](https://github.com/QwenLM/qwen-code/pull/4197) 7 events → channel/web actions）
+### Event mapping contract（[PR#4203](https://github.com/QwenLM/qwen-code/pull/4203) 7 events → channel/web actions）
 
 | Daemon SSE event | Channel/web backend 处理 |
 |---|---|
@@ -97,7 +99,7 @@ Stage 1 daemon 当前是 daemon-wide `sessionScope: 'single'`。**Until per-requ
 
 ### 5 Blockers before channel/web default migration
 
-[PR#4197](https://github.com/QwenLM/qwen-code/pull/4197) 明确：channel / web client 默认切换 daemon 前必须先 ship 以下 5 项（全部来自 [Issue #4175](https://github.com/QwenLM/qwen-code/issues/4175) Wave 2-3）：
+[PR#4203](https://github.com/QwenLM/qwen-code/pull/4203) 明确：channel / web client 默认切换 daemon 前必须先 ship 以下 5 项（全部来自 [Issue #4175](https://github.com/QwenLM/qwen-code/issues/4175) Wave 2-3）：
 
 | # | Blocker | 对应 PR |
 |---|---|---|
@@ -109,7 +111,7 @@ Stage 1 daemon 当前是 daemon-wide `sessionScope: 'single'`。**Until per-requ
 
 详 [§06 §三·一 Wave 2-3](./06-roadmap.md#wave-2--session-lifecycle--minimum-multi-client-safety)。
 
-### Channel/Web Explicit non-goals（PR#4197 列出）
+### Channel/Web Explicit non-goals（PR#4203 列出）
 
 - ❌ Browser direct-to-daemon fetch / EventSource
 - ❌ CORS relaxation in adapter PR
