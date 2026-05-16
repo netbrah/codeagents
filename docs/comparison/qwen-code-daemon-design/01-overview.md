@@ -126,6 +126,8 @@ External Reference Architecture 提供 orchestrator 层（详 [§06 §五 Extern
 > **优先级决策（2026-05-15）**：Mode B 优先 — must-haves + 1.5c 摆脱 thin shell → 1.5-prereq 架构清洁 → Mode A（1.5b）推迟。详 [§06 §三 推进顺序](./06-roadmap.md)。
 >
 > 💡 **Implementation tracker**：[Issue #4175](https://github.com/QwenLM/qwen-code/issues/4175) doudouOUC 的 Mode B v0.16 production-ready 25-PR rollout plan（6 Wave）—— 上表的 Stage 1.5a/c/-prereq 映射到 Wave 1-5；Wave 6 是 release hardening + v0.16。详 [§06 §三·一 Wave breakdown](./06-roadmap.md#三一-issue-4175--25-pr-wave-breakdown-production-ready-tracker)。
+>
+> 🔧 **Wave 1 已启动**（2026-05-16）：[PR#4191](https://github.com/QwenLM/qwen-code/pull/4191) `feat(serve): capability registry + protocol versions`（Wave 1 PR 2，doudouOUC `[codex]`，+170/-39，OPEN）—— 关闭 chiga0 finding 5 FIXME，引入 additive capability registry + `/capabilities.protocolVersions`。textbook 满足 7 项 engineering principles。
 
 详 [§06 Roadmap & Ecosystem](./06-roadmap.md)。
 

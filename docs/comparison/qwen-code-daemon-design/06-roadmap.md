@@ -108,7 +108,7 @@ capability registry → DaemonSessionClient → typed events
 
 | Wave | 范围 | PRs | 对应 codeagents Stage |
 |:---:|---|---|---|
-| **1** Protocol foundation（无依赖）| baseline harness + capability registry + DaemonSessionClient skeleton + typed event schema | PR 1-4 | 1.5a #9 + 1.5-prereq |
+| **1** Protocol foundation（无依赖）| baseline harness + capability registry + DaemonSessionClient skeleton + typed event schema | PR 1-4 — 🔧 PR 2 OPEN ([#4191](https://github.com/QwenLM/qwen-code/pull/4191)) | 1.5a #9 + 1.5-prereq |
 | **2** Session lifecycle + min multi-client safety | per-request sessionScope + loadSession HTTP + minimal client identity + session-scoped permission | PR 5-8 | 1.5a #1/#2/#3 (minimal)/#5 |
 | **3** Read-only control plane + diagnostics | read-only status routes + `runtime-diagnostics` + MCP guardrails (measurement, not full pool) | PR 9-11 | 1.5c read-only + chiga0 diagnostics |
 | **4** Auth-gated mutation/control routes | **mutation gating helper** + memory/agents CRUD + approval/tools/init + safe file read + file write/edit + auth device-flow | PR 12-17 | 1.5c CRUD + 文件 routes |
@@ -120,7 +120,7 @@ capability registry → DaemonSessionClient → typed events
 | PR | 内容 | 状态 |
 |---|---|:---:|
 | **PR 1** `test/perf: daemon baseline harness` | RSS curve + same-workspace attach latency + prompt p50/p99 + MCP child count + SSE replay/backpressure basics — **measure before optimize** | ⏳ |
-| **PR 2** `feat(serve): capability registry + protocol versions` | 替换 hard-coded `STAGE1_FEATURES` 为 additive registry + `/capabilities.protocolVersions`；v1 字段向后兼容 | ⏳ |
+| **PR 2** `feat(serve): capability registry + protocol versions` | 替换 hard-coded `STAGE1_FEATURES` 为 additive registry（新 `capabilities.ts` +52 LOC，每 feature `{ since: 'v1' }` descriptor，留 `deprecated` / `requires` 扩展位）+ `/capabilities.protocolVersions: { current, supported }`；`STAGE1_FEATURES` 保留为 `@deprecated` alias；SDK 加 `DaemonProtocolVersions` type；测试验证 backward compat（accepts old v1 envelopes without `protocolVersions`）；关闭 chiga0 finding 5 FIXME | 🔧 **OPEN [PR#4191](https://github.com/QwenLM/qwen-code/pull/4191)** (doudouOUC, 2026-05-16 02:08, `[codex]` 前缀, +170/-39, 84+43 tests passing) |
 | **PR 3** `feat(sdk): DaemonSessionClient skeleton` | SDK helper over `DaemonClient`：create/attach/prompt/events/cancel/model；给 TUI/channels/web/IDE adapters 共用（依赖 PR 2）| ⏳ |
 | **PR 4** `feat(protocol): typed daemon event schema v1` | SDK-layer discriminated union + reducer skeleton；保留 raw `DaemonEvent { data: unknown }` 兼容（依赖 PR 2, 3）| ⏳ |
 
