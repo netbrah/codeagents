@@ -1,10 +1,12 @@
-# Claude Code `/agents` UI Deep-Dive
+# Claude Code `/agents` 命令 Deep-Dive
 
 > **核心问题**：Claude Code 的 `/agents` slash command 是什么？为什么是 Stage 1.5c daemon-side state CRUD 的最佳参考实现？Qwen Code 可借鉴哪些设计？
 >
 > 返回 [Qwen Code 改进建议总览](./qwen-code-improvement-report.md)
 >
-> **本质澄清**：`/agents` **不是** "subagent 实时状态监控"（那是 [SubAgent 展示 Deep-Dive](./subagent-display-deep-dive.md) 范畴），而是一个完整的 **subagent 定义 CRUD UI**——管理 agent 配置文件、不管运行状态。
+> **文件历史**：本文原名 `claude-code-agents-view-deep-dive.md`，2026-05-16 重命名为 `claude-code-agents-command-deep-dive.md`——避免与 Qwen Code 的 `agent-view/` 多 tab 交互 UI 撞名（两者形态完全不同：本文写的是**定义管理 UI**，Qwen 的写的是**运行时交互式多 tab UI**，详 [Qwen Code `agent-view` 多 tab UI Deep-Dive](./qwen-code-agent-view-deep-dive.md)）。
+>
+> **本质澄清**：`/agents` **不是** "subagent 实时状态监控"（那是 [SubAgent 展示 Deep-Dive](./subagent-display-deep-dive.md) 范畴），也**不是** Qwen 那种"多 subagent tabbed 对话窗口"（详 [qwen-code-agent-view-deep-dive.md](./qwen-code-agent-view-deep-dive.md)），而是一个完整的 **subagent 定义 CRUD UI**——管理 agent 配置文件、不管运行状态、不切对话上下文。
 
 ## 零、TL;DR
 

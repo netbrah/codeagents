@@ -111,7 +111,8 @@
 | [Agent 恢复续行](./agent-resume-continuation-deep-dive.md) | SendMessage 续行 |
 | [Agent 权限冒泡](./agent-permission-bubble-deep-dive.md) | bubble 模式 |
 | [Agent 创建向导](./interactive-agent-creation-deep-dive.md) | 11 步向导 |
-| [Claude Code `/agents` UI](./claude-code-agents-view-deep-dive.md) | Subagent 定义管理 UI（7-mode + 11-step wizard + AI 生成 + 17+ 字段格式 + 6 source 分层 + Stage 1.5c daemon-side state CRUD 范本）|
+| [Claude Code `/agents` UI](./claude-code-agents-command-deep-dive.md) | Subagent 定义管理 UI（7-mode + 11-step wizard + AI 生成 + 17+ 字段格式 + 6 source 分层 + Stage 1.5c daemon-side state CRUD 范本）|
+| [Qwen Code `agent-view` 多 tab UI](./qwen-code-agent-view-deep-dive.md) | 多 in-process subagent tabbed 交互式 chat 切换（950 LOC，独家形态——Claude/Codex 都没有等价形态；与 OOM 风险 / `arena` 配合）|
 | [Task Management](./task-management-deep-dive.md) | 任务协同 |
 | [Team Memory](./team-memory-deep-dive.md) | 组织级记忆 |
 | [SDK 双向控制](./sdk-bidirectional-control-deep-dive.md) | 控制协议 |
