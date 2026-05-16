@@ -32,6 +32,7 @@ ACP NDJSON 协议 → HTTP+SSE daemon
 - ✅ [PR#4113](https://github.com/QwenLM/qwen-code/pull/4113) MERGED 2026-05-15（1 daemon = 1 workspace 收紧 + `--workspace` flag + `400 workspace_mismatch`）
 - ✅ [PR#4160](https://github.com/QwenLM/qwen-code/pull/4160) MERGED 2026-05-15（`createInMemoryChannel` helper；从 Mode A stack 中产出，但现在只作为通用 primitive）
 - 🔧 **Mode B 优先**（2026-05-15 决策）：Stage 1.5a must-haves（9 项）+ Stage 1.5c daemon-side state CRUD 优先；Mode A（[Issue #4156](https://github.com/QwenLM/qwen-code/issues/4156)）推迟到 1.5c 后
+- 📋 **Implementation tracker**：[Issue #4175](https://github.com/QwenLM/qwen-code/issues/4175) doudouOUC Mode B v0.16 production-ready **25-PR rollout plan**（6 Wave：Protocol foundation → Session lifecycle → Read-only control plane → Auth-gated mutation → Architecture extraction → Release hardening）—— 详 [§06 §三·一](./06-roadmap.md#三一-issue-4175--25-pr-wave-breakdown-production-ready-tracker)
 - 🔧 [PR#4132](https://github.com/QwenLM/qwen-code/pull/4132) `/demo` debug page 仍 OPEN / changes requested，可作为 Mode B POST+SSE client 试验田
 - 🧭 [PR#3929](https://github.com/QwenLM/qwen-code/pull/3929) / [#3930](https://github.com/QwenLM/qwen-code/pull/3930) / [#3931](https://github.com/QwenLM/qwen-code/pull/3931) remote-control stack 仍 OPEN draft / changes requested；**优先级后置**，等 TUI / channels / web / IDE 先完成 Mode B client 适配后，再重定向为 daemon HTTP/SSE facade
 - ⏳ Stage 1.5 剩余主线：P0 production must-haves + daemon-side state CRUD，P1 typed event contract / bridge primitives + client adapters behind flag，P2 remote-control / Mode A revisit（详 [§06 Roadmap](./06-roadmap.md)）

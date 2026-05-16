@@ -93,6 +93,108 @@ qwen-code 主线
 
 > **优先级重排（2026-05-15 决策）**：Mode B 已 ship Stage 1 + PR#4113 §02，需先做完 Mode B 生产化（must-haves + daemon-side state CRUD）让远端 client 完整可用；Mode A 价值依赖 1.5c daemon-side state CRUD（否则 Mode A 也只能服务 thin shell 远端 client），故 1.5b 后置。
 
+> 💡 **Implementation tracker — [Issue #4175](https://github.com/QwenLM/qwen-code/issues/4175)**（doudouOUC，2026-05-15 11:41）：Mode B v0.16 production-ready 完整 25-PR rollout plan，分 6 Wave。本节 Stage 1.5a/c/-prereq/client adapters 等 sub-stage 都映射到 Wave 1-5；Wave 6 为 release hardening + v0.16 production-ready。详 §三·一 Wave breakdown。
+
+### 三·一 Issue #4175 — 25-PR Wave breakdown (production-ready tracker)
+
+按 6 Wave 拆分；critical dependency chain：
+
+```
+capability registry → DaemonSessionClient → typed events
+  → daemon-stamped clientId → session-scoped permission
+  → mutation-gating helper → control-plane mutation routes
+  → bridge extraction → real MCP pool + full PermissionMediator
+```
+
+| Wave | 范围 | PRs | 对应 codeagents Stage |
+|:---:|---|---|---|
+| **1** Protocol foundation（无依赖）| baseline harness + capability registry + DaemonSessionClient skeleton + typed event schema | PR 1-4 | 1.5a #9 + 1.5-prereq |
+| **2** Session lifecycle + min multi-client safety | per-request sessionScope + loadSession HTTP + minimal client identity + session-scoped permission | PR 5-8 | 1.5a #1/#2/#3 (minimal)/#5 |
+| **3** Read-only control plane + diagnostics | read-only status routes + `runtime-diagnostics` + MCP guardrails (measurement, not full pool) | PR 9-11 | 1.5c read-only + chiga0 diagnostics |
+| **4** Auth-gated mutation/control routes | **mutation gating helper** + memory/agents CRUD + approval/tools/init + safe file read + file write/edit + auth device-flow | PR 12-17 | 1.5c CRUD + 文件 routes |
+| **5** Architecture extraction + full multi-client security | bridge primitives extraction + real MCP shared pool (config-hash keyed) + pairing revocation + full PermissionMediator | PR 18-20 | 1.5-prereq full + 1.5a #3 full |
+| **6** Release hardening + v0.16 | alpha release docs + npm alpha publish + **production token defaults** (`~/.qwen/serve/instances/<host>-<port>-<workspaceHash>/token`) + deployment refs + v0.16 release | PR 21-25 | Stage 2 + release |
+
+### Wave 1 — Protocol foundation（无依赖，可立即开始）
+
+| PR | 内容 | 状态 |
+|---|---|:---:|
+| **PR 1** `test/perf: daemon baseline harness` | RSS curve + same-workspace attach latency + prompt p50/p99 + MCP child count + SSE replay/backpressure basics — **measure before optimize** | ⏳ |
+| **PR 2** `feat(serve): capability registry + protocol versions` | 替换 hard-coded `STAGE1_FEATURES` 为 additive registry + `/capabilities.protocolVersions`；v1 字段向后兼容 | ⏳ |
+| **PR 3** `feat(sdk): DaemonSessionClient skeleton` | SDK helper over `DaemonClient`：create/attach/prompt/events/cancel/model；给 TUI/channels/web/IDE adapters 共用（依赖 PR 2）| ⏳ |
+| **PR 4** `feat(protocol): typed daemon event schema v1` | SDK-layer discriminated union + reducer skeleton；保留 raw `DaemonEvent { data: unknown }` 兼容（依赖 PR 2, 3）| ⏳ |
+
+### Wave 2 — Session lifecycle + minimum multi-client safety
+
+| PR | 内容 | 状态 |
+|---|---|:---:|
+| **PR 5** per-request `sessionScope` | `POST /session` 接受 `{ sessionScope: 'single' \| 'thread' }`；默认 `single`；无效值 400（依赖 PR 2）| ⏳ |
+| **PR 6** HTTP load/resume session | `POST /session/:id/load` + `/resume`；SDK methods；保留 ACP direct 行为（依赖 PR 3, 5）| ⏳ |
+| **PR 7** **minimal** daemon-stamped client identity | daemon assigns/stamps `clientId`；emitted events 使用 trusted `originatorClientId`；无 revocation（依赖 PR 3, 4）| ⏳ |
+| **PR 8** session-scoped permission route | `POST /session/:id/permission/:requestId`；保留 legacy `POST /permission/:requestId`；加 `permission_already_resolved` event（依赖 PR 7）| ⏳ |
+
+### Wave 3 — Read-only control plane + diagnostics
+
+| PR | 内容 | 状态 |
+|---|---|:---:|
+| **PR 9** read-only status routes | `GET /workspace/mcp` + `/skills` + `/providers` + `/session/:id/context` + `/session/:id/supported-commands`（依赖 PR 2, 4）| ⏳ |
+| **PR 10** runtime diagnostics route | `GET /workspace/runtime-diagnostics`：MCP missing binaries + failed skill loads + blocked egress hints + auth/env readiness + daemon locality notes（依赖 PR 9；详 [§04 §五 Runtime locality](./04-deployment-and-client.md#五runtime-locality--environment-contract)）| ⏳ |
+| **PR 11** MCP resource guardrails | measurement-backed：MCP child/session budget + warnings 或 controlled refusal（**不是** full shared pool；依赖 PR 1, 9）| ⏳ |
+
+### Wave 4 — Auth-gated mutation/control routes
+
+> ⚠️ 所有 mutation routes 必须用 **PR 12 中心化 mutation gate**，不能 per-route open-code auth check。
+
+| PR | 内容 | 状态 |
+|---|---|:---:|
+| **PR 12** **mutation gating helper** + `--require-auth` | 中心化 helper for state-changing routes；`--require-auth` 强制 loopback 也要 auth；mutation routes opt-in stricter checks（依赖 PR 7）| ⏳ |
+| **PR 13** memory + agents CRUD | `GET/POST /workspace/memory` + `/agents`；mutation paths gated + audited（依赖 PR 12, 9）| ⏳ |
+| **PR 14** approval + tools + init control | `POST /session/:id/approval-mode` + `/workspace/tools/:name/enable` + `/workspace/init`（依赖 PR 12, 9）| ⏳ |
+| **PR 15** safe workspace file **read** routes | read/list/stat only；canonicalize paths + workspace boundary + size/binary limits + symlink policy（依赖 PR 9, 10）| ⏳ |
+| **PR 16** file write/edit routes behind auth | 独立 PR：mutation gate + audit log + trust/qwenignore + 显式 symlink policy（依赖 PR 8, 12, 15）| ⏳ |
+| **PR 17** auth device-flow route | `POST /workspace/auth/device-flow` 或 Capability RPC for remote auth；必须 honor runtime locality（依赖 PR 12, 9）| ⏳ |
+
+### Wave 5 — Architecture extraction + full multi-client security
+
+> 必须等 Protocol skeleton（Wave 1）+ Permission route（Wave 2）稳定后才能开始。
+
+| PR | 内容 | 状态 |
+|---|---|:---:|
+| **PR 18** `refactor(serve): extract acp bridge primitives` | `httpAcpBridge.ts` 拆为 shared `AcpChannel` + `Transport` + `EventBus` + bridge primitives；CLI route contract 保持（依赖 PR 4, 8）| ⏳ |
+| **PR 19** real MCP shared pool | keyed by canonical workspace + server **config hash** + auth/env/runtime inputs；lifecycle/refcount tests（依赖 PR 18, 11）| ⏳ |
+| **PR 20** client pairing revocation + full PermissionMediator | pair tokens + revocation API + audit log + 4 policy strategies（first-responder / designated / consensus / local-only）（依赖 PR 8, 18）| ⏳ |
+
+### Wave 6 — Release hardening + v0.16
+
+| PR | 内容 | 状态 |
+|---|---|:---:|
+| **PR 21** alpha release docs | README known limits + loopback noauth warning + daemon runtime locality + deployment notes | ⏳ |
+| **PR 22** npm alpha publish | 发布 Mode B alpha 到 npm + post-publish smoke test（依赖 Wave 1/2/3 baseline）| ⏳ |
+| **PR 23** production token defaults | auto-generate daemon token + SDK env/file fallback + `~/.qwen/serve/instances/<host>-<port>-<workspaceHash>/token` + stale cleanup（依赖 PR 20）| ⏳ |
+| **PR 24** production deployment references | systemd / docker / k8s examples + supervisor/restart docs + security model（依赖 PR 23）| ⏳ |
+| **PR 25** v0.16 production-ready release | Final release after security defaults + docs + client identity/permission lifecycle complete（依赖 PR 20, 23, 24）| ⏳ |
+
+### 并行 / 关键依赖
+
+可并行的工作：
+- **PR 1 baseline** 可与 PR 2/3 并行
+- **PR 5 sessionScope** 在 PR 2 之后即可（不需要 typed events）
+- **PR 9 read-only routes** 在 PR 2/4 之后可开（PR 7/8 review 中也能进行）
+- **PR 15 read-only file routes** 可在 write/edit (PR 16) 之前 land
+- **Release docs** (PR 21) 可等到 npm publish 计划好
+
+### Open questions（[Issue #4175 §Open questions](https://github.com/QwenLM/qwen-code/issues/4175)）
+
+| 问题 | 当前推荐 |
+|---|---|
+| 何时 npm alpha publish？ | Wave 1 + 足够的 Wave 2 后 + release docs ready；不阻塞所有 control-plane routes |
+| Loopback 默认 token？ | v0.15 alpha 保持现状 + 加 `--require-auth`（PR 12）；v0.16 改 token-by-default + SDK auto-discovery + explicit opt-out |
+| Token instance path？ | `~/.qwen/serve/instances/<host>-<port>-<workspaceHash>/token`（多 daemon 共存）+ PID metadata（替代 port-only 路径）|
+| 如何 align PR#3929-3931 remote-control？ | 等 primary clients 稳定后改为 daemon facade，避免 parallel runtime/protocol fork |
+| Worktree 交互？ | `boundWorkspace` 仍是 boot-time daemon workspace；file routes 默认 bound-workspace safety；worktree-specific 行为必须显式，不是隐式 `process.chdir()` |
+
+---
+
 ### 拆分（按优先级排序）
 
 | 优先级 | Sub-stage | 内容 | 状态 / 工作量 |
