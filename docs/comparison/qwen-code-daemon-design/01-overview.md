@@ -132,7 +132,7 @@ External Reference Architecture 提供 orchestrator 层（详 [§06 §五 Extern
 > - ✅ Wave 2 **PR 5** [PR#4209](https://github.com/QwenLM/qwen-code/pull/4209) per-request `sessionScope` override — **MERGED 15:54** (doudouOUC, 4h26m open→merge)
 > - ✅ Wave 1 **PR 1** [PR#4205](https://github.com/QwenLM/qwen-code/pull/4205) baseline harness — **MERGED 16:41** (doudouOUC, 4 Critical 修后；首份 `baseline-stage-1.json` 存档 macOS arm64 / RSS 223.5 MB / attach 1-3 ms / MCP 4 children constant under single-scope)
 > - ✅ Wave 1 **PR 3** [PR#4201](https://github.com/QwenLM/qwen-code/pull/4201) DaemonSessionClient skeleton — **MERGED 17:01** (chiga0；前身 PR#4195 CLOSED；v2 补 AbortSignal/event-without-id/error-path 测试)
-> - ⏳ Wave 1 **PR 4** typed event schema — 待开；依赖（PR 2/3）已全 MERGED，**新 block 点**
+> - 🔧 Wave 1 **PR 4** [PR#4217](https://github.com/QwenLM/qwen-code/pull/4217) typed event schema — **OPEN + CHANGES_REQUESTED** (chiga0, 17:02 即 PR#4201 merge 后 1 分钟；4 Critical 待修：TS4111 bracket notation 22 处 / `client_evicted` reducer 不设 `alive: false` / `client_evicted`+`session_update` 零测试 / `isPermissionRequestData` 不检查 required `toolCall`)；**新 block 点**
 > - 🔧 Wave 2 follow-up [PR#4214](https://github.com/QwenLM/qwen-code/pull/4214) OPEN — 修 PR#4209 ship 后 integration-test / user-doc 过期 expectation（`session_scope_override` capability）
 > - 🔧 **Bonus** client adapter spikes：[PR#4202](https://github.com/QwenLM/qwen-code/pull/4202) TUI / [PR#4203](https://github.com/QwenLM/qwen-code/pull/4203) channel / [PR#4199](https://github.com/QwenLM/qwen-code/pull/4199) IDE (chiga0)；DaemonSessionClient 已 ship，现可 rebase 走完整 SDK
 

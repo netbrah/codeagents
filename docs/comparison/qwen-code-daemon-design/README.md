@@ -38,7 +38,7 @@ ACP NDJSON 协议 → HTTP+SSE daemon
   - ✅ [PR#4209](https://github.com/QwenLM/qwen-code/pull/4209) Wave 2 PR 5 per-request `sessionScope` override **MERGED 15:54** (doudouOUC)
   - ✅ [PR#4205](https://github.com/QwenLM/qwen-code/pull/4205) Wave 1 PR 1 baseline harness **MERGED 16:41** (doudouOUC)
   - ✅ [PR#4201](https://github.com/QwenLM/qwen-code/pull/4201) Wave 1 PR 3 DaemonSessionClient skeleton **MERGED 17:01** (chiga0)
-  - ⏳ Wave 1 PR 4 typed event schema 待开（依赖已解锁；**新 block 点**）
+  - 🔧 Wave 1 PR 4 [PR#4217](https://github.com/QwenLM/qwen-code/pull/4217) typed event schema OPEN + CHANGES_REQUESTED (chiga0, 4 Critical 待修；**新 block 点**)
   - 🔧 Wave 2 follow-up [PR#4214](https://github.com/QwenLM/qwen-code/pull/4214) OPEN — PR#4209 后 integration-test/user-doc 校准
   - 🔧 Bonus spikes: [PR#4202](https://github.com/QwenLM/qwen-code/pull/4202) TUI / [PR#4203](https://github.com/QwenLM/qwen-code/pull/4203) channel / [PR#4199](https://github.com/QwenLM/qwen-code/pull/4199) IDE adapter
 - 🔧 [PR#4132](https://github.com/QwenLM/qwen-code/pull/4132) `/demo` debug page 仍 OPEN / changes requested，可作为 Mode B POST+SSE client 试验田
