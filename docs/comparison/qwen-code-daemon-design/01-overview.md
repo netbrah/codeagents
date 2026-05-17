@@ -127,15 +127,17 @@ External Reference Architecture 提供 orchestrator 层（详 [§06 §五 Extern
 >
 > 💡 **Implementation tracker**：[Issue #4175](https://github.com/QwenLM/qwen-code/issues/4175) doudouOUC 的 Mode B v0.16 production-ready 25-PR rollout plan（6 Wave）—— 上表的 Stage 1.5a/c/-prereq 映射到 Wave 1-5；Wave 6 是 release hardening + v0.16。详 [§06 §三·一 Wave breakdown](./06-roadmap.md#三一-issue-4175--25-pr-wave-breakdown-production-ready-tracker)。
 >
-> ✅ **Wave 1 收尾 + Wave 2 推进**（2026-05-16 起 5 MERGED + Wave 1 PR 4 / Wave 2 PR 6 in flight）：
-> - ✅ Wave 1 **PR 2** [PR#4191](https://github.com/QwenLM/qwen-code/pull/4191) capability registry + protocol versions — **MERGED 10:07** (doudouOUC)
-> - ✅ Wave 2 **PR 5** [PR#4209](https://github.com/QwenLM/qwen-code/pull/4209) per-request `sessionScope` override — **MERGED 15:54** (doudouOUC, 4h26m open→merge)
-> - ✅ Wave 1 **PR 1** [PR#4205](https://github.com/QwenLM/qwen-code/pull/4205) baseline harness — **MERGED 16:41** (doudouOUC, 4 Critical 修后；首份 `baseline-stage-1.json` 存档 macOS arm64 / RSS 223.5 MB / attach 1-3 ms / MCP 4 children constant under single-scope)
-> - ✅ Wave 1 **PR 3** [PR#4201](https://github.com/QwenLM/qwen-code/pull/4201) DaemonSessionClient skeleton — **MERGED 17:01** (chiga0；前身 PR#4195 CLOSED；v2 补 AbortSignal/event-without-id/error-path 测试)
-> - 🔧 Wave 1 **PR 4** [PR#4217](https://github.com/QwenLM/qwen-code/pull/4217) typed event schema — **OPEN + CHANGES_REQUESTED** (chiga0, 17:02 即 PR#4201 merge 后 1 分钟；4 Critical 待修：TS4111 bracket notation 22 处 / `client_evicted` reducer 不设 `alive: false` / `client_evicted`+`session_update` 零测试 / `isPermissionRequestData` 不检查 required `toolCall`)；**新 block 点**
-> - 🔧 Wave 2 **PR 6** [PR#4222](https://github.com/QwenLM/qwen-code/pull/4222) HTTP load/resume session — **OPEN (draft)** (doudouOUC `[codex]`, 2026-05-17 01:41, +1091/-35 13 文件；replay buffer race solve（replay frame 先 buffer 进 SSE ring 再 register session）+ 3 类 restore race guard；测试/生产 ≈ 96%；新 capability tag；独立于 PR#4217，Wave 2 第二条并行推进线)
-> - ✅ Wave 2 follow-up [PR#4214](https://github.com/QwenLM/qwen-code/pull/4214) **MERGED 17:51** (doudouOUC, +14/-11, 1h23m open→merge) — 校准 integration-test `caps.features` 9→10 + user-doc 删除过时 blocker；建立 capability registry **三套来源 lockstep** 模式（生产 `SERVE_CAPABILITY_REGISTRY` / unit `EXPECTED_STAGE1_FEATURES` / integration `caps.features` toEqual）
-> - 🔧 **Bonus** client adapter spikes：[PR#4202](https://github.com/QwenLM/qwen-code/pull/4202) TUI / [PR#4203](https://github.com/QwenLM/qwen-code/pull/4203) channel / [PR#4199](https://github.com/QwenLM/qwen-code/pull/4199) IDE (chiga0)；DaemonSessionClient 已 ship，现可 rebase 走完整 SDK
+> ✅ **Wave 1 完整收尾 + Wave 2 推进**（2026-05-16~17 共 6 MERGED + Wave 2 PR 6 in flight；**无 block 点**）：
+> - ✅ Wave 1 **PR 2** [PR#4191](https://github.com/QwenLM/qwen-code/pull/4191) capability registry + protocol versions — **MERGED 2026-05-16 10:07** (doudouOUC)
+> - ✅ Wave 2 **PR 5** [PR#4209](https://github.com/QwenLM/qwen-code/pull/4209) per-request `sessionScope` override — **MERGED 2026-05-16 15:54** (doudouOUC, 4h26m open→merge)
+> - ✅ Wave 1 **PR 1** [PR#4205](https://github.com/QwenLM/qwen-code/pull/4205) baseline harness — **MERGED 2026-05-16 16:41** (doudouOUC, 4 Critical 修后；首份 `baseline-stage-1.json` 存档 macOS arm64 / RSS 223.5 MB / attach 1-3 ms / MCP 4 children constant under single-scope)
+> - ✅ Wave 1 **PR 3** [PR#4201](https://github.com/QwenLM/qwen-code/pull/4201) DaemonSessionClient skeleton — **MERGED 2026-05-16 17:01** (chiga0；前身 PR#4195 CLOSED；v2 补 AbortSignal/event-without-id/error-path 测试)
+> - ✅ Wave 2 follow-up [PR#4214](https://github.com/QwenLM/qwen-code/pull/4214) — **MERGED 2026-05-16 17:51** (doudouOUC, 1h23m) — 校准 integration-test 9→10 + 建立 capability registry **三套来源 lockstep** 模式
+> - ✅ Wave 1 **PR 4** [PR#4217](https://github.com/QwenLM/qwen-code/pull/4217) typed event schema — **MERGED 2026-05-17 04:31** (chiga0, squashed `ab88f6f1`，5 轮 review / 2 轮自我修复：① 4 Critical 修 ② 5 项 reducer hardening invariants：`lastEventId` 单调推进抗回退 / `pendingPermissions` cap 64/session + dropped 诊断计数 / `permission_resolved` 未匹配 requestId 诊断 + cancelled outcome / `toolCall` 校验收紧 + finite number / reducer 存储时复制抗引用共享)
+> - 🔧 Wave 2 **PR 6** [PR#4222](https://github.com/QwenLM/qwen-code/pull/4222) HTTP load/resume session — **OPEN (draft)** (doudouOUC `[codex]`, 2026-05-17 01:41, +1091/-35 13 文件；replay buffer race solve + 3 类 restore race guard；测试/生产 ≈ 96%)
+> - 🔧 PR 3 follow-up [PR#4225](https://github.com/QwenLM/qwen-code/pull/4225) DaemonSessionClient hardening — **OPEN** (chiga0, 2026-05-17 03:54, +254/-15, **测试 / 生产 = 2.06x**) eager subscription guard 改 call-time + `Last-Event-ID` 拒绝 invalid cursor
+> - ⚠️ [PR#4226](https://github.com/QwenLM/qwen-code/pull/4226) typed event schema 竞品 OPEN (doudouOUC, 2026-05-17 03:58, +1398/-18, 测试/生产 1.8x)；与 PR#4217 重叠，开 4 分钟后 PR#4217 即 MERGED；**待 close 或拆 SessionState reducer 部分作 Wave 5 PR 25 提前**
+> - 🔧 **Bonus** client adapter spikes：[PR#4202](https://github.com/QwenLM/qwen-code/pull/4202) TUI / [PR#4203](https://github.com/QwenLM/qwen-code/pull/4203) channel / [PR#4199](https://github.com/QwenLM/qwen-code/pull/4199) IDE (chiga0)；DaemonSessionClient + typed event 两层都已 ship，现可全 typed reducer 切换
 
 详 [§06 Roadmap & Ecosystem](./06-roadmap.md)。
 
