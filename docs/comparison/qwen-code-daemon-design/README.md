@@ -33,7 +33,7 @@ ACP NDJSON 协议 → HTTP+SSE daemon
 - ✅ [PR#4160](https://github.com/QwenLM/qwen-code/pull/4160) MERGED 2026-05-15（`createInMemoryChannel` helper；从 Mode A stack 中产出，但现在只作为通用 primitive）
 - 🔧 **Mode B 优先**（2026-05-15 决策）：Stage 1.5a must-haves（9 项）+ Stage 1.5c daemon-side state CRUD 优先；Mode A（[Issue #4156](https://github.com/QwenLM/qwen-code/issues/4156)）推迟到 1.5c 后
 - 📋 **Implementation tracker**：[Issue #4175](https://github.com/QwenLM/qwen-code/issues/4175) doudouOUC Mode B v0.16 production-ready **25-PR rollout plan**（6 Wave：Protocol foundation → Session lifecycle → Read-only control plane → Auth-gated mutation → Architecture extraction → Release hardening）—— 详 [§06 §三·一](./06-roadmap.md#三一-issue-4175--25-pr-wave-breakdown-production-ready-tracker)
-- 🎉 **Wave 1+2 完整 + Wave 2.5/3/4 多线推进**（2026-05-16~17 共 **11 MERGED** + 4 OPEN：Wave 2.5 PR 10/11 + Wave 3 PR 12 + Wave 4 PR 15 在飞；doudouOUC 单人 4 PR 跨 3 Wave；**无 block 点**）：
+- 🎉 **Wave 1+2 完整 + Wave 2.5 = 2/3 ✅ + Wave 3/4 推进**（2026-05-16~17 共 **12 MERGED** + 3 OPEN：Wave 2.5 PR 11 + Wave 3 PR 12 + Wave 4 PR 15 在飞；**无 block 点**）：
   - ✅ [PR#4191](https://github.com/QwenLM/qwen-code/pull/4191) Wave 1 PR 2 capability registry **MERGED 2026-05-16 10:07** (doudouOUC)
   - ✅ [PR#4209](https://github.com/QwenLM/qwen-code/pull/4209) Wave 2 PR 5 per-request `sessionScope` override **MERGED 2026-05-16 15:54** (doudouOUC)
   - ✅ [PR#4205](https://github.com/QwenLM/qwen-code/pull/4205) Wave 1 PR 1 baseline harness **MERGED 2026-05-16 16:41** (doudouOUC)
@@ -44,7 +44,7 @@ ACP NDJSON 协议 → HTTP+SSE daemon
   - ✅ [PR#4231](https://github.com/QwenLM/qwen-code/pull/4231) Wave 2 PR 7 daemon-stamped client identity **MERGED 2026-05-17 08:19** (chiga0, 1h23m, wenshao 9 parallel review agents; randomUUID `client_` 前缀 122 bits entropy)
   - ✅ [PR#4232](https://github.com/QwenLM/qwen-code/pull/4232) Wave 2 PR 8 session-scoped permission route **MERGED 2026-05-17 09:48** (chiga0, 2h44m, rebase 到 main; permission_already_resolved event + bounded record + parsePermissionOutcome 共享 helper)
   - ✅ [PR#4235](https://github.com/QwenLM/qwen-code/pull/4235) Wave 2.5 PR 9 client heartbeat **MERGED 2026-05-17 10:57** (doudouOUC, 2h00m, **首轮一把过**；3471 serve/SDK tests pass + 4 安全不变式 + lockstep 维持)
-  - 🔧 [PR#4237](https://github.com/QwenLM/qwen-code/pull/4237) Wave 2.5 PR 10 SSE replay sizing + slow_client_warning backpressure OPEN (doudouOUC, 2026-05-17 09:11, ring 4000→8000 + slow_client_warning 75%/37.5% hysteresis + maxQueued query 400 before SSE)
+  - ✅ [PR#4237](https://github.com/QwenLM/qwen-code/pull/4237) Wave 2.5 PR 10 SSE replay sizing + slow_client_warning backpressure **MERGED 2026-05-17 11:30** (doudouOUC, 2h19m, 3 轮 review; BoundedAsyncQueue.liveCount pre-emptive refactor + 8000 ring + 75%/37.5% hysteresis)
   - 🔧 [PR#4236](https://github.com/QwenLM/qwen-code/pull/4236) Wave 4 PR 15 mutation gating helper + --require-auth OPEN (doudouOUC, 2026-05-17 09:04, createMutationGate 4-cell matrix + CONDITIONAL_SERVE_FEATURES registry primitive)
   - 🔧 [PR#4240](https://github.com/QwenLM/qwen-code/pull/4240) Wave 2.5 PR 11 session metadata + close/delete lifecycle OPEN+CONFLICTING (doudouOUC, 2026-05-17 10:26, DELETE/PATCH/enriched listing + 2 new events + 2 new capability tags + double-close idempotent)
   - 🔧 [PR#4241](https://github.com/QwenLM/qwen-code/pull/4241) Wave 3 PR 12 read-only status routes OPEN (doudouOUC, 2026-05-17 10:35, 5 routes idle-aware 不 spawn ACP + 5 new caps + ⚠️ 未含 integration-test lockstep)
