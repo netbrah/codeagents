@@ -113,6 +113,7 @@
 | [Agent 创建向导](./interactive-agent-creation-deep-dive.md) | 11 步向导 |
 | [Claude Code `/agents` UI](./claude-code-agents-command-deep-dive.md) | Subagent 定义管理 UI（7-mode + 11-step wizard + AI 生成 + 17+ 字段格式 + 6 source 分层 + Stage 1.5c daemon-side state CRUD 范本）|
 | [Qwen Code `agent-view` 多 tab UI](./qwen-code-agent-view-deep-dive.md) | 多 in-process subagent tabbed 交互式 chat 切换（950 LOC，独家形态——Claude/Codex 都没有等价形态；与 OOM 风险 / `arena` 配合）|
+| [信息展示轴 Deep-Dive](./info-display-axis-deep-dive.md) | 4 家信息展示哲学对比（content 维度，与 display-components form 维度正交）：22 类信息 × 3 层接触面（Footer/in-stream/dialog）矩阵 + 5 显著差异（cost 缺失 / Goal pill 趋势 / 密度光谱 / Codex 调档键位 / Qwen statusLine 兼容 Claude）|
 | [Task Management](./task-management-deep-dive.md) | 任务协同 |
 | [Team Memory](./team-memory-deep-dive.md) | 组织级记忆 |
 | [SDK 双向控制](./sdk-bidirectional-control-deep-dive.md) | 控制协议 |
