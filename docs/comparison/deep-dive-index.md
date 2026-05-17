@@ -117,6 +117,7 @@
 | [Task Management](./task-management-deep-dive.md) | 任务协同 |
 | [Team Memory](./team-memory-deep-dive.md) | 组织级记忆 |
 | [SDK 双向控制](./sdk-bidirectional-control-deep-dive.md) | 控制协议 |
+| [ACP 支持 Deep-Dive](./acp-support-deep-dive.md) | 4 家 ACP（Agent Client Protocol）支持对比：方法逐项（Qwen 10 vs OpenCode 13）/ 库版本（0.14.1 vs 0.21.0）/ Qwen 独家 `httpAcpBridge` 2802 LOC daemon HTTP↔ACP 桥接 / IDE 端 UX 评分（Zed/JetBrains/Avante/CodeCompanion）|
 
 ## 平台集成（16 篇）
 

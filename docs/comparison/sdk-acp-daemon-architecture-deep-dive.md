@@ -137,6 +137,8 @@ Qwen Code 的 `sdk-java/` 拆为两个独立 Maven 包：
 
 ## 四、ACP（Agent Client Protocol）支持
 
+> **🆕 2026-05-17 更新**：本节作为 ACP 维度的全景对比，已被独立短稿 [**ACP 支持 Deep-Dive**](./acp-support-deep-dive.md) 焦点化展开，含：方法逐项对照（Qwen 10 vs OpenCode 13）/ 库版本差距（0.14.1 vs 0.21.0）/ Qwen 独家 `httpAcpBridge` 2802 LOC daemon HTTP↔ACP 桥接 / IDE 端 UX 评分矩阵 / Qwen 借鉴清单。本节保留 2026-05-01 时点数据作为历史快照。
+
 ACP 是 Zed 团队推动的 IDE↔Agent 标准协议，依赖 npm 包 `@agentclientprotocol/sdk`。
 
 ### 4.1 各家立场
