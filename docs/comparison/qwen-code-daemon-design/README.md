@@ -33,12 +33,13 @@ ACP NDJSON 协议 → HTTP+SSE daemon
 - ✅ [PR#4160](https://github.com/QwenLM/qwen-code/pull/4160) MERGED 2026-05-15（`createInMemoryChannel` helper；从 Mode A stack 中产出，但现在只作为通用 primitive）
 - 🔧 **Mode B 优先**（2026-05-15 决策）：Stage 1.5a must-haves（9 项）+ Stage 1.5c daemon-side state CRUD 优先；Mode A（[Issue #4156](https://github.com/QwenLM/qwen-code/issues/4156)）推迟到 1.5c 后
 - 📋 **Implementation tracker**：[Issue #4175](https://github.com/QwenLM/qwen-code/issues/4175) doudouOUC Mode B v0.16 production-ready **25-PR rollout plan**（6 Wave：Protocol foundation → Session lifecycle → Read-only control plane → Auth-gated mutation → Architecture extraction → Release hardening）—— 详 [§06 §三·一](./06-roadmap.md#三一-issue-4175--25-pr-wave-breakdown-production-ready-tracker)
-- ✅ **Wave 1 收尾 + Wave 2 启动**（2026-05-16 一日 5 Wave-related PRs MERGED）：
+- ✅ **Wave 1 收尾 + Wave 2 推进**（2026-05-16 起 5 MERGED + Wave 1 PR 4 / Wave 2 PR 6 in flight）：
   - ✅ [PR#4191](https://github.com/QwenLM/qwen-code/pull/4191) Wave 1 PR 2 capability registry **MERGED 10:07** (doudouOUC)
   - ✅ [PR#4209](https://github.com/QwenLM/qwen-code/pull/4209) Wave 2 PR 5 per-request `sessionScope` override **MERGED 15:54** (doudouOUC)
   - ✅ [PR#4205](https://github.com/QwenLM/qwen-code/pull/4205) Wave 1 PR 1 baseline harness **MERGED 16:41** (doudouOUC)
   - ✅ [PR#4201](https://github.com/QwenLM/qwen-code/pull/4201) Wave 1 PR 3 DaemonSessionClient skeleton **MERGED 17:01** (chiga0)
   - 🔧 Wave 1 PR 4 [PR#4217](https://github.com/QwenLM/qwen-code/pull/4217) typed event schema OPEN + CHANGES_REQUESTED (chiga0, 4 Critical 待修；**新 block 点**)
+  - 🔧 Wave 2 PR 6 [PR#4222](https://github.com/QwenLM/qwen-code/pull/4222) HTTP load/resume session OPEN (doudouOUC, 2026-05-17 draft, replay buffer race solve + 3 类 restore race guard)
   - ✅ Wave 2 follow-up [PR#4214](https://github.com/QwenLM/qwen-code/pull/4214) **MERGED 17:51** (doudouOUC) — capability registry 三套来源 lockstep 修
   - 🔧 Bonus spikes: [PR#4202](https://github.com/QwenLM/qwen-code/pull/4202) TUI / [PR#4203](https://github.com/QwenLM/qwen-code/pull/4203) channel / [PR#4199](https://github.com/QwenLM/qwen-code/pull/4199) IDE adapter
 - 🔧 [PR#4132](https://github.com/QwenLM/qwen-code/pull/4132) `/demo` debug page 仍 OPEN / changes requested，可作为 Mode B POST+SSE client 试验田
