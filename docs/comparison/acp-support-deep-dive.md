@@ -6,6 +6,67 @@
 >
 > **配套文章**：[SDK / ACP / Daemon 架构 Deep-Dive](./sdk-acp-daemon-architecture-deep-dive.md)（574 LOC 全景对比，本文是其 §四 ACP 部分的**焦点化 + 时点刷新**——2026-05-17 源码核实）
 
+## 前言 · ACP 协议是什么
+
+**ACP（Agent Client Protocol）** 是 [Zed Industries](https://zed.dev) 推动的**开放标准协议**，规范 **代码编辑器/IDE ↔ AI 编程 agent** 之间的通信。官网 [agentclientprotocol.com](https://agentclientprotocol.com)，2025 年发布，npm 包 `@agentclientprotocol/sdk`。
+
+### 缘起与设计目标
+
+CLI Agent 生态在 2024-2025 年井喷（Claude Code / Cursor / Cline / Aider / Codex / Qwen / OpenCode / Goose ...），但**每个 agent 接每个 IDE 都要写专属插件**：
+
+```
+没有 ACP 时（N × M 集成爆炸）：
+  Claude → Cursor 插件 + JetBrains 插件 + VSCode 插件 + Vim 插件 + ...
+  Qwen   → Cursor 插件 + JetBrains 插件 + VSCode 插件 + Vim 插件 + ...
+  ...
+
+有了 ACP 后（N + M 标准化）：
+  Claude / Qwen / OpenCode / ... 各自实现 ACP Agent
+  Zed / JetBrains / Avante.nvim / CodeCompanion.nvim / ... 各自实现 ACP Client
+  任何 Agent 接任何 IDE = 配一行命令
+```
+
+类比：ACP 之于 IDE↔Agent ≈ **LSP 之于 IDE↔Language Server**。Zed 团队明确把 ACP 定位为"agent 版的 LSP"。
+
+### 工作机制
+
+ACP 基于 **JSON-RPC 2.0**，传输用 **stdio NDJSON**（每行一个 JSON 对象）：
+
+```
+┌──────────────┐  spawn child   ┌──────────────────┐
+│ IDE (Client) │───────────────▶│ Agent (CLI 进程)  │
+│              │                │                  │
+│  ◀── stdin ──│ NDJSON 双向    │ stdin ──────▶    │
+│  ──▶ stdout ─│   JSON-RPC     │ stdout ◀──────   │
+└──────────────┘                └──────────────────┘
+```
+
+启动时 IDE 一次 `spawn` agent 进程，之后**长连接 stdio** 直到 IDE 关闭。期间 IDE 调 agent 的方法（如 `newSession` / `prompt`），agent 通过 notification 反向推流（如 `session/update` / `permission_request`）。
+
+### 协议三层结构
+
+| 层 | 内容 | 例子 |
+|---|---|---|
+| **握手层** | `initialize` 协商 protocolVersion + capabilities | `protocolVersion: 1` |
+| **会话生命周期** | new / load / list / resume / close / fork session | `newSession`, `listSessions`, `closeSession` |
+| **对话流** | prompt / cancel / 工具调用 / 权限审批 | `prompt`, `cancel`, `permission_request` |
+
+**`unstable_` prefix 约定**：spec 尚未稳定的方法用 `unstable_` 前缀（如 `unstable_listSessions`、`unstable_forkSession`），允许实验性能力先 ship 再固化命名。这是个**协议演进缓冲机制**——下游可以选择只实现 stable 子集，也可以激进跟进 unstable。
+
+### 当前生态状态
+
+- **协议版本**：`protocolVersion: 1`（截至 2026-05，所有家都报这个）
+- **官方 SDK**：仅 TypeScript（`@agentclientprotocol/sdk` 0.x，从 0.14 演进到 0.21+，方法集持续扩展）
+- **第三方实现**：Java（Qwen `com.alibaba:acp-sdk`）—— **目前唯一非官方语言实现**
+- **已验证 ACP Client**：Zed、JetBrains AI Assistant、Avante.nvim、CodeCompanion.nvim
+- **进展跟踪**：[Zed ACP progress report](https://zed.dev/blog/acp-progress-report#available-now)
+
+### 为什么 4 家 Code Agent 选择截然不同？
+
+ACP 的价值是"广度"（接更多 IDE），代价是"被外部 spec 约束 control plane 设计"。**这个 trade-off 在头部厂商和社区厂商之间评估完全不同**——这正是本文 §一·"4 家立场"差异的根本原因，也是 §五 哲学摘要的解释起点。
+
+---
+
 ## 零、TL;DR
 
 | 维度 | Claude | Codex | Qwen | OpenCode |
