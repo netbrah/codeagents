@@ -310,7 +310,9 @@ Laptop                           Remote workstation
 
 ## 五、Runtime locality / environment contract
 
-> 来源：chiga0 [Issue #3803 comment 4458840712](https://github.com/QwenLM/qwen-code/issues/3803#issuecomment-4458840712)（2026-05-15）。Mode B 下 **daemon 是 runtime owner**——MCP / Skills / shell / LSP / tool execution / provider auth / file access 全部在 **daemon host / pod** 上 evaluate，不在 client 机器。这一约束**必须显式 documented**，避免远端 client 误以为自己的 local network / files / tools 仍然适用。
+> 来源：chiga0 [Issue #3803 comment 4458840712](https://github.com/QwenLM/qwen-code/issues/3803#issuecomment-4458840712)（2026-05-15）+ [comment 4476174099](https://github.com/QwenLM/qwen-code/issues/3803#issuecomment-4476174099)（2026-05-18 强化）。Mode B 下 **daemon 是 runtime owner**——MCP / Skills / shell / LSP / tool execution / provider auth / file access 全部在 **daemon host / pod** 上 evaluate，不在 client 机器。这一约束**必须显式 documented**，避免远端 client 误以为自己的 local network / files / tools 仍然适用。
+>
+> **2026-05-18 升级**：此 invariant 已从 "runtime locality contract" 提升为 **deployment model 一部分**——详 [§01 §三·一 Deployment forms](./01-overview.md#三一-deployment-forms来自-chiga0-3803-comment-4476174099-2026-05-18) 3-form 表（**local-local 主装** / **cloud-remote daemon 与 workspace colocate** / **local workspace + remote daemon ❌ 不推荐**）+ [§06 §三·二 Package boundary contract](./06-roadmap.md#三二-deployment--package-contract-chiga0-3803-comment-2026-05-18)。
 
 ### Daemon 拥有的 runtime 资源
 

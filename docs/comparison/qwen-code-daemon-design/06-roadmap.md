@@ -239,6 +239,118 @@ chiga0 设计哲学（每 PR 反复出现）：**existing default path remains u
 
 ---
 
+### 三·二 Deployment + package contract (chiga0 #3803 comment 2026-05-18)
+
+来源：chiga0 [Issue #3803 comment 4476174099](https://github.com/QwenLM/qwen-code/issues/3803#issuecomment-4476174099) (GPT-5 Codex 协助生成)，**在 Wave 4 收尾、Wave 5 adapter migration 真要默认切换前，提议钉死 6 项契约**：
+
+#### 1. Deployment forms 3 类（详 [§01 §三·一](./01-overview.md#三一-deployment-forms来自-chiga0-3803-comment-4476174099-2026-05-18)）
+
+local-local（主装）/ remote-remote daemon 与 workspace colocate（cloud 推荐）/ **❌ local workspace + remote daemon**（不推荐——daemon 看不到 local fs/tools/MCP/skills）。
+
+#### 2. Server / client / adapter 3 层 package boundary
+
+即使**不物理拆分**，dependency direction 也必须 enforce：
+
+```text
+@qwen-code/daemon-server
+  qwen serve / HTTP routes / auth / EventBus / ACP bridge / FS boundary / sandbox hooks
+
+@qwen-code/daemon-client
+  DaemonClient / DaemonSessionClient / typed event schema / reducer
+  reconnect / heartbeat / capability negotiation
+
+@qwen-code/daemon-adapters-*
+  tui adapter / channel adapter / ide-web adapter / jsonl + stream-json + dual-output sinks
+```
+
+**3 条依赖方向规则**：
+- ❌ server code 不可依赖 TUI / IDE / channel adapter
+- ✅ adapter 只可依赖 SDK / protocol / reducer surface
+- ✅ shared event reducer + typed protocol helper **必须住 client/protocol 层**，不能在 `packages/cli/src/serve/`
+
+否则"每个 client integration 长出略不同的 bridge → Mode B convergence goal 侵蚀"。
+
+#### 3. Local auto-daemon UX（**新设计草图**）
+
+local TUI 默认走 daemon **不能**变成"先 manually 启 server 再 manually attach TUI"。目标 UX：
+
+```text
+qwen
+  → discover daemon for this workspace
+  → if absent, auto-start local `qwen serve` on loopback
+  → attach TUI to a session
+  → apply lifecycle policy on TUI exit: keep daemon / idle timeout / explicit shutdown
+```
+
+**收益**：TUI crash 不杀 daemon/session；IDE/web/channel attach 同一 session；重连 SSE `Last-Event-ID` + heartbeat + load/resume；event fan-out + permission flow 跨 client 统一。
+
+**代价/风险**：extra local process/port/token/discovery file-lock/health check/logs；TUI 渲染必须 coalesce daemon chunks 到 Ink UI 而非 raw event spam；每个 mutate runtime state 的 TUI dialog 必须有 daemon control-plane route；daemon crash 影响 workspace 所有 session（1 daemon = 1 workspace blast radius 仍 acceptable）。
+
+—— **属于 client migration plan 一部分，不是 afterthought**。Wave 6 release hardening 前补。
+
+#### 4. Sandbox runner model（未来分层）
+
+当前 Stage 1：
+
+```text
+qwen serve → spawn qwen --acp child
+  → Config / ToolRegistry / McpClientManager / SkillManager
+  → tools / shell / skills / MCP 全在 daemon host env 跑
+```
+
+期望未来：
+
+```text
+client → daemon API / control plane
+  → runtime worker / sandbox runner
+    → shell / skills / MCP / LSP / file tools
+```
+
+daemon 保 **control plane / session-event coordinator**，sandbox/runtime worker 独立 fail+restart。sandbox 挂 ≠ daemon 挂，daemon emit typed diagnostic event 重建 runner。
+
+对 MCP / skills 的严格要求：
+- MCP stdio children **在 runtime worker 跑**，不在 visual client
+- HTTP/SSE MCP egress **从 runtime host/pod 出**，不是 client laptop
+- skills 必须 exist 在 runtime env 或 sync/mount 进
+- skill scripts/resources 在 runtime env 求值
+- **`client capability reverse RPC` 严格 scoped 到 editor/clipboard/browser/notification/file_picker**，**不能 silently 成为 MCP/skill 执行 fallback**
+
+#### 5. Client default migration gate（3-condition checklist）
+
+TUI / channel / IDE default 切换到 daemon-backed 必须等：
+
+1. **control-plane parity** —— TUI 所有 mutating dialog 在 daemon API 都有对应 route（[§04 §二 9 项 dialog](./04-deployment-and-client.md) 全 wire 化）
+2. **reducer / adapter quality** —— typed event 消费器稳定 + 无 raw event spam
+3. **auto-daemon lifecycle** —— 上面第 3 点的 discovery / loopback auth / lifecycle policy / port collision / workspace binding 都齐
+
+**当前 PR#4266 / PR#4267 draft 不冲突这条 gate** —— 是合规 behind-flag experiment。
+
+#### 6. 文档更新建议（chiga0 list）
+
+| 章节 | 加 / 强化 |
+|---|---|
+| Deployment forms | 3 forms + 哪些推荐 |
+| Package / dependency boundary | server / client SDK / adapter 三层 |
+| Local auto-daemon UX | discovery / loopback auth / lifecycle / port collision / workspace binding |
+| Runtime locality | daemon/runtime host owns fs/network/process/env/credentials/MCP/skills |
+| Sandbox runner model | 当前 same-process trust vs 未来 isolated runtime worker |
+| Client migration gate | default 切换条件 |
+
+—— "Mode B 是对的，但 deployment + packaging 契约必须先显式化，否则同一套 code path 要同时服务 local CLI / remote devbox / enterprise cloud 三个场景，边界会糊。"
+
+#### 当前 codebase 对照
+
+| 建议项 | 已有 | 缺失 |
+|---|---|---|
+| 1 Deployment forms | §01 §三 双部署模式 | ✅ 已加 §三·一 3-form 表 |
+| 2 Package boundary | SDK 在 `@qwen-code/sdk`；channel-base 已拆 | ⚠️ daemon-server / daemon-client / daemon-adapters 未官方命名；3 条 dependency rule 未 lint enforce |
+| 3 Auto-daemon UX | ❌ 完全未做 | **Wave 6 release hardening 前补**（PR 28 npm alpha 之前）|
+| 4 Runtime locality | §04 §五 ✅；PR#4255 OAuth build-time grep test 已 ship | ⚠️ 未升级到 deployment model 章节 → 已加 callout 互链 |
+| 5 Sandbox runner model | Stage 1 same-process trust 已显式；NoSandbox 默认 | Wave 5 PR 24 PermissionMediator 后或 Stage 2 独立设计 |
+| 6 Client migration gate | Wave 5 PR 26 "flag-gated" 已写 | ⚠️ 3-condition checklist 未明文化 → 已加 §三·二 #5 |
+
+---
+
 ### 拆分（按优先级排序）
 
 | 优先级 | Sub-stage | 内容 | 状态 / 工作量 |

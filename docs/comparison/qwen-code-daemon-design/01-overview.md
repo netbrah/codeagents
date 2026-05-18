@@ -88,6 +88,22 @@ External Reference Architecture 提供 orchestrator 层（详 [§06 §五 Extern
 
 **Mode B 远端 client 是 "thin shell"**（Stage 1）——只能渲染 wire 流，daemon-side state dialogs（`/memory` / `/mcp` / `/agents` 等）不可用。Stage 1.5c daemon-side state CRUD 补齐后，TUI / channels / web / IDE 才能成为完整 client。详 [§04](./04-deployment-and-client.md)。
 
+### 三·一 Deployment forms（来自 chiga0 [#3803 comment 4476174099](https://github.com/QwenLM/qwen-code/issues/3803#issuecomment-4476174099)，2026-05-18）
+
+Mode B 之下进一步区分**3 种 deployment form**，钉死 daemon host 与 workspace host 的同址要求：
+
+| Form | Daemon host | Workspace host | Client host | 推荐度 |
+|---|---|---|---|---|
+| **Local single-machine** | local 机器 | local 机器 | local TUI/IDE/channel | ✅ 主装机体验；daemon 可在 loopback 自动起 |
+| **Cloud/devbox remote-runtime** | remote host/pod | **同** remote host/volume | local TUI/IDE/web | ✅ 推荐 cloud+client 拆分；Codespaces/Coder 风格——workspace 与 runtime **必须 colocate** |
+| **Local workspace + remote daemon** | remote host/pod | local 机器 | local client | ❌ **不推荐** —— daemon 看不到 local files / tools / MCP / skills，除非有显式 sync / mount / orchestrator |
+
+**核心不变式 — daemon host = runtime host**：
+
+> File access / shell tools / LSP / provider auth / MCP servers / skill discovery+resources+scripts / process execution **全部从 daemon environment 求值**，除非未来有显式的 [client-capability reverse RPC](./04-deployment-and-client.md#六client-capability-反向-rpc) 例外声明。
+
+详 [§06 §三·二 Package boundary contract + auto-daemon UX](./06-roadmap.md#三二-deployment--package-contract-chiga0-3803-comment-2026-05-18)。
+
 ---
 
 ## 四、资源经济性
