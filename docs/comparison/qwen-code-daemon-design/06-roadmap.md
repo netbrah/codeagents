@@ -253,7 +253,8 @@ local-local（主装）/ remote-remote daemon 与 workspace colocate（cloud 推
 
 | Shape | Runtime locality | 当前 roadmap 含义 |
 |---|---|---|
-| Local - Local | 本机 daemon/runtime/workspace | `qwen` 默认迁移目标；必须有 auto-daemon UX + control-plane parity |
+| **Local - Local (本地单用户 TUI)** 🌟 | 不存在 daemon——`qwen` = in-process direct call | **永久 default UX，最高优先级**；本地 TUI **不参与** daemon convergence（不要为不需要的东西付费）|
+| **Local - Local (multi-client 协作)** | 本机 daemon/runtime/workspace | IDE / local web / channel adapter 走 loopback `qwen serve` 时；**TUI 默认 in-process 不切换** |
 | Web chat / web terminal - Remote | remote daemon/runtime/workspace | web terminal 目标是 **daemon-native renderer**（typed events + reducer），PTY proxy 仅 fallback |
 | Local IDE - Local daemon | 本机 daemon/runtime/workspace | IDE dogfood 优先形态；path identity 共享，workspace mismatch 要 fail loud |
 | Local TUI - Remote | remote daemon/runtime/workspace | TUI 必须明示 remote label/path/auth；local cwd 不可当 runtime cwd |
@@ -285,23 +286,27 @@ local-local（主装）/ remote-remote daemon 与 workspace colocate（cloud 推
 
 否则"每个 client integration 长出略不同的 bridge → Mode B convergence goal 侵蚀"。
 
-#### 3. Local auto-daemon UX（**新设计草图**）
+#### 3. Local auto-daemon UX（仅 multi-client 协作场景，**不作 local TUI default**）
 
-local TUI 默认走 daemon **不能**变成"先 manually 启 server 再 manually attach TUI"。目标 UX：
+> ⚠️ **2026-05-18 设计原则**（详 [§02 §7](./02-architectural-decisions.md#7-部署模式--mode-b-mainline--mode-a-parking-lot)）：本地单用户 TUI **永远 in-process direct call，永远不走网络**。auto-daemon UX 草图**仅适用用户主动选 multi-client 协作场景**（IDE + TUI 同 session live collaboration），**不作 local TUI default 路径**。
+>
+> 反驳 chiga0 [#3803 comment 4476174099](https://github.com/QwenLM/qwen-code/issues/3803#issuecomment-4476174099) 的 "Local auto-daemon UX 作 local default" 草图，已发 [#3803 reply 4483031818](https://github.com/QwenLM/qwen-code/issues/3803#issuecomment-4483031818) 立 zero-cost abstraction 原则——**不要为不需要的东西付费**。
+
+对于**用户主动选 multi-client 协作场景**（少数 advanced 用户），auto-daemon UX 设计草图：
 
 ```text
-qwen
+qwen --experimental-daemon-tui  # 或某个 future opt-in flag
   → discover daemon for this workspace
   → if absent, auto-start local `qwen serve` on loopback
   → attach TUI to a session
   → apply lifecycle policy on TUI exit: keep daemon / idle timeout / explicit shutdown
 ```
 
-**收益**：TUI crash 不杀 daemon/session；IDE/web/channel attach 同一 session；重连 SSE `Last-Event-ID` + heartbeat + load/resume；event fan-out + permission flow 跨 client 统一。
+**收益**（仅当用户主动选时）：IDE/web/channel attach 同一 session；重连 SSE `Last-Event-ID` + heartbeat + load/resume；event fan-out + permission flow 跨 client 统一。
 
 **代价/风险**：extra local process/port/token/discovery file-lock/health check/logs；TUI 渲染必须 coalesce daemon chunks 到 Ink UI 而非 raw event spam；每个 mutate runtime state 的 TUI dialog 必须有 daemon control-plane route；daemon crash 影响 workspace 所有 session（1 daemon = 1 workspace blast radius 仍 acceptable）。
 
-—— **属于 client migration plan 一部分，不是 afterthought**。Wave 6 release hardening 前补。
+—— Mode A（[#4156](https://github.com/QwenLM/qwen-code/issues/4156) `qwen --serve` TUI super-client + 内嵌 HTTP server）可能比 Mode B + TUI adapter 更合适——**保零网络 TUI 体验 + 仅对其他 client 开 HTTP**。待 Mode A revisit 时与本设计草图一并评估。Wave 6 release hardening 前不入主线。
 
 #### 4. Sandbox runner model（未来分层）
 
@@ -332,14 +337,18 @@ daemon 保 **control plane / session-event coordinator**，sandbox/runtime worke
 
 #### 5. Client default migration gate（3-condition checklist）
 
-TUI / channel / IDE default 切换到 daemon-backed 必须等：
+> ⚠️ **TUI default 永远不切换**（[§02 §7 设计原则](./02-architectural-decisions.md#7-部署模式--mode-b-mainline--mode-a-parking-lot)）。本 gate **仅适用 channel / web / IDE** 三类跨进程 client。
 
-1. **control-plane parity** —— TUI 所有 mutating dialog 在 daemon API 都有对应 route（[§04 §二 9 项 dialog](./04-deployment-and-client.md) 全 wire 化）
+channel / web / IDE default 切换到 daemon-backed 必须等：
+
+1. **control-plane parity** —— 跨进程 client 所需 mutating route 在 daemon API 全 wire 化（详 [§04 §二 9 项 dialog](./04-deployment-and-client.md)）
 2. **reducer / adapter quality** —— typed event 消费器稳定 + 无 raw event spam
-3. **auto-daemon lifecycle** —— 上面第 3 点的 discovery / loopback auth / lifecycle policy / port collision / workspace binding 都齐
-4. **shape-specific readiness** —— local-local / remote TUI / IDE / channel / web terminal 各自 locality、path mapping、auth/gateway、diagnostics 要有明确验证记录
+3. **auto-daemon lifecycle** —— 上面第 3 点的 discovery / loopback auth / lifecycle policy / port collision / workspace binding 都齐（**仅适用 multi-client 协作场景**，不作 local TUI default 路径）
+4. **shape-specific readiness** —— remote TUI / IDE / channel / web terminal 各自 locality、path mapping、auth/gateway、diagnostics 要有明确验证记录
 
-**当前 PR#4266 / PR#4267 draft 不冲突这条 gate** —— 是合规 behind-flag experiment。
+**当前 PR#4266 / PR#4267 draft 不冲突这条 gate** —— PR#4266 (TUI experimental) 是 **opt-in advanced 永远 behind flag，不进入 default migration**（见 [PR#4266 reply 4483046985](https://github.com/QwenLM/qwen-code/pull/4266#issuecomment-4483046985)）；PR#4267 (IDE experimental) 是合规 behind-flag experiment for default migration。
+
+**Wave 5 PR 26 scope 显式收紧**：仅 channel / web / IDE default 切换，**TUI default 不切换**（见 [#4175 reply 4483033542](https://github.com/QwenLM/qwen-code/issues/4175#issuecomment-4483033542)）。
 
 #### 6. 文档更新建议（chiga0 list）
 

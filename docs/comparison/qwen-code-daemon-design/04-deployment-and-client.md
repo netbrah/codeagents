@@ -306,7 +306,8 @@ T=25  Alice 笔记本醒来重连 → daemon 通知 "Bob 接管了"
 
 | Shape | Client / adapter | Daemon + runtime | Workspace | 主要要求 | 推荐阶段 |
 |---|---|---|---|---|---|
-| **1. Local - Local** | local TUI / IDE / local web / channel adapter | 本机 loopback `qwen serve` | 本机 | auto-daemon discovery / loopback auth / lifecycle / port+token+logs；control-plane parity；TUI 渲染不能 raw event spam | 现有用户默认迁移目标 |
+| **1. Local - Local (本地单用户 TUI)** 🌟 | **本地 `qwen` TUI = in-process direct call**（永远不走网络）| 不存在 daemon | 本地 | **零网络栈代价**；本地 TUI 不参与 daemon convergence（详 [§04 §一 设计原则](#mode-b-拓扑核心特征) + [§02 §7](./02-architectural-decisions.md#7-部署模式--mode-b-mainline--mode-a-parking-lot)）| **永久 default UX，最高优先级** |
+| **1b. Local - Local (multi-client 协作)** | IDE / local web / channel adapter（**TUI 不在此列**）| 本机 loopback `qwen serve` | 本机 | auto-daemon discovery / loopback auth / lifecycle / port+token+logs；control-plane parity | 跨进程多 client 协作场景；TUI 默认 in-process 不切换 |
 | **2. Web chat / web terminal - Remote** | browser UI | remote devbox / pod | remote volume | gateway/auth/CORS；SSE reconnect；runtime diagnostics；web terminal 走 daemon-native renderer，PTY proxy 仅 fallback | cloud/devbox P1 |
 | **3. Local IDE - Local daemon** | IDE extension | 本机 loopback daemon | IDE 当前 workspace | IDE 启动/发现 daemon；workspace mismatch preflight；editor context 显式传入；path identity 共享 | P1 early dogfood |
 | **4. Local TUI - Remote** | 本地 terminal renderer | remote daemon/runtime | remote workspace | TUI 明示 remote label/path/auth；local cwd 非 runtime cwd；path mapping / client capability reverse RPC；latency coalescing | P1 after TUI adapter quality |
