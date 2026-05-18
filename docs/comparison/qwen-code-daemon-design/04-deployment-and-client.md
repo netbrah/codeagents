@@ -23,10 +23,23 @@
 
 ### Mode B 拓扑核心特征
 
-- 无 in-process TUI client；所有 client 全走 HTTP/SSE。
-- 进程没有终端；通过 systemd / pm2 / Docker 后台运行。
-- 重启策略由进程管理器决定；session 通过 PR#3739 transcript-first fork resume 重建，HTTP `loadSession` / `resume` 仍待 Stage 1.5a must-haves 暴露。
+- **Mode B daemon 自身**没有 in-process TUI；daemon 进程是 headless，通过 systemd / pm2 / Docker 后台运行。
+- 接入 Mode B 的 **远端 / 跨进程 client** 全走 HTTP/SSE（channel / web BFF / IDE / remote TUI）。
+- 重启策略由进程管理器决定；session 通过 PR#3739 transcript-first fork resume 重建，HTTP `loadSession` / `resume` 由 Wave 2 PR 6 ([#4222](https://github.com/QwenLM/qwen-code/pull/4222)) 暴露。
 - `GET /session/:id/events` 是 daemon 内部 EventBus 的 SSE projection；client 不直接 import EventBus。
+
+> ⚠️ **重要原则（2026-05-18 设计确认）— 本地单用户 TUI 永久 in-process，不走网络**
+>
+> **`qwen` 默认（无 `serve` flag）= 传统单进程 in-process direct call，零网络栈**。该路径是 **local default 永久路径**，**不是** Stage 1 临时过渡。本地单用户 TUI 不参与 daemon convergence，理由：
+>
+> - **启动延迟**：直起 Ink vs ~50-200ms loopback HTTP handshake
+> - **心智模型**：单 binary 单进程 vs client/server 分层
+> - **codebase 路径**：TUI 直 import `core` / `Config` vs TUI 必须 wire 所有 dialog 到 control-plane route
+> - **与 `qwen --acp` stdio 1:1 心智对齐**：单 binary 心智不被 daemon 分层破坏
+>
+> **走 daemon 的场景仅限**：远端 client / 跨进程多 client 协作（IDE + TUI 同 session live collaboration）/ channel bot / web BFF。本地单用户 TUI **永远不被强制套上 HTTP 包袱**。
+>
+> [PR#4266](https://github.com/QwenLM/qwen-code/pull/4266) `--experimental-daemon-tui` 是 **opt-in advanced 路径**（用户主动选 multi-client 协作时），**永远 behind flag，不进入 default migration**。Wave 5 PR 26 `flag-gated daemon client adapters` 默认覆盖 channel / web / IDE，**不含 TUI default 切换**。Mode A `qwen --serve`（TUI super-client + 内嵌 HTTP server）可能比 Mode B + TUI adapter 更适合 "本地多 client 协作" —— 待 chiga0 `auto-daemon UX` 工程债重新评估时一并 revisit。
 
 ### Client 接入顺序
 
@@ -131,10 +144,16 @@ Stage 1 的 Mode B client 只能覆盖 conversation 主链路。要让 TUI / cha
 
 | TUI 形态 | 数据源 | 完整 dialog 支持 |
 |---|---|---|
-| 传统单进程（`qwen`）| in-process direct call | ✅ super-client（~15 Ink dialogs + local-jsx）|
-| **Mode B + TUI adapter** | HTTP/SSE via `DaemonSessionClient` | ⚠️ Stage 1: 仅 conversation；Stage 1.5c 后补齐 daemon state |
-| **Mode B + 远端非-TUI client**（Web UI / mobile / IM bot）| HTTP/SSE | N/A — 非 Ink 渲染 |
-| **Mode A 本地 TUI**（`qwen --serve`）| in-process | ⏸ HOLD |
+| **传统单进程（`qwen`）— local default 永久路径 🌟 #1 优先级** | in-process direct call | ✅ super-client（~15 Ink dialogs + local-jsx），零网络栈 |
+| **Mode B + TUI adapter**（[PR#4266](https://github.com/QwenLM/qwen-code/pull/4266) `--experimental-daemon-tui`）| HTTP/SSE via `DaemonSessionClient` | **opt-in advanced**，仅 multi-client 协作场景；**永远 behind flag，不进入 default migration** |
+| **Mode B + 远端非-TUI client**（Web UI / mobile / IM bot）| HTTP/SSE | N/A — 非 Ink 渲染，daemon 是它们唯一可行路径 |
+| **Mode A 本地 TUI**（`qwen --serve`）| in-process + 内嵌 HTTP server | ⏸ HOLD —— 可能是 "本地多 client 协作" 唯一合理路径（in-process TUI + 对外 HTTP attach），待 chiga0 auto-daemon UX 工程债 revisit |
+
+> 🌟 **设计原则：不要为你不需要的东西付费**
+>
+> 本地单用户 TUI **不需要** loopback HTTP / port / token / discovery / lifecycle / control-plane parity wire 化，**就不应该被强加这些代价**。`qwen` 默认是 daemon 项目里**最高优先级的用户体验**，任何 default migration 设计都不可破坏这个 UX。
+>
+> 走 daemon convergence 的 client（channel / web / IDE / remote TUI）是**主动选择跨进程协作**的场景；本地单用户 TUI **不在此列**。
 
 ### TUI 与 wire 的边界 — 9 项 dialogs 真实成本
 
