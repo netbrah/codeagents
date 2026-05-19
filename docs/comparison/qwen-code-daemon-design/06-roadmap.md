@@ -202,7 +202,7 @@ chiga0 设计哲学（每 PR 反复出现）：**existing default path remains u
 |---|---|:---:|
 | **PR 22** `refactor(serve): extract acp bridge primitives` | `httpAcpBridge.ts` 拆为 shared `AcpChannel` + `Transport` + `EventBus` + bridge primitives；CLI route contract 保持（依赖 PR 4, 8, 11）| 🟢 **拆 4 阶段 3/4 MERGED + F1 大融合** — PR 22a + 22b/1 + 22b/2 ✅ MERGED；**PR 22b/3 + 22b' 合并打包为 F1** [#4319](https://github.com/QwenLM/qwen-code/pull/4319) OPEN CHANGES_REQUESTED (5 rounds review)，target **`daemon_mode_b_main`** 长期 integration 分支（maintainer-requested 分支策略重组 2026-05-19，剩余 Mode B 工作拆 F1-F5 feature PRs）；详 #F1-PR-22b-3 段 |
 | **PR 23** `feat(mcp): shared MCP transport/process pool` | 真共享 pool，keyed by canonical workspace + server **config hash** + auth/env/runtime inputs；lifecycle/refcount tests（依赖 PR 22, 14）| ⏳ |
-| **PR 24** `feat(security): client pairing revocation + PermissionMediator` | pair tokens + revocation API + audit log + 4 policy strategies（first-responder / designated / consensus / local-only）（依赖 PR 8, 22）| ⏳ |
+| **PR 24** `feat(security): client pairing revocation + PermissionMediator` | pair tokens + revocation API + audit log + 4 policy strategies（first-responder / designated / consensus / local-only）（依赖 PR 8, 22）| 🔧 **拆 2 阶段** — **F3** [#4335](https://github.com/QwenLM/qwen-code/pull/4335) OPEN REVIEW_REQUIRED 2026-05-19 19:34（doudouOUC, +9748/-517 62 files, target `daemon_mode_b_main`）—— 4 strategies 实现 + audit ring + 2 新 SSE 事件 + 3 typed errors + SDK reducer 扩展；pair-token + revocation API 推迟为后续 follow-up（consensus 需要的 voter auth）|
 | **PR 25** `refactor(output): daemon-compatible output sinks` | JSONL / stream-json / dual-output behavior 移到 protocol/output sink 边界后；让 CLI + daemon client 共享 event semantics 而不是 duplicate terminal-specific logic（依赖 PR 4, 22）—— PR#4226 doudouOUC 平行 reducer 实现可拆这里提前 | ⏳ |
 | **PR 26** `feat(adapters): flag-gated daemon client adapters` | 开始 TUI / channels / web-debug / IDE adapter migration behind flag，用 `DaemonSessionClient`；如 ownership/review size 需要可按 adapter 拆分；3 bonus spike [PR#4202](https://github.com/QwenLM/qwen-code/pull/4202) / [PR#4203](https://github.com/QwenLM/qwen-code/pull/4203) / [PR#4199](https://github.com/QwenLM/qwen-code/pull/4199) 已铺路（依赖 PR 3, 4, 25）| ⏳ |
 
@@ -288,10 +288,20 @@ chiga0 设计哲学（每 PR 反复出现）：**existing default path remains u
 
 **CI 注意**：PR target `daemon_mode_b_main`，`ci.yml pull_request` trigger 只 fire `main / release/**` → **CI 不跑**；最终通过 `daemon_mode_b_main → main` 周期 merge PR 触发 full CI matrix。
 
-**deferred follow-up**：
-- `httpAcpBridge.test.ts` (~6604 LOC) → `acp-bridge/src/bridge.test.ts` 拆走：尝试过，4/174 daemon-host integration tests fail（assert on real cells from `buildEnvStatusFromProcess` + `canUseRipgrep` + `getGitVersion` + `getNpmVersion`），需要单独 PR 拆 4 个 integration test 到 cli test file
-- 服务端 adapter wrapping PR 18 `WorkspaceFileSystem` 满足 `BridgeFileSystem`（需 `ResolvedPath` brand-type translation + `Intent` selection + error mapping）
-- `runQwenServe.ts` wiring → 真正关上 PR 18 `ws.ts:613` TOCTOU 线
+**F1 ✅ MERGED 2026-05-19 16:26** to `daemon_mode_b_main` (`981bc7c7e`)。**3 deferred follow-up 由 PR#4334 全 ship**：
+- ✅ 服务端 adapter wrapping PR 18 `WorkspaceFileSystem` 满足 `BridgeFileSystem`（commit `9560dfc28` 落地 + commit `881133407` 加 `writeTextOverwrite` primitive 解 Copilot review 抓的 mode preservation 问题）
+- ✅ `runQwenServe.ts` wiring → **真关 PR 18 `ws.ts:613` TOCTOU 线** (commit `9560dfc28`)
+- ⏳ `httpAcpBridge.test.ts` (~6604 LOC) → `acp-bridge/src/bridge.test.ts` 拆走（4/174 daemon-host integration tests fail 跨包，需单独 PR 拆 4 个 integration test 到 cli test file）
+
+**F1 follow-up batch ([#4334](https://github.com/QwenLM/qwen-code/pull/4334))** OPEN REVIEW_REQUIRED 2026-05-19 17:20 (F1 合后 54m，+894/-54 9 files)：
+
+| commit | 内容 |
+|---|---|
+| `9560dfc28` | BridgeFileSystem wiring — `runQwenServe.ts` / `server.ts` fsFactory 注入 + 新 `bridgeFileSystemAdapter.ts` (110 LOC) 把 ACP `writeTextFile/readTextFile` 翻译到 `WorkspaceFileSystem.resolve` → `writeTextOverwrite`/`readText` |
+| `db8972b81` | #4325 channelInfo overlap fix — `closeSession`/`killSession` 用 `channelInfoForEntry(entry)` 替 module-scoped `channelInfo`，**closes #4325** |
+| `881133407` | 新 PR 18 primitive `WorkspaceFileSystem.writeTextOverwrite` (~75 LOC)：`WriteMode = 'overwrite'` 变体 tolerate ENOENT + skip `expectedHash` CAS gate（不适 ACP hash-less wire），default 0o600 + mode preservation + atomic temp+rename；解 Copilot review finding (commit 1 前 ACP writes 走 `wfs.writeText` 无 mode 处理，new file 撒 umask-default 0o644 违反 0o600 契约) |
+
+**user-visible behavior change for ACP child code**：agent writes through symlinks 现 reject `symlink_escape`（与 PR 20 HTTP `POST /file` 一致；pre-F1 inline `BridgeClient.writeTextFile` 用 `realpath`/`readlink` 解 symlink 写 target）。依赖 symlinked dotfile write 的 agent 需要直接寻址 resolved path。
 
 **其他 22b 阶段外 follow-up**：
 | 编号 | 范围 | LOC |
