@@ -114,7 +114,7 @@ capability registry → DaemonSessionClient → typed events
 | **2.5** Reliability + session lifecycle closure | client heartbeat + SSE replay sizing + slow-client warnings + session metadata/close-delete lifecycle | PR 9-11 — ✅ **3/3 MERGED**：PR 9 [#4235](https://github.com/QwenLM/qwen-code/pull/4235) + PR 10 [#4237](https://github.com/QwenLM/qwen-code/pull/4237) + PR 11 [#4240](https://github.com/QwenLM/qwen-code/pull/4240) 2026-05-17 | 1.5a #4 reliability + #2 lifecycle closure |
 | **3** Read-only control plane + diagnostics | read-only status routes + preflight/env diagnostics + MCP guardrails (measurement, not full pool) | PR 12-14 — ✅ **3/3 + PR 14b 全 MERGED**：PR 12 [#4241](https://github.com/QwenLM/qwen-code/pull/4241) + PR 13 [#4251](https://github.com/QwenLM/qwen-code/pull/4251) 2026-05-17 + PR 14 [#4247](https://github.com/QwenLM/qwen-code/pull/4247) 2026-05-18 + follow-up PR 14b [#4271](https://github.com/QwenLM/qwen-code/pull/4271) 2026-05-18 17:06 | 1.5c read-only + chiga0 diagnostics |
 | **4** Auth-gated mutation/control routes | **mutation gating helper** + memory/agents CRUD + approval/tools/init/MCP-restart + FileSystemService 边界 + safe file read + file write/edit + auth device-flow | PR 15-21 — ✅ **7/7 完整 MERGED** 🎉：PR 15/16/17/18/19/20/21 全合 (#4236/#4249/#4282/#4250/#4269/#4280/#4255) | 1.5c CRUD + 文件 routes |
-| **5** Architecture extraction + output sinks + full multi-client security | bridge primitives extraction + real MCP shared pool (config-hash keyed) + pairing revocation + full PermissionMediator + 独立 output sinks + flag-gated client adapters | PR 22-26 — ✅ PR 22a [#4295](https://github.com/QwenLM/qwen-code/pull/4295) MERGED 17:23 + ✅ PR 22b/1 [#4298](https://github.com/QwenLM/qwen-code/pull/4298) MERGED 23:00（**PR 22 拆 3 阶段: 22a + 22b/1 + 22b/2 待开**）；PR 23/24/25/26 ⏳ | 1.5-prereq full + 1.5a #3 full + adapter migration |
+| **5** Architecture extraction + output sinks + full multi-client security | bridge primitives extraction + real MCP shared pool (config-hash keyed) + pairing revocation + full PermissionMediator + 独立 output sinks + flag-gated client adapters | PR 22-26 — ✅ PR 22a [#4295](https://github.com/QwenLM/qwen-code/pull/4295) MERGED + ✅ PR 22b/1 [#4298](https://github.com/QwenLM/qwen-code/pull/4298) MERGED + ⏳ PR 22b/2 [#4304](https://github.com/QwenLM/qwen-code/pull/4304) OPEN APPROVED design slice（**PR 22 拆 4 阶段: 22a + 22b/1 + 22b/2 design + 22b/3 mechanical**）；PR 23/24/25/26 ⏳ | 1.5-prereq full + 1.5a #3 full + adapter migration |
 | **6** Release hardening + v0.16 | alpha release docs + npm alpha publish + **production token defaults** (`~/.qwen/serve/instances/<host>-<port>-<workspaceHash>/token`) + deployment refs + v0.16 release | PR 27-31 | Stage 2 + release |
 
 ### Wave 1 — Protocol foundation（无依赖，可立即开始）
@@ -200,7 +200,7 @@ chiga0 设计哲学（每 PR 反复出现）：**existing default path remains u
 
 | PR | 内容 | 状态 |
 |---|---|:---:|
-| **PR 22** `refactor(serve): extract acp bridge primitives` | `httpAcpBridge.ts` 拆为 shared `AcpChannel` + `Transport` + `EventBus` + bridge primitives；CLI route contract 保持（依赖 PR 4, 8, 11）| ✅ **PR 22a MERGED 2026-05-18 17:23** [PR#4295](https://github.com/QwenLM/qwen-code/pull/4295) (doudouOUC, **56 分钟极速合**——pure refactor 红利；最终 +1106/-688 17 文件，review 期间仅 -20/+44 极小调整，8 reviews；wenshao APPROVED quote: "**pure refactor, mechanically verified**: file moves preserve content via `git mv`, wrappers are two lines so **no opportunity for behavioral drift**, all **13 existing import sites resolve through the wrappers unchanged**, the new package builds and passes 28/28 of its own tests, and the daemon's SSE / ring replay / Last-Event-ID..."；**split 进一步为 3 阶段: PR 22a (zero-coupling lift, ✅ MERGED 17:23) + PR 22b/1 (pure-type + pure-utility surface lift, ✅ MERGED 23:00, [#4298](https://github.com/QwenLM/qwen-code/pull/4298) +1431/-1450 12 files —— lift status types / workspace path canonicalization / error classes / `HttpAcpBridge` interface contract) + PR 22b/2 (⏳ implementation lift: `BridgeClient` / `createHttpAcpBridge` factory / `defaultSpawnChannelFactory` + `DaemonStatusProvider` injection seam)**；3-stage split 让每阶段保持机械低风险，复杂度集中在最后一阶段；3 zero-coupling primitives 用 `git mv` 保 blame 移到新 `@qwen-code/acp-bridge` package：① `eventBus.ts` (578 LOC 无 internal import) ② `inMemoryChannel.ts` (73 LOC 只依赖 `@agentclientprotocol/sdk`) ③ `AcpChannel`/`AcpChannelExitInfo`/`ChannelFactory` types；**额外种 `PermissionMediator` interface contract**——PR 24 4 strategies 可直接挂接；chiga0 #3803 "Stage 1.5-prereq AcpChannel lift" 真正落地；**解锁 PR 22b/2 / PR 23 / PR 24**；follow-up suggestion: `SubscriberLimitExceededError` (public DoS defense) 测试覆盖待补) |
+| **PR 22** `refactor(serve): extract acp bridge primitives` | `httpAcpBridge.ts` 拆为 shared `AcpChannel` + `Transport` + `EventBus` + bridge primitives；CLI route contract 保持（依赖 PR 4, 8, 11）| 🟡 **拆 4 阶段** — PR 22a + 22b/1 ✅ MERGED；PR 22b/2 [#4304](https://github.com/QwenLM/qwen-code/pull/4304) OPEN APPROVED **(design slice, +852/-371 11 files, 23:30Z)**；PR 22b/3 待开 (~3000 LOC 机械 bulk lift)；详 #PR-22b-2 段 |
 | **PR 23** `feat(mcp): shared MCP transport/process pool` | 真共享 pool，keyed by canonical workspace + server **config hash** + auth/env/runtime inputs；lifecycle/refcount tests（依赖 PR 22, 14）| ⏳ |
 | **PR 24** `feat(security): client pairing revocation + PermissionMediator` | pair tokens + revocation API + audit log + 4 policy strategies（first-responder / designated / consensus / local-only）（依赖 PR 8, 22）| ⏳ |
 | **PR 25** `refactor(output): daemon-compatible output sinks` | JSONL / stream-json / dual-output behavior 移到 protocol/output sink 边界后；让 CLI + daemon client 共享 event semantics 而不是 duplicate terminal-specific logic（依赖 PR 4, 22）—— PR#4226 doudouOUC 平行 reducer 实现可拆这里提前 | ⏳ |
@@ -235,6 +235,53 @@ chiga0 设计哲学（每 PR 反复出现）：**existing default path remains u
 **跨 LM review 收敛信号**（值得记录的工程模式）：Codex `/codex:review` 标 P2 + Copilot 内联 review 独立标同一处 `package.json:50-52` —— 4 个尚未实现的 subpath exports (`./bridgeOptions` / `./bridge` / `./spawnChannel`) 提前暴露会让首个 consumer 撞 `ERR_MODULE_NOT_FOUND`。两个独立 reviewer 收敛 = 强信号 → fix `33c83033d` 移除（PR 22b/2 落地时随 source 文件一起恢复）。
 
 **package-lock.json 教训**（PR 22a 首次 push 翻车之后的避坑）：先 `git restore origin/main package-lock.json` 再增量 patch 加 `@qwen-code/qwen-code-core` 到 acp-bridge workspace entry —— 避免 npm 11 peer-flag 全量重写。复用 `25b9a6d7f` 已验证的方法。
+
+#### PR 22b/2 ([#4304](https://github.com/QwenLM/qwen-code/pull/4304)) — design slice：`DaemonStatusProvider` injection seam
+
+⏳ OPEN APPROVED 2026-05-18 23:30Z (doudouOUC, +852/-371 11 files)。**3-stage split 改 4-stage** —— 原 PR 22b/2 (implementation lift, ~3000 LOC) 拆为 22b/2 (design slice 凝结契约) + 22b/3 (机械 bulk lift)，让 review attention 集中在 6 个 design decision 上。
+
+**What moves**（~360 LOC mechanical）：
+
+| Symbol | From | To |
+|---|---|---|
+| `BridgeOptions` interface (~150 LOC) | `httpAcpBridge.ts:189-325` | `acp-bridge/src/bridgeOptions.ts` |
+| `buildDaemonPreflightCells` + `safeCheck` (~210 LOC, byte-identical) | `httpAcpBridge.ts:4002-4214` | `cli/src/serve/daemonStatusProvider.ts` |
+
+**新接口 `DaemonStatusProvider`** —— 两个方法 `getEnvStatus(boundWorkspace, acpChannelLive)` + `getDaemonPreflightCells(...)`。新 factory `createDaemonStatusProvider()` 包 `buildEnvStatusFromProcess` + 移过来的 `buildDaemonPreflightCells`。
+
+**6 design decisions（reviewer focus）**：
+
+| # | 维度 | 选择 | 理由 |
+|---|---|---|---|
+| 1 | 参数形态 | positional `(boundWorkspace, acpChannelLive)` | 2 参；object-wrap 过度工程；与 `buildEnvStatusFromProcess` 对齐 |
+| 2 | 返回粒度 | 全 envelope `Promise<ServeWorkspaceEnvStatus>` / `Promise<ServePreflightCell[]>` | provider 返回值 = route handler 直接透传；保 wire shape 不变 |
+| 3 | abort / timeout | 无 | YAGNI；env 同步、preflight 短 async；未来 typed extension 加 |
+| 4 | 接口拆分 | 单接口含 2 方法 | env + preflight 概念上是同一 daemon-host status surface，production impl 单 factory 出货 |
+| 5 | 可选性 | optional `statusProvider?` | 缺省返 idle envelope `{cells: []}`，对齐 PR 12/13 "idle status is queryable"；Mode A in-process consumer 可省略不崩 |
+| 6 | `acpChannelLive` 来源 | bridge 传参 | provider 不窥探 bridge 内部；参数传递保 seam 窄 |
+
+**bridge factory body 调整**：`getWorkspaceEnvStatus` / `getWorkspacePreflightStatus` 走 `opts.statusProvider?.getXxx(...)` 走代理；省略时返 idle envelope。ACP-side cells (`auth` / `mcp_discovery` / `skills` / `providers` / `tool_registry` / `egress`) 仍走 `requestWorkspaceStatus` extMethod 不变。
+
+**production wiring**：`runQwenServe.ts` 注入 `statusProvider: createDaemonStatusProvider()`；测试 `makeBridge` helper 默认注入 production provider 保 701/701 test green，`{ statusProvider: undefined }` override 测 idle fallback。
+
+#### PR 22b/3（待开）— mechanical bulk lift
+
+凝结 #4304 契约后纯机械搬，**零设计决定**，预计 1-2 小时 IDE-driven `git mv`：
+
+| 子步 | 范围 | LOC |
+|---|---|---|
+| 22b/3.1 | `BridgeClient` class lift | ~400 |
+| 22b/3.2 | `defaultSpawnChannelFactory` lift | ~250 |
+| 22b/3.3 | `createHttpAcpBridge` factory closure（主体） | ~2240 |
+| 22b/3.4 | `httpAcpBridge.test.ts` (5064 LOC) → `acp-bridge/src/bridge.test.ts` | move only |
+| 22b/3.5 | shrink `httpAcpBridge.ts` 到最终 re-export shim | -80 |
+
+**另两个 22b 阶段外的 follow-up**：
+
+| 编号 | 范围 | LOC |
+|---|---|---|
+| **22b'** | `WorkspaceFileSystem` 注入 `BridgeClient.writeTextFile/readTextFile`（关 PR 18 `ws.ts:613` TOCTOU 线） | ~200 |
+| **#4299 → #4300 ✅** | `mapDomainErrorToErrorKind` regex → typed errors（`BridgeChannelClosedError` + `MissingCliEntryError`） | ~50 |
 
 ### Wave 6 — Release hardening + v0.16
 

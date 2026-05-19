@@ -11,7 +11,7 @@
 
 **默认安全策略**：0.0.0.0 binding + 无 token = 拒绝启动；`--require-auth` 启用后所有 mutation 路由（PR#4249/4250/4280/4255 等）强制 401 if 无 bearer + clientId。**OAuth device-flow**（PR#4255 ✅ Wave 4 PR 21 史上最难合 20h39m / +4828 / 35 文件 / 4 reviewer voices）—— RFC 8628 + BrandedSecret 4-way redaction + 0o600 file mode + 6 leak-path coverage tests + build-time grep 防 client browser-spawn。
 
-**Wave 5+ 候选**：chiga0 finding 3 `PermissionMediator` 抽象（4 policy strategies）—— PR 22b/2 之后从 first-responder / nonInteractive ControlDispatcher / channels BridgeClient 三处独立实现统一为 1 个 mediator。
+**Wave 5+ 候选**：chiga0 finding 3 `PermissionMediator` 抽象（4 policy strategies）—— PR 22b/3 之后从 first-responder / nonInteractive ControlDispatcher / channels BridgeClient 三处独立实现统一为 1 个 mediator。
 
 ---
 

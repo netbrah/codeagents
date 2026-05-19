@@ -134,7 +134,8 @@ POST   /workspace/auth/device-flow/poll    poll for token
 |---|---|---|---|
 | **PR#4295** | PR 22a zero-coupling lift | ✅ MERGED | `BridgeTimeoutError` / `BridgeChannelClosedError` / `MissingCliEntryError` typed errors 提取（零业务耦合） |
 | **PR#4298** | PR 22b/1 pure-type lift | ✅ MERGED | bridge primitive type 提取（与运行时实现分离） |
-| **PR#4300** | PR 22b/2 impl lift + DaemonStatusProvider injection seam | ⏳ OPEN | implementation lift；为 Stage 2 native in-process 开 seam |
+| **PR#4304** | PR 22b/2 design slice: lift BridgeOptions + DaemonStatusProvider seam | ⏳ OPEN APPROVED | 6 design decisions baked in；为 Stage 2 native in-process 开 seam；机械 bulk lift 留 PR 22b/3 |
+| PR 22b/3 | mechanical bulk lift（BridgeClient + factory closure + 5064-LOC test move） | ⏳ 待开 | 凝结 PR 22b/2 契约后纯机械 IDE-driven `git mv`，零设计决定 |
 
 ### Stage 2 — 远期（候选）
 
@@ -468,7 +469,7 @@ type DaemonErrorKind =
 | **Wave 2.5**（reliability）| heartbeat / Last-Event-ID replay / slow_client_warning / session metadata + close-delete | ✅ 3/3 MERGED |
 | **Wave 3**（read-only control plane）| status routes / preflight + env diagnostics / MCP guardrails + budget push | ✅ 3/3 MERGED |
 | **Wave 4**（auth-gated mutation）| mutation gate / memory&agents CRUD / approval+tools+init / FS boundary / file r/w / OAuth device-flow | ✅ 7/7 MERGED |
-| **Wave 5**（architecture extraction）| bridge primitives / MCP shared pool / PermissionMediator / output sinks / flag-gated adapters | 🟡 22a + 22b/1 ✅ / 22b/2 ⏳ |
+| **Wave 5**（architecture extraction）| bridge primitives / MCP shared pool / PermissionMediator / output sinks / flag-gated adapters | 🟡 22a + 22b/1 ✅ / 22b/2 design slice ⏳ APPROVED / 22b/3 待开 |
 | **Wave 6**（release hardening + v0.16）| docs / metrics / changelog / RC / GA | 🚧 待启动 |
 
 **业务逻辑 100% 同源**——daemon 复用 ACP zod schema 与 `Session.handleXxx`，HTTP 仅是传输层桥接。Wave 5 PR 22 系列剥离桥接 primitives 后，未来 Stage 2 native in-process（直接 import `QwenAgent`，去 `qwen --acp` child）只是另一种 transport，wire 协议不变。
