@@ -201,35 +201,40 @@ chiga0 设计哲学（每 PR 反复出现）：**existing default path remains u
 | PR | 内容 | 状态 |
 |---|---|:---:|
 | **PR 22** `refactor(serve): extract acp bridge primitives` | `httpAcpBridge.ts` 拆为 shared `AcpChannel` + `Transport` + `EventBus` + bridge primitives；CLI route contract 保持（依赖 PR 4, 8, 11）| ✅ **PR 22a MERGED 2026-05-18 17:23** [PR#4295](https://github.com/QwenLM/qwen-code/pull/4295) (doudouOUC, **56 分钟极速合**——pure refactor 红利；最终 +1106/-688 17 文件，review 期间仅 -20/+44 极小调整，8 reviews；wenshao APPROVED quote: "**pure refactor, mechanically verified**: file moves preserve content via `git mv`, wrappers are two lines so **no opportunity for behavioral drift**, all **13 existing import sites resolve through the wrappers unchanged**, the new package builds and passes 28/28 of its own tests, and the daemon's SSE / ring replay / Last-Event-ID..."；**split 进一步为 3 阶段: PR 22a (zero-coupling lift, ✅ MERGED 17:23) + PR 22b/1 (pure-type + pure-utility surface lift, ✅ MERGED 23:00, [#4298](https://github.com/QwenLM/qwen-code/pull/4298) +1431/-1450 12 files —— lift status types / workspace path canonicalization / error classes / `HttpAcpBridge` interface contract) + PR 22b/2 (⏳ implementation lift: `BridgeClient` / `createHttpAcpBridge` factory / `defaultSpawnChannelFactory` + `DaemonStatusProvider` injection seam)**；3-stage split 让每阶段保持机械低风险，复杂度集中在最后一阶段；3 zero-coupling primitives 用 `git mv` 保 blame 移到新 `@qwen-code/acp-bridge` package：① `eventBus.ts` (578 LOC 无 internal import) ② `inMemoryChannel.ts` (73 LOC 只依赖 `@agentclientprotocol/sdk`) ③ `AcpChannel`/`AcpChannelExitInfo`/`ChannelFactory` types；**额外种 `PermissionMediator` interface contract**——PR 24 4 strategies 可直接挂接；chiga0 #3803 "Stage 1.5-prereq AcpChannel lift" 真正落地；**解锁 PR 22b/2 / PR 23 / PR 24**；follow-up suggestion: `SubscriberLimitExceededError` (public DoS defense) 测试覆盖待补) |
-
-> **PR 22b/1 ([#4298](https://github.com/QwenLM/qwen-code/pull/4298)) 4 file moves 明细**（皆走 `git mv` 保 blame, +1431/-1450 12 files, 4h55m turnaround, APPROVED ×2 AI /reviews gpt-5.5 + qwen-latest）：
-> | 文件 | LOC | 来源 → 目的 |
-> |---|---|---|
-> | `status.ts` | ~600 | `cli/src/serve/status.ts` (+ `.test.ts`) → `acp-bridge/src/status.ts` (verbatim move) |
-> | `workspacePaths.ts` | ~80 | `canonicalizeWorkspace` (`fs/paths.ts:61-97` cross-module BX9_q 契约) + `MAX_WORKSPACE_PATH_LENGTH` (`httpAcpBridge.ts:762`) → `acp-bridge/src/workspacePaths.ts` (NEW) |
-> | `bridgeErrors.ts` | ~200 | 11 错误类 → `acp-bridge/src/bridgeErrors.ts` (NEW) |
-> | `bridgeTypes.ts` | ~520 | 11 类型 + `HttpAcpBridge` 接口契约 → `acp-bridge/src/bridgeTypes.ts` (NEW) |
->
-> **11 错误类 + HTTP 映射**（从 `httpAcpBridge.ts` 提到 `acp-bridge/src/bridgeErrors.ts`）：
-> | 类 | HTTP | 类 | HTTP |
-> |---|:---:|---|:---:|
-> | `SessionNotFoundError` | 404 | `InvalidPermissionOptionError` | 400 |
-> | `RestoreInProgressError` | 409 | `InvalidSessionMetadataError` | 400 |
-> | `InvalidSessionScopeError` | 400 | `WorkspaceInitConflictError` | 409 |
-> | `SessionLimitExceededError` | 503 | `McpServerNotFoundError` | 404 |
-> | `WorkspaceMismatchError` | 400 | `McpServerRestartFailedError` | 502 |
-> | `InvalidClientIdError` | 400 | | |
->
-> **跨 LM review 收敛信号**（值得记录的工程模式）：Codex `/codex:review` 标 P2 + Copilot 内联 review 独立标同一处 `package.json:50-52` —— 4 个尚未实现的 subpath exports (`./bridgeOptions` / `./bridge` / `./spawnChannel`) 提前暴露会让首个 consumer 撞 `ERR_MODULE_NOT_FOUND`。两个独立 reviewer 收敛 = 强信号 → fix `33c83033d` 移除（PR 22b/2 落地时随 source 文件一起恢复）。
->
-> **package.json 7 个 subpath exports** 设计（PR 22b/1 落地 4 个，预留 3 个待 PR 22b/2 同步实现）：`/status` ✅ / `/workspacePaths` ✅ / `/bridgeErrors` ✅ / `/bridgeTypes` ✅；待 PR 22b/2: `/bridgeOptions` / `/bridge` / `/spawnChannel`。
->
-> **package-lock.json 教训**（PR 22a 首次 push 翻车之后的避坑）：先 `git restore origin/main package-lock.json` 再增量 patch 加 `@qwen-code/qwen-code-core` 到 acp-bridge workspace entry —— 避免 npm 11 peer-flag 全量重写。复用 `25b9a6d7f` 已验证的方法。
-
 | **PR 23** `feat(mcp): shared MCP transport/process pool` | 真共享 pool，keyed by canonical workspace + server **config hash** + auth/env/runtime inputs；lifecycle/refcount tests（依赖 PR 22, 14）| ⏳ |
 | **PR 24** `feat(security): client pairing revocation + PermissionMediator` | pair tokens + revocation API + audit log + 4 policy strategies（first-responder / designated / consensus / local-only）（依赖 PR 8, 22）| ⏳ |
 | **PR 25** `refactor(output): daemon-compatible output sinks` | JSONL / stream-json / dual-output behavior 移到 protocol/output sink 边界后；让 CLI + daemon client 共享 event semantics 而不是 duplicate terminal-specific logic（依赖 PR 4, 22）—— PR#4226 doudouOUC 平行 reducer 实现可拆这里提前 | ⏳ |
 | **PR 26** `feat(adapters): flag-gated daemon client adapters` | 开始 TUI / channels / web-debug / IDE adapter migration behind flag，用 `DaemonSessionClient`；如 ownership/review size 需要可按 adapter 拆分；3 bonus spike [PR#4202](https://github.com/QwenLM/qwen-code/pull/4202) / [PR#4203](https://github.com/QwenLM/qwen-code/pull/4203) / [PR#4199](https://github.com/QwenLM/qwen-code/pull/4199) 已铺路（依赖 PR 3, 4, 25）| ⏳ |
+
+#### PR 22b/1 ([#4298](https://github.com/QwenLM/qwen-code/pull/4298)) 工程明细
+
+皆走 `git mv` 保 blame, +1431/-1450 12 files, 4h55m turnaround (vs PR 22a 56min), APPROVED ×2 AI /reviews (gpt-5.5 + qwen-latest)。
+
+**4 file moves**：
+
+| 文件 | LOC | 来源 → 目的 |
+|---|---|---|
+| `status.ts` | ~600 | `cli/src/serve/status.ts` (+ `.test.ts`) → `acp-bridge/src/status.ts` (verbatim move) |
+| `workspacePaths.ts` | ~80 | `canonicalizeWorkspace` (`fs/paths.ts:61-97` cross-module BX9_q 契约) + `MAX_WORKSPACE_PATH_LENGTH` (`httpAcpBridge.ts:762`) → `acp-bridge/src/workspacePaths.ts` (NEW) |
+| `bridgeErrors.ts` | ~200 | 11 错误类 → `acp-bridge/src/bridgeErrors.ts` (NEW) |
+| `bridgeTypes.ts` | ~520 | 11 类型 + `HttpAcpBridge` 接口契约 → `acp-bridge/src/bridgeTypes.ts` (NEW) |
+
+**11 错误类 + HTTP 映射**（从 `httpAcpBridge.ts` 提到 `acp-bridge/src/bridgeErrors.ts`）：
+
+| 类 | HTTP | 类 | HTTP |
+|---|:---:|---|:---:|
+| `SessionNotFoundError` | 404 | `InvalidPermissionOptionError` | 400 |
+| `RestoreInProgressError` | 409 | `InvalidSessionMetadataError` | 400 |
+| `InvalidSessionScopeError` | 400 | `WorkspaceInitConflictError` | 409 |
+| `SessionLimitExceededError` | 503 | `McpServerNotFoundError` | 404 |
+| `WorkspaceMismatchError` | 400 | `McpServerRestartFailedError` | 502 |
+| `InvalidClientIdError` | 400 | | |
+
+**package.json 7 个 subpath exports** 设计（PR 22b/1 落地 4 个，预留 3 个待 PR 22b/2 同步实现）：`/status` ✅ / `/workspacePaths` ✅ / `/bridgeErrors` ✅ / `/bridgeTypes` ✅；待 PR 22b/2: `/bridgeOptions` / `/bridge` / `/spawnChannel`。
+
+**跨 LM review 收敛信号**（值得记录的工程模式）：Codex `/codex:review` 标 P2 + Copilot 内联 review 独立标同一处 `package.json:50-52` —— 4 个尚未实现的 subpath exports (`./bridgeOptions` / `./bridge` / `./spawnChannel`) 提前暴露会让首个 consumer 撞 `ERR_MODULE_NOT_FOUND`。两个独立 reviewer 收敛 = 强信号 → fix `33c83033d` 移除（PR 22b/2 落地时随 source 文件一起恢复）。
+
+**package-lock.json 教训**（PR 22a 首次 push 翻车之后的避坑）：先 `git restore origin/main package-lock.json` 再增量 patch 加 `@qwen-code/qwen-code-core` 到 acp-bridge workspace entry —— 避免 npm 11 peer-flag 全量重写。复用 `25b9a6d7f` 已验证的方法。
 
 ### Wave 6 — Release hardening + v0.16
 
