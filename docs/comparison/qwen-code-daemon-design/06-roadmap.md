@@ -288,10 +288,10 @@ chiga0 设计哲学（每 PR 反复出现）：**existing default path remains u
 
 **CI 注意**：PR target `daemon_mode_b_main`，`ci.yml pull_request` trigger 只 fire `main / release/**` → **CI 不跑**；最终通过 `daemon_mode_b_main → main` 周期 merge PR 触发 full CI matrix。
 
-**F1 ✅ MERGED 2026-05-19 16:26** to `daemon_mode_b_main` (`981bc7c7e`)。**3 deferred follow-up 由 PR#4334 全 ship**：
-- ✅ 服务端 adapter wrapping PR 18 `WorkspaceFileSystem` 满足 `BridgeFileSystem`（commit `9560dfc28` 落地 + commit `881133407` 加 `writeTextOverwrite` primitive 解 Copilot review 抓的 mode preservation 问题）
-- ✅ `runQwenServe.ts` wiring → **真关 PR 18 `ws.ts:613` TOCTOU 线** (commit `9560dfc28`)
-- ⏳ `httpAcpBridge.test.ts` (~6604 LOC) → `acp-bridge/src/bridge.test.ts` 拆走（4/174 daemon-host integration tests fail 跨包，需单独 PR 拆 4 个 integration test 到 cli test file）
+**F1 ✅ MERGED 2026-05-19 16:26** to `daemon_mode_b_main` (`981bc7c7e`)。**3 deferred follow-up 全部 ship 完**：
+- ✅ 服务端 adapter wrapping PR 18 `WorkspaceFileSystem` 满足 `BridgeFileSystem`（#4334 commit `9560dfc28` + commit `881133407` 加 `writeTextOverwrite` primitive 解 Copilot review 抓的 mode preservation 问题）
+- ✅ `runQwenServe.ts` wiring → **真关 PR 18 `ws.ts:613` TOCTOU 线**（#4334 commit `9560dfc28`）
+- ✅ **`httpAcpBridge.test.ts` 6861 LOC 跨包搬迁**（[#4445](https://github.com/QwenLM/qwen-code/pull/4445) MERGED 2026-05-23 08:46，`57d04786`）：`git mv` 100% rename detection 保 blame；181 tests → 177 `acp-bridge/src/bridge.test.ts` + 4 split 到 `cli/serve/daemonStatusProvider.test.ts`（唯一真耦合 daemon-host env/preflight cell 的 test）；新 `acp-bridge/src/internal/testUtils.ts` 抽共享 fixture (`FakeAgent` / `makeChannel` / `makeBridge` / `WS_A` / `WS_B` / `SESS_A`)；跨包解析双通道：TS 走 `./internal/testUtils` subpath export，vitest 运行时走 `resolve.alias` 指 `.ts` source 不用 rebuild；`internal/` + `@internal` JSDoc tag = package-private（沿用 `internal/stderrLine.ts` 既有惯例）；2 轮 self-review via `code-reviewer` agent，8 findings folded；291/291 acp-bridge + 4/4 daemonStatusProvider 全绿
 
 **F1 follow-up batch ([#4334](https://github.com/QwenLM/qwen-code/pull/4334))** OPEN REVIEW_REQUIRED 2026-05-19 17:20 (F1 合后 54m，+894/-54 9 files)：
 
