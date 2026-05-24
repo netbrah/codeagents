@@ -82,7 +82,69 @@ curl -s -X POST "http://127.0.0.1:4170/session/$SID/prompt" \
 | `--mcp-client-budget <N>` | — | **workspace-scope** MCP client 数 cap（N session 共享 transport，N 个 session × budget 2 是 2 而非 2N）；正整数 |
 | `--mcp-budget-mode <off\|warn\|enforce>` | `warn` if budget set else `off` | budget 怎么 enforce：`off` 纯观测 / `warn` 75% 阈值发警告不拒 / `enforce` 超 cap 拒绝（按 `mcpServers` 声明顺序确定）；`enforce` 必须配 budget |
 
-### 2.2 安全启动配方
+### 2.2 Bearer token 认证基础
+
+> 看 §2.1 flag 表很多地方提"token"和"bearer"，先把这套机制说清楚再讲启动配方。
+
+**什么是 bearer**：HTTP 标准认证 scheme（[RFC 6750](https://datatracker.ietf.org/doc/html/rfc6750)）—— 把 token 当"持有令牌"用，谁拿到这串字符串谁就能调 API，没有公私钥之类的非对称结构。请求头格式固定：
+
+```
+Authorization: Bearer <token>
+```
+
+**daemon 怎么用**：
+
+```bash
+# 启动时设 token（推荐 env 不要 --token，下面 token 来源优先级有解释）
+export QWEN_SERVER_TOKEN=$(openssl rand -hex 32)
+qwen serve --require-auth
+
+# client 每个调用必须带：
+curl http://127.0.0.1:4170/capabilities \
+  -H "Authorization: Bearer $QWEN_SERVER_TOKEN"
+```
+
+**Token 来源优先级**（daemon 启动时）：
+
+| 来源 | 推荐度 | 备注 |
+|---|---|---|
+| `--token <hex>` CLI flag | ❌ **不推荐生产** | `/proc/<pid>/cmdline` 任何本机用户可见（除非 hidepid=2）；启动时 stderr 也会 warn |
+| `QWEN_SERVER_TOKEN` env var | ✅ **推荐** | `/proc/<pid>/environ` 仅 owner 可读 |
+| 都没设 | (自动) | daemon 启动随机生成 + 写 `~/.qwen/serve/token`（0o600）；SDK 默认从这读 |
+
+**Token 来源优先级**（client 端 SDK / web-shell）：
+
+1. 显式传 `bearerToken` 参数
+2. `QWEN_SERVER_TOKEN` env var
+3. `~/.qwen/serve/token` 文件（如果存在）
+
+**daemon 端实现细节**（详 [§05 §二](./05-permission-auth.md#二layer-1传输层-bearer-tokenstage-1--实现)）：
+
+- **SHA-256 hash + `crypto.timingSafeEqual` 比对** —— 防 timing side-channel attack（不让攻击者从响应时间猜 token 字符）
+- **401 uniform 响应** —— "缺 header" / "bad scheme（不是 Bearer）" / "token 错" 三种错误返回**完全一致**，防 side-channel 探测哪种错了
+- **`0.0.0.0` + 无 token = boot 拒绝启动** —— 防开发时不开 token 直接走勿勿上线
+- **loopback 默认免 token** —— 127.0.0.1 / localhost / ::1 / `[::1]` / host.docker.internal 五种 loopback 主机识别免 token；**`--require-auth` 启用后 loopback 也要 bearer**（且 `/health` 也要，K8s/Compose 健康探针需带 bearer）
+- **Host header allowlist** —— loopback 绑定时同时 enforce Host 头白名单（防 DNS rebinding attack）
+
+**bearer 不是全部 —— 还有 `X-Qwen-Client-Id` header**：
+
+```
+Authorization: Bearer <token>            ← 第 1 道：你有权访问 daemon 吗
+X-Qwen-Client-Id: client_<uuid>          ← 第 2 道：你是哪个 client 在调
+```
+
+`X-Qwen-Client-Id` 是 daemon 第一次见到 client 时 stamp 的 122-bit entropy randomUUID（**daemon 生成，client 不能自己挑** —— 防 client 伪造身份）。所有 mutation route（`POST /workspace/memory` / `POST /workspace/file` / `POST /session/:id/permission/...` 等）都强制带；read-only route 也要带做 audit symmetry。permission strategy 如 `designated` 就用这个 id 判 "prompt originator 是不是你"。
+
+**两者关系**：
+- **bearer 解决"is this caller allowed in?"** —— 传输层访问控制
+- **clientId 解决"which caller is this?"** —— 应用层身份与审计
+
+**为什么不用 cookie / OAuth / JWT**：
+- daemon 不是 web app —— 没有 browser session、没有 logout flow
+- 主流 SDK client（IDE plugin / CLI tool / 自动化脚本）拿 bearer 比拿 OAuth 简单
+- OAuth device-flow 是 **daemon 与上游 provider** 之间（让 daemon 代用户登录 Qwen / OpenAI 等），不是 client 与 daemon 之间 —— 别混淆，详 [§07 §5.6](#56-oauth-device-flow远端-daemon-auth-provider)
+
+### 2.3 安全启动配方
 
 **本机开发** —— 最省事：
 ```bash
@@ -115,7 +177,7 @@ qwen serve --require-auth \
   --mcp-client-budget 8 --mcp-budget-mode enforce
 ```
 
-### 2.3 环境变量
+### 2.4 环境变量
 
 | env | 说明 |
 |---|---|
@@ -125,7 +187,7 @@ qwen serve --require-auth \
 | `QWEN_TELEMETRY_METRICS_INCLUDE_SESSION_ID` | `true` 让 metric 重新带 `session.id` —— 默认不带防 Prometheus/ARMS unbounded cardinality fan-out |
 | `OTEL_RESOURCE_ATTRIBUTES` / `OTEL_SERVICE_NAME` | 标准 OTel resource attribute 注入（telemetry P3, `telemetry.resourceAttributes` setting 同效）|
 
-### 2.4 Permission strategy 选择
+### 2.5 Permission strategy 选择
 
 `PermissionMediator` 4 个 strategy 通过 workspace `settings.json` opt-in（缺省 = `first-responder` 保 wire 字节 compat）：
 
