@@ -8,19 +8,78 @@
 
 ## TL;DR
 
-`qwen serve` 是 qwen-code 的 **headless HTTP daemon**：1 个 `qwen --acp` agent 封进一个 1-workspace-per-process 的进程，对外暴露 HTTP/SSE + ACP Streamable HTTP 两套 northbound transport，让 SDK / web client / IDE / ACP-native client (Zed, Goose) 不再各自 spawn `qwen --acp` child。
+`qwen serve` 启动一个本地 HTTP daemon，把 qwen-code 的 agent 能力暴露给**多种 client**（web chat / web terminal / IDE / Zed / Goose / 自动化脚本）—— 不用每个 client 自己 spawn `qwen --acp` child。
 
-**daemon 终态提供的能力面**：
-- **协议层**：~40 HTTP routes、~31+ capability tag、SSE typed event v1、closed `errorKind` 7-值 taxonomy、Last-Event-ID 重连 + heartbeat + slow_client_warning、`state_resync_required` 同步重建
-- **第二 northbound — ACP Streamable HTTP transport** at `/acp` ([RFD #721](https://github.com/agentclientprotocol/agent-client-protocol/pull/721))：让 Zed / Goose / 任何 ACP-native SDK 直接驱动 daemon，与 REST+SSE 共存
-- **Session 生命周期**：create / load / resume / cancel / close-delete + sessionScope override + bounded
-- **权限**：bearer token + daemon-stamped clientId + `--require-auth` mutation gate + **`PermissionMediator` 4 strategy**（first-responder / designated / consensus / local-only）+ audit ring
-- **Workspace state CRUD**：memory / agents / tools / approval-mode / init / MCP restart + **shared MCP transport pool**（workspace-scope budget + N session 共享 transport）
-- **文件**：sandbox-bounded read / write/edit（atomic temp+rename + content-hash precondition + symlink_escape rejection）
-- **OAuth**：device-flow（RFC 8628）+ BrandedSecret 4-way redaction + 0o600
-- **客户端 SDK 共享层**：`@qwen-code/sdk-typescript/daemon-ui` 提供 typed event reducer + transcript block + render contract，多 web client（web chat / web terminal / IDE panel）共消费
+**典型场景**：
+- 🖥️ 浏览器里跑 web chat / web terminal，让 agent 操作本地 repo
+- ☁️ 远端 cloud devbox / Codespaces / K8s pod 跑 daemon，本地浏览器/IDE 连进去
+- 🧑‍🤝‍🧑 同一 session 多 tab 协作，shared permission 审批
+- 🤖 Zed / Goose 等 ACP-native client 接入（走 `/acp` 端点）
+- 🔁 CI / 自动化脚本通过 HTTP 调用 agent
 
-**本地 native TUI 不变**：`qwen` 命令直连本地 runtime 链路长期保留，**不走 daemon、不走 httpServer**。`qwen serve` 是给 **web chat / web terminal / remote runtime / 多 client 协作** 场景的，不是 TUI 替代。详 [§02 §7](./02-architectural-decisions.md#7-部署模式--mode-b-mainline--mode-a-parking-lot)。这是 Stroustrup 零成本抽象原则——**不要为不需要的东西付费**。
+**`qwen serve` ≠ 替代 `qwen` CLI**。本地单人开发不需要多 client / 不需要 web UI，**继续用 `qwen` native TUI**（直连本地 runtime，零网络 / 最低复杂度）。daemon 是给上面那些场景的，不是给 TUI 用户的。
+
+### 按需阅读导航
+
+| 你是 | 跳到 |
+|---|---|
+| 第一次配 daemon，5 分钟跑起来 | [§一 快速上手](#一快速上手5-分钟) → [§五 常用操作 recipes](#五常用操作-recipes) |
+| 想理清术语（bearer / session / workspace / clientId 等）| [§〇 核心概念](#〇核心概念) |
+| 配启动参数 / 安全启动 | [§二 启动选项](#二qwen-serve-启动选项) |
+| 选客户端接入方式（SDK / curl / ACP / web-shell）| [§四 客户端接入](#四客户端接入) |
+| 上 systemd / Docker / K8s 生产 | [§八 生产部署](#八生产部署) |
+| 出问题排查 | [§七 诊断 & 故障排查](#七诊断--故障排查) → 附录 B decision tree |
+| 选 Permission strategy（多 client 协作）| [§2.5 Permission strategy 选择](#25-permission-strategy-选择) |
+
+---
+
+## 〇、核心概念
+
+> 后续章节会反复用到的术语，**先在这里把心智模型建好**，遇到生词回来查。
+
+### 进程与状态
+
+| 术语 | 含义 |
+|---|---|
+| **`qwen serve`** | 启动 daemon 的命令；起一个 HTTP server 进程，里面再 spawn 一个 `qwen --acp` agent 子进程 |
+| **daemon** / **daemon process** | `qwen serve` 起的 HTTP server 进程本身，对外是 northbound transport，对内 spawn ACP agent |
+| **ACP child** | daemon 内嵌的 `qwen --acp` 子进程，真正执行 LLM 调用 / tool / shell / MCP / skill 的 runtime |
+| **workspace** | daemon 启动时绑定的**一个**绝对路径目录（默认 `process.cwd()`，可 `--workspace` 指定）。**1 daemon = 1 workspace**，要支持多 workspace 就起多个 daemon process 各占一个端口 |
+| **session** | 一段对话上下文（含 transcript / FileReadCache / PermissionManager）。**1 daemon = N session 复用同一个 ACP child**，session 之间隔离但共享同一 workspace |
+
+### 客户端身份与认证
+
+| 术语 | 含义 |
+|---|---|
+| **client** | 调 daemon 的程序：web chat / SDK / curl 脚本 / VSCode 插件 / Zed / Goose 等。**一个 daemon 可被多 client 同时连接**（每个 client 可订阅同一个 session 的事件） |
+| **bearer token** | HTTP 标准 `Authorization: Bearer <token>` 认证。daemon 启动时设（`QWEN_SERVER_TOKEN` env / `--token` flag / 自动生成）。详 [§2.2](#22-bearer-token-认证基础) |
+| **`X-Qwen-Client-Id`** | daemon 第一次见到 client 时 stamp 给它的 122-bit randomUUID，**daemon 生成、client 不能伪造**。所有 mutation 请求必须带，permission 投票用它判 "哪个 client 在投" |
+
+### 协议表面
+
+| 术语 | 含义 |
+|---|---|
+| **REST + SSE** | daemon 的主 northbound transport：HTTP request/response + `text/event-stream` 长连接推 `session_update` / `permission_request` 等 typed event |
+| **`/acp`** | 第二 northbound transport ([RFD #721](https://github.com/agentclientprotocol/agent-client-protocol/pull/721) ACP Streamable HTTP)，让 Zed / Goose 等 ACP-native client 直接接入。env `QWEN_SERVE_ACP_HTTP=0` 关 |
+| **capability tag** | `GET /capabilities` 返回的 feature flag 字符串数组（如 `session_lifecycle` / `mcp_workspace_pool`）；client 用 `if (caps.features.includes(...))` 判断 daemon 是否支持某能力，做优雅降级。完整列表见 [附录 A](#附录-acapability-tag-速查) |
+| **`Last-Event-ID`** | SSE 标准头。client 重连时带上次见到的最大 event id，daemon 从 ring buffer 回拉断流期间的 missed events |
+
+### 权限模型
+
+| 术语 | 含义 |
+|---|---|
+| **permission request** | agent 调有副作用的 tool（如 `Bash`）时，daemon 通过 SSE 推 `permission_request` 给所有订阅 client 让用户审批 |
+| **permission strategy** | 多 client 怎么投票决定批准/拒绝。4 种：`first-responder`（默认，任意 client 抢答）/ `designated`（仅 prompt 发起者）/ `consensus`（N-of-M 投票）/ `local-only`（仅 loopback）。详 [§2.5](#25-permission-strategy-选择) |
+| **`--require-auth`** | 启用 mutation gate —— 所有写操作（mutation route）都强制带 bearer + clientId。loopback 默认免 token，这个 flag 强制 loopback 也要 |
+
+### 文件 / MCP / 状态
+
+| 术语 | 含义 |
+|---|---|
+| **sandbox-bounded** | 文件操作（read / write / edit）受 sandbox root 限制 + symlink_escape rejection —— agent 不能通过 symlink 写出 workspace 外 |
+| **MCP transport pool** | N 个 session 共享同一个 MCP server 连接（按 `(name + config fingerprint)` keyed）—— `--mcp-client-budget=2` 是 workspace 上限 2 而非 2N |
+| **typed event** | daemon SSE 推的事件都有 `type` 字段做 discriminated union；client 用 `switch (event.type)` 处理，未知 type fall through 不 throw —— forward-compat 设计 |
+| **`errorKind` 7-值 taxonomy** | daemon HTTP 错误响应都带一个 closed enum `errorKind` (`missing_binary` / `blocked_egress` / `auth_env_error` / `init_timeout` / `protocol_error` / `missing_file` / `parse_error`)，client `switch` 处理而不是 regex match error message |
 
 ---
 
@@ -211,9 +270,9 @@ qwen serve --require-auth \
 
 ---
 
-## 三、3 种 deployment shape
+## 三、2 种 deployment shape
 
-来自 chiga0 [#3803 deployment forms](https://github.com/QwenLM/qwen-code/issues/3803) 设计，详 [§01 §三·一](./01-overview.md)。
+> 核心不变式：**daemon host = workspace host = runtime host**。所有 fs / tool / MCP / skill / shell 在 daemon 所在那台机器上 evaluate；如果你想"daemon 在远端但 workspace 在本地"，那是反模式，daemon 看不到 local files，详 [§04 §五 Runtime locality](./04-deployment-and-client.md)。
 
 ### Shape 1: Local single-machine（本地单机）✅ 推荐
 
@@ -251,12 +310,6 @@ qwen serve --require-auth \
 - client 在本地浏览器/IDE，通过 HTTP+SSE 与远端 daemon 对话
 - 用例：Codespaces / Coder / 内部 cloud devbox
 - 必须配 token + hostname 0.0.0.0 + TLS reverse proxy
-
-### Shape 3: Local workspace + remote daemon ❌ 不推荐
-
-daemon 在远端但 workspace 在本地 —— daemon 看不到 local files / tools / MCP / skills，除非显式 sync / mount / orchestrator。`POST /session` 携带本地 cwd 会被 `400 workspace_mismatch` 拒。
-
-**daemon host = runtime host 是核心不变式**。详 [§04 §五 Runtime locality](./04-deployment-and-client.md)。
 
 ---
 
