@@ -8,7 +8,7 @@
 >
 > **2026-05-22 v0.16.0 更新**：PR#3969（Ctrl+B keybind）/ PR#3970（TaskBase envelope，`flavor` 重命名为 `isBackgrounded`）/ PR#3933（monitor notifications）均已合并入 v0.16.0。Phase D part (b) 完整收官。"追踪中"原 OPEN 项全部关闭。
 >
-> **2026-05-24 Claude Code v2.1.150 binary 复核**：⚠️ 文档原结论"Claude Code 把同期工程力量放在云端 fleet... 本地 Coordinator panel 维持 v2.1.81 时设计" **部分推翻**。v2.1.150 二进制 `strings` 扫描确认 **`background-tasks-dialog` / `BackgroundTasksSettings` / `BackgroundAppearance`** 三个新组件名稳定存在（v2.1.145 时点已含相同 string count，v2.1.150 无新增）—— Claude 在 v2.1.132（本文档原对比基线）→ v2.1.145 之间也加了**本地 background tasks 对话框 + 设置面板 + 外观自定义**，没只在云端 fleet 投入。具体何时引入需 v2.1.133-144 binary 才能精确，本文档暂记"v2.1.145+ 已稳定存在"。Coordinator panel 形态 + 异步 Subagent 调用还需要源码级核查（leaked source 自 2026-04-25 无新 commit，已落后）。
+> **2026-05-24 Claude Code v2.1.150 binary 复核**：⚠️ 文档原结论"Claude Code 把同期工程力量放在云端 fleet... 本地 Coordinator panel 维持 v2.1.81 时设计" **部分推翻**。v2.1.150 二进制 `strings` 扫描确认 **`background-tasks-dialog` / `BackgroundTasksSettings` / `BackgroundAppearance`** 三个新组件名稳定存在（v2.1.145 时点已含相同 string count）—— Claude 在 v2.1.132（本文档原对比基线）→ v2.1.145 之间加了 **`/tasks` 单任务 transcript 详情对话框**（prompt + tool calls + result 三段式 + 状态 3 态 start/progress/error）+ **`/daemon` 服务化管理面板**（3 类 services：scheduled task / assistant / remote-control server）。原结论"只在云端投入"不成立；但 Qwen "4-kind 统一调度 framework"仍领先 —— Claude `/daemon` 是 systemd-style 长跑服务管理（与 Qwen in-session task 不同维度），`/tasks` 是轻量单任务查看器。具体形态见 §零 [`background-tasks-dialog` 实际形态](#background-tasks-dialog-实际形态2026-05-24-binary-反编译)。
 
 ## 零、最新动态（截至 2026-05-24，含 v0.16.0 release + Claude v2.1.150 binary 复核）
 
@@ -84,6 +84,88 @@
 - `BackgroundAppearance` — 外观自定义
 
 意味着 Claude 在云端 fleet (Ultraplan / Ultrareview / Routines) 之外，也在 v2.1.132~145 间加了本地 background tasks UI surface。具体何时引入 + 完整 UX 形态需要 v2.1.133-144 binary 对比 + leaked source 更新才能精确（leaked source 自 2026-04-25 无新 commit，已落后）。
+
+#### `background-tasks-dialog` 实际形态（2026-05-24 binary 反编译）
+
+直接从 v2.1.150 binary 周边 JS（React Ink 组件源码）反编译挖出的实际形态：
+
+**1. 触发**：`/tasks` slash command
+
+- Enable 逻辑：`function nw(){ if (t4(process.env.CLAUDE_CODE_ENABLE_TASKS)) return false; return true; }` —— **default-on**；env `CLAUDE_CODE_ENABLE_TASKS=true` (truthy) 反而**禁用** tasks（kill-switch 语义）
+- Hint 字符串："Task IDs can be found using the /tasks command"
+
+**2. Dialog 实际渲染**（line 717320 React Ink 组件源码反编译）：
+
+```
+┌─ Background task dialog (单任务详情) ─────────────┐
+│ <label>                  ·  <metadata pills>      │
+│                                                   │
+│ Error                                             │ ← state==='error' 时显示
+│   <error message>                                 │
+│                                                   │
+│ Loading transcript…                               │ ← async transcript loading
+│ — 或 —                                            │
+│ Transcript not yet available (agent still         │ ← state==='start'/'progress'
+│   running).                                       │
+│ — 或 —                                            │
+│ Transcript unavailable.                            │
+│                                                   │
+│ Prompt                                            │
+│   <prompt 第 1 行>                                │
+│   <prompt 第 2 行>                                │
+│   <prompt 第 3 行>                                │
+│   … N more lines                                  │
+│                                                   │
+│ Tool calls (N)                                    │
+│   … M earlier                                     │
+│   <tool name> (<summary>)                         │ ← 最近 5 个，更早 collapse
+│   ...                                             │
+│                                                   │
+│ Result                                            │
+│   … X more above                                  │
+│   <syntax-highlighted result.json>                │ ← code block 或 plain text
+│   … Y more below                                  │
+└───────────────────────────────────────────────────┘
+```
+
+**3. 状态 enum**：`'start' | 'progress' | 'error'` —— 3 态（不是 Qwen 那种 active/achieved/aborted/cleared 4 态 goal-style）
+
+**4. 任务字段**（list entry 用的）：`id` / `name` / `label` / `kind` / `status` / `model` / `cwd` / `owner` / `started` / `action` —— **`kind` 字段说明 Claude 也有"任务种类"概念**（与 Qwen 4-kind framework 同构？需要进一步源码核查）
+
+**5. 配套 `/daemon` slash command**（另一个相关命令）：
+
+```
+{type:'local-jsx', name:'daemon', immediate:true,
+ description:'Manage background services: assistants, scheduled tasks, and remote control'}
+```
+
+**3 类 services**：
+| Kind | Label |
+|---|---|
+| `scheduled` | `"scheduled task"`（cron / 定时任务）|
+| `assistant` | `"assistant"`（agent 实例）|
+| `remoteControl` | `"remote-control server"`（远程控制 server）|
+
+**Action 按钮**：`uninstall: "Uninstall service"` / `stop: "Stop"`
+
+**与 Qwen Code `/tasks` 对照**：
+
+| 维度 | Claude v2.1.150 | Qwen v0.16.0 |
+|---|---|---|
+| **触发命令** | `/tasks` + `/daemon` 双命令 | `/tasks` 单命令 |
+| **状态枚举** | `start` / `progress` / `error` 3 态 | `running` / `completed` / `failed` / `cancelled` ... 多态 |
+| **任务种类（kind）** | 字段存在但未确认 enum | **4 kind 明确**：agent / shell / monitor / dream |
+| **统一调度抽象** | 待源码核查（dialog 字段看是分类 list 而非统一调度）| ✅ 4-kind 走同 framework |
+| **transcript 详情** | ✅ Prompt + Tool calls (last 5) + Result 三段式 | ✅ AgentDialog 含 transcript |
+| **scheduled task / cron 类** | ✅ `/daemon scheduled` 独立 service | ❌（用户层无 cron task） |
+| **remote-control server 类** | ✅ `/daemon remoteControl`（与 Ultraplan/Ultrareview 关联）| ❌ |
+| **服务化管理** | ✅ daemon-level services 概念（install/uninstall）| ❌（Qwen 是 session-level task） |
+
+**关键判断**（2026-05-24 binary 复核后）：
+- Claude `/tasks` dialog 是**轻量的单任务详情查看器**（prompt + tools + result 三段式），不是 Qwen LiveAgentPanel 那种 always-on multi-task overview
+- Claude `/daemon` 是**服务化管理面板**（cron task / assistant / remote-control），更接近 systemd-style "long-running services"，与 Qwen 的"in-session background task"概念**不同维度**
+- Claude **可能没有 Qwen 那种 4-kind 统一调度 framework**（dialog UI 看任务是按 kind 字段分类列出，但能否跨 kind 共用 scheduler 待源码确认）
+- 因此原"Qwen 在 background tasks framework 上仍领先 Claude"判断**仍成立**，但需限定为"**4-kind 统一调度框架方向**"领先；Claude 在"长跑服务管理"+"transcript 详情查看"另有自己的设计
 
 **5 个正交新特性**（均不改动 Coordinator panel）：
 
