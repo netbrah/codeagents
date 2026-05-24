@@ -93,7 +93,7 @@ ACP NDJSON 协议 → HTTP+SSE daemon
 - 🧭 [PR#3929](https://github.com/QwenLM/qwen-code/pull/3929) / [#3930](https://github.com/QwenLM/qwen-code/pull/3930) / [#3931](https://github.com/QwenLM/qwen-code/pull/3931) remote-control stack 仍 OPEN draft / changes requested；**优先级后置**，等 TUI / channels / web / IDE 先完成 Mode B client 适配后，再重定向为 daemon HTTP/SSE facade
 - ⏳ Stage 1.5 剩余主线：P0 production must-haves + daemon-side state CRUD，P1 typed event contract / bridge primitives + client adapters behind flag，P2 remote-control / Mode A revisit（详 [§06 Roadmap](./06-roadmap.md)）
 
-## 二、6 章总览
+## 二、7 章总览
 
 | # | 文档 | 核心内容 |
 |---|---|---|
@@ -103,16 +103,20 @@ ACP NDJSON 协议 → HTTP+SSE daemon
 | **04** | [Deployment & Client](./04-deployment-and-client.md) | Mode B client convergence + deployment shape matrix + TUI / channels / web / IDE 适配边界 + daemon-native renderer + remote-control overlay |
 | **05** | [Security & Permission](./05-permission-auth.md) | Bearer + Host allowlist + 0.0.0.0 拒绝 / PR#3723 4-mode evaluatePermissionFlow / first-responder vote + per-session 隔离 / Multi-tenant = 1 daemon 1 tenant OS 进程级隔离 |
 | **06** | [Roadmap & Ecosystem](./06-roadmap.md) | Timeline + Stage 1 audit + Stage 1.5 + chiga0 10 must-haves + 6 architecture findings + Stage 2 + External Reference Architecture + vs OpenCode + vs Anthropic |
+| **07** | [User Guide](./07-user-guide.md) | **用户使用文档（recipe-oriented）**：`qwen serve` 启动 flag 表 + 安全启动配方 + 3 种 deployment shape + 客户端接入（SDK / curl / `/demo`）+ 常用操作 recipes + 配置 & 持久化路径 + 诊断 & 故障排查（`errorKind` 7 值速查）+ 生产部署（systemd / Docker / K8s）+ v0.16.0 实际可用 vs 集成分支预览 + capability tag 速查 |
 
 ## 三、阅读路径
 
 | 路径 | 时间 | 顺序 | 适合 |
 |---|---|---|---|
-| 🚀 **快速理解** | ~20 min | §01 → §02 → §06 §〇/§一/§六 | 评估方案是否值得做 |
+| 🎬 **快速上手用 daemon** | ~10 min | §07 §一 + §二 + §五 recipes | 装了 v0.16.0 想立刻跑起来 |
+| 🚀 **快速理解架构** | ~20 min | §01 → §02 → §06 §〇/§一/§六 | 评估方案是否值得做 |
 | 🔧 **MVP 实施** | ~1 h | §01 → §02 → §03 → §04 → §05 → §06 | 准备开 PR 写代码 |
 | 📖 **完整设计** | ~2 h | §01 → §06 顺序 6 章读完 | 全面理解 |
-| 🔒 **安全 / 多租户** | ~40 min | §05 → §06 §五 | 企业部署评估 |
-| 🌐 **远端 / 多 client** | ~30 min | §04 §三/§四 + §06 §四 | 客户端体验设计 |
+| 🛠️ **生产部署** | ~40 min | §07 §三 + §六 + §七 + §八 | systemd / Docker / K8s 上线 |
+| 🔒 **安全 / 多租户** | ~40 min | §05 → §06 §五 + §07 §二·二 + §07 §八·五 | 企业部署评估 |
+| 🌐 **远端 / 多 client** | ~30 min | §04 §三/§四 + §06 §四 + §07 §三 Shape 2 | 客户端体验设计 |
+| 🩺 **故障排查** | 即查即用 | §07 §七（含 errorKind 7-值速查 + decision tree） | 已部署遇到问题 |
 
 ## 四、核心架构
 
