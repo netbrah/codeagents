@@ -109,6 +109,18 @@ Wave 6 Release hardening         ░░░░░     PR 27 ✅ + PR 30a ✅；PR
 
 **Wave 6 剩余**：PR 28 npm publish / PR 29 auto-gen token / PR 30 容器化 deployment refs / PR 31 cut
 
+### 未来方向参照：编排胶水层（dynamic workflows）
+
+> 关联 [Claude Code Dynamic Workflows Deep-Dive](../claude-code-dynamic-workflows-deep-dive.md)。
+
+Claude Code 2026-05-28 随 Opus 4.8 发布的 **dynamic workflows**（Claude 即兴写 JS 编排脚本 + 隔离 runtime 后台跑几十到上百 subagent）提示了 daemon 系列**还差的最上面一层抽象**：
+
+- **当前缺口**：daemon 已铺好「后台执行 + 多 client + 非阻塞 prompt」的底层管道（non-blocking `POST /prompt` 返 202 / context-usage API / ACP HTTP transport / jifeng MCP bridge），但**没有「让 LLM 即兴写编排脚本 + 在 daemon runtime 跑 fan-out + 收敛」的胶水层**。
+- **不需从零造**：可直接用 daemon 现有 route + jifeng MCP bridge 当 agent runtime，workflow 脚本只做 plan / fan-out / 收敛逻辑。
+- **bundled workflow 是低成本 GA 抓手**：仿 `/deep-research` 绑 deep-research / codebase-bug-sweep / migration-helper 三个 flow 作 dogfooding 入口；`InlineParallelAgentsDisplay`（PR#4477）是天然展示载体。
+- **避坑**：Anthropic 的双层 gate 静默失败是反例 —— daemon 已有 file logger（#4559）+ capability tag 机制，引入 workflow 灰度务必显式日志 + `/status` 暴露 flag 态。
+- **实施成本估算 ~9-13 人周**（runtime 3-5 + 编排原语 2-3 + `/workflows` UI 2 + 1 bundled flow 1-2 + 灰度 1），可拆 3 Wave；详 [deep-dive §六](../claude-code-dynamic-workflows-deep-dive.md#六对-qwen-code-的启发)。
+
 ### 撤回的两条 backlog（架构 lesson）
 
 | PR | backlog 项 | 撤回原因 |
@@ -130,6 +142,7 @@ Wave 6 Release hardening         ░░░░░     PR 27 ✅ + PR 30a ✅；PR
 | Permission / Auth | [05-permission-auth.md](./05-permission-auth.md) |
 | Roadmap + Wave breakdown | [06-roadmap.md](./06-roadmap.md) |
 | **终态用户使用文档** | [07-user-guide.md](./07-user-guide.md) |
+| 未来方向参照（编排胶水层）| [Claude Code Dynamic Workflows Deep-Dive](../claude-code-dynamic-workflows-deep-dive.md) |
 | upstream 实施 tracker | [Issue #4175](https://github.com/QwenLM/qwen-code/issues/4175) |
 | capability backlog | [Issue #4514](https://github.com/QwenLM/qwen-code/issues/4514) |
 | side-channel design | [Issue #4511](https://github.com/QwenLM/qwen-code/issues/4511) |
