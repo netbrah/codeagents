@@ -105,7 +105,8 @@
 
 ### 周报 / 进展跟踪
 
-- [2026-W22（05-24 ~ 05-31）](./docs/comparison/weekly/2026-W22-0524-0531.md) — Qwen Code / OpenCode / Codex / Claude Code 四方非 daemon 进展对比：Qwen compaction 二次重构 + computer-use + v0.16.2/v0.17.0 双发 / OpenCode acp-next 换代 / Codex Guardian 审批守门 + Python SDK beta / Claude Code Opus 4.8 + dynamic workflows
+- **周报**：[2026-W22（05-24 ~ 05-31）](./docs/comparison/weekly/2026-W22-0524-0531.md) — Qwen Code / OpenCode / Codex / Claude Code 四方非 daemon 进展对比：Qwen compaction 二次重构 + computer-use + v0.16.2/v0.17.0 双发 / OpenCode acp-next 换代 / Codex Guardian 审批守门 + Python SDK beta / Claude Code Opus 4.8 + dynamic workflows
+- **月活贡献者**：[Qwen Code 2026 年 5 月](./docs/comparison/contributors/2026-05.md) — 补官方 wiki 缺的「最近一月活跃度」维度：当月 ~46 名作者 / ~390 PR，daemon 团队（doudouOUC 99 / chiga0 36 / ytahdn 3 / jifeng 1）当月主力
 
 ### 系统能力 Deep-Dive
 
