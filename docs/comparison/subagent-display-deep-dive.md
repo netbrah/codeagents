@@ -8,7 +8,7 @@
 >
 > **2026-05-22 v0.16.0 更新**：PR#3969（Ctrl+B keybind）/ PR#3970（TaskBase envelope，`flavor` 重命名为 `isBackgrounded`）/ PR#3933（monitor notifications）均已合并入 v0.16.0。Phase D part (b) 完整收官。"追踪中"原 OPEN 项全部关闭。
 >
-> **2026-05-24 Claude Code v2.1.150 binary 复核**：⚠️ 文档原结论"Claude Code 把同期工程力量放在云端 fleet... 本地 Coordinator panel 维持 v2.1.81 时设计" **部分推翻**。v2.1.150 二进制 `strings` 扫描确认 **`background-tasks-dialog` / `BackgroundTasksSettings` / `BackgroundAppearance`** 三个新组件名稳定存在（v2.1.145 时点已含相同 string count）—— Claude 在 v2.1.132（本文档原对比基线）→ v2.1.145 之间加了 **`/tasks` 单任务 transcript 详情对话框**（prompt + tool calls + result 三段式 + 状态 3 态 start/progress/error）+ **`/daemon` 服务化管理面板**（3 类 services：scheduled task / assistant / remote-control server）。原结论"只在云端投入"不成立；但 Qwen "4-kind 统一调度 framework"仍领先 —— Claude `/daemon` 是 systemd-style 长跑服务管理（与 Qwen in-session task 不同维度），`/tasks` 是轻量单任务查看器。具体形态见 §零 [`background-tasks-dialog` 实际形态](#background-tasks-dialog-实际形态2026-05-24-binary-反编译)。
+> **2026-05-24 Claude Code v2.1.150 binary 复核**：v2.1.150 二进制 `strings` 扫描确认 **`background-tasks-dialog` / `BackgroundTasksSettings` / `BackgroundAppearance`** 三个组件名稳定存在（v2.1.145 时点已含相同 string count）—— Claude 在 v2.1.132 → v2.1.145 之间加了 **`/tasks` 单任务 transcript 详情对话框**（prompt + tool calls + result 三段式 + 状态 3 态 start/progress/error）+ **`/daemon` 服务化管理面板**（3 类 services：scheduled task / assistant / remote-control server）。即 **Claude 不止押云端 fleet，本地也加了 background tasks UI**；但 Qwen "4-kind 统一调度 framework" 仍领先 —— Claude `/daemon` 是 systemd-style 长跑服务管理（与 Qwen in-session task 不同维度），`/tasks` 是轻量单任务查看器。具体形态见 §零 [`background-tasks-dialog` 实际形态](#background-tasks-dialog-实际形态2026-05-24-binary-反编译)。
 >
 > **2026-05-26 PR#4477 ✅ MERGED**：wenshao 2026-05-24 开 [PR#4477](https://github.com/QwenLM/qwen-code/pull/4477) `feat(cli): dense inline panel + keyboard navigation for parallel agent fan-out` (target `main`, +809/-95 12 files, 9 commits, **MERGED 2026-05-26 06:23**) —— LiveAgentPanel 上**再加一层 inline dense panel + 完整键盘导航**，与 Claude Coordinator 拉开第二层差距。两个新能力：① **`InlineParallelAgentsDisplay`** —— `/review` 等 ≥2 parallel agent fan-out 组现在不再走 `CompactToolGroupDisplay` 的 `Agent × 9 / <last name>` 单行折叠或 `ToolMessage` 全展开，而是渲染密集面板（每 agent 一行：status `○`/`✔` · name · activity · elapsed · tokens）；live + committed 两阶段都渲；committed 入 `<Static>` 永久 scrollback。② **LiveAgentPanel 键盘导航**：`main` 作首行 + agent rows；输入框 `↓` focus panel 选 `main`；`↑↓` 在 `main` + agent 间导航带 `▸` 指示；`Enter` 直开 `BackgroundTasksDialog` detail 模式；`Esc` / `↑-at-top` 回输入框；新 `detail-from-panel` dialog 模式 `←` 回 panel 而非 list；可打印字符自动失焦 type 入输入框；`LiveAgentPanel.DEFAULT_MAX_ROWS` 5→12 让 9 个 `/review` agent 全可见。详 [§六.14](#已落地-14inline-dense-panel--liveagentpanel-keyboard-navpr4477-2026-05-24-open)。
 
@@ -66,7 +66,7 @@
 - 🟡 **`/agents --history` 归档对比视图** — 当前 `BackgroundTasksDialog` 偏运行时管理，历史归档 + 对比 diff 仍未实现
 - 🆕 **Claude Code Ultrareview**（云端 fleet）— v2.1.132 Week 17 public preview，云端 fleet 并行 review agents → CLI/Desktop。与 Qwen 本地 background subagents 思路**正交**（云端 vs 本地）—— v2.1.150 仍稳定，未停止扩张（binary 含 29 处 `Ultrareview` + 31 处 `Ultraplan` 提示）
 - 🆕 **Claude Code Dynamic Workflows**（2026-05-28 随 Opus 4.8 发布）— **本地** fan-out 编排能力：Claude 即兴写 JS 编排脚本 + 隔离 runtime 跑几十到上百 subagent，与本文聚焦的 LiveAgentPanel / InlineParallelAgentsDisplay 是**同一并行 subagent 现象的两面**——workflow 是 fan-out 的**驱动层**（plan 在代码），LiveAgentPanel / dense panel 是 fan-out 的**展示层**。Qwen Code PR#4477 的 `InlineParallelAgentsDisplay`（≥2 并行 agent 密集面板）正是 daemon/CLI 未来接 workflow-style 编排时的天然展示载体。详 [Claude Code Dynamic Workflows Deep-Dive](./claude-code-dynamic-workflows-deep-dive.md)
-- 🆕 **Claude Code 本地 background-tasks-dialog**（v2.1.132 → v2.1.145 间引入）—— v2.1.150 binary 含 `background-tasks-dialog` / `BackgroundTasksSettings` / `BackgroundAppearance` 三个新组件名，意味着 Claude 也加了**本地** background tasks 对话框。**反驳**文档原结论"Claude 维持 v2.1.81 设计"
+- 🆕 **Claude Code 本地 background-tasks-dialog**（v2.1.132 → v2.1.145 间引入）—— v2.1.150 binary 含 `background-tasks-dialog` / `BackgroundTasksSettings` / `BackgroundAppearance` 三个组件名，即 Claude 在云端 fleet 之外**本地也加了 background tasks 对话框**
   - Qwen daemon External Reference Architecture SaaS 方向上能包装类似产品：[§06 §七 vs Anthropic Managed Agents](./qwen-code-daemon-design/06-roadmap.md)
   - Claude Code 端详见 [§23-recent-updates](../tools/claude-code/23-recent-updates.md)
 
@@ -194,10 +194,9 @@
 | subagent 上下文溢出 | 主 agent 才 compact | **subagent 也走相同 compaction trigger**（PR#3735）|
 | 创新方向 | **云端 fleet（Ultrareview） + GUI（Computer Use）正交扩展** | **本地 subagent 设计深耕**（4 kinds + UI 同框 + 隔离 + 稳定性）|
 
-**核心判断**（2026-05-24 复核后修订）：
+**核心判断**（2026-05-24 binary 复核）：
 - **到 2026-05-22 v0.16.0**，Qwen Code 在本地 background tasks framework 设计上**仍领先 Claude Code**（4-kind: agent/shell/monitor/dream 统一调度 + pill+dialog UI + foreground↔background promote + Ctrl+B keybind 全套）。
-- **但原"Claude 维持 v2.1.81 设计"已部分推翻**：v2.1.150 binary 含 `background-tasks-dialog` / `BackgroundTasksSettings` / `BackgroundAppearance`，Claude 也在 v2.1.132→145 间加了本地 background tasks 对话框。Claude 并非只押云端 fleet。
-- 准确说法：**Claude 同时投入云端 fleet（Ultraplan / Ultrareview / Routines）+ 本地 background tasks dialog**；具体 UX 形态 / 是否对齐 Qwen 4-kind framework 仍需源码级核查。
+- **Claude 同时投入云端 fleet（Ultraplan / Ultrareview / Routines）+ 本地 background tasks dialog**：v2.1.150 binary 含 `background-tasks-dialog` / `BackgroundTasksSettings` / `BackgroundAppearance`，v2.1.132→145 间加了本地 background tasks 对话框——不止押云端。具体 UX 形态 / 是否对齐 Qwen 4-kind framework 仍需源码级核查。
 
 **研究来源**：[Claude Code §23 v2.1.82-132 增量](../tools/claude-code/23-recent-updates.md)（已落后到 v2.1.132，待更新到 v2.1.150）+ **2026-05-24 v2.1.150 binary `strings` 扫描**（claude-code-leaked 自 2026-04-25 无新 commit）。Ultrareview 云端 fleet + 新本地 background-tasks-dialog 的 CLI UI 呈现细节官方未公开，需后续观察。
 
