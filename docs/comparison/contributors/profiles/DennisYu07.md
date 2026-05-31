@@ -8,7 +8,8 @@
 |---|---|
 | GitHub | [@DennisYu07](https://github.com/DennisYu07) |
 | 真名 / 显示名 | 未公开（profile `name` 字段为空） |
-| 公司 / 组织 | 未公开（`company` 字段为空；从 COLLABORATOR 权限 + 全部 PR 落在 QwenLM 官方仓库推断为 Qwen Code 团队成员） |
+| 内部花名 | 俊宇 |
+| 公司 / 组织 | 内部 Qwen 团队（阿里生态，maintainer 2026-05-31 确认） |
 | 地区 | 未公开（`location` 字段为空） |
 | 注册时间 | 2025-06-16（账号 ID 216484627，较新账号） |
 | 2026-05 qwen-code PR | 当月 merged 3（#4110 / #4115 / #4567，约 +1.8k/-0.5k）；另有 7 个 5 月新开 PR 仍 OPEN |

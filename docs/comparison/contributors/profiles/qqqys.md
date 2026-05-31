@@ -7,14 +7,16 @@
 | 维度 | 值 |
 |---|---|
 | GitHub | [@qqqys](https://github.com/qqqys)（user id `266654365`，账号建于 2026-03-09）|
-| 真名 | **未公开**（profile `name`/`company`/`location`/`bio` 全空；commit 身份仅为 `qqqys <qys177@gmail.com>`）|
+| 真名 | **未公开**（profile `name`/`company`/`location`/`bio` 全空；commit 身份仅为 `qqqys <（邮箱略）>`）|
+| 内部花名 | 衍星 |
+| 公司/组织 | **内部 Qwen 团队**（阿里生态，maintainer 2026-05-31 确认）|
 | 2026-05 PR | **21 个 merged**（约 +17k/-2k）—— 安全/权限方向集中爆发 |
 | 累计 merged PR | **42 个**（截至 2026-05-31，约 **+24.7k / -2.8k**）|
 | 全部 PR（含开闭）| 59（MERGED 42 / CLOSED 12 / OPEN 5）|
 | 首次 PR | **#2221**（2026-03-09 merge，与账号注册同日）`fix(core): skip openDiff in YOLO mode to prevent VS Code editor from opening` |
 | 月度节奏 | 2026-03: 6 · 2026-04: 15 · 2026-05: 21（逐月加速）|
 | 活动范围 | **几乎 100% 集中在 QwenLM/qwen-code**（公开事件仅见 qwen-code + 一次 skills 仓库 star/fork）|
-| 角色推断 | **会话/IDE 体验起步、近月转向权限与 hook 安全的高产单仓深度贡献者（推断）** |
+| 角色 | **内部团队成员**：会话/IDE 体验起步、近月转向权限与 hook 安全的高产深度贡献者 |
 
 > 注：用户最初任务描述的"21 PR / 安全方向"对应的是 **2026-05 当月切片**；qqqys 的累计足迹比这宽得多——4 月以前主力在 session 管理（/resume、/rename、/branch、/goal）与 VS Code IDE companion，5 月才显著转向安全/权限。
 
@@ -84,7 +86,7 @@ qqqys 的 42 个 merged PR 可清晰分为**三个演进阶段**：
 
 ## 备注
 
-- **真名/雇主/地域均未公开**，无法确认是否为 Qwen/阿里官方团队成员还是外部社区贡献者；从"账号注册当天即提交首个 core PR 并持续高产"可作弱推断为**有备而来的熟练贡献者**（推断），但不足以判定隶属关系。
+- **公开 profile 中真名/雇主/地域均为空**，但据 maintainer 2026-05-31 确认，qqqys 为**内部 Qwen 团队成员**（内部花名"衍星"，阿里生态）；这也解释了"账号注册当天即提交首个 core PR 并持续高产"——是内部团队成员上手，而非外部社区投稿。
 - **代码体量口径**：累计 +24.7k/-2.8k 含若干 1000+ 行的 feature PR（#4123 /goal +3476、#3093 session +3265、#4180 /doctor +1992），并非小修小补堆量；同时也有大量 50 行级的精准 fix。
 - **CLOSED 中多为重开/拆分**（如 #4229↔#4230 同标题、#4088↔#4123、#3988↔#3989、#3022↔#3539），属正常的 PR 重提/重构迭代，非被拒。
 - 与月度榜 [`../2026-05.md`](../2026-05.md) 一致：5 月 21 PR、方向标注"权限/hook/extension 安全"。

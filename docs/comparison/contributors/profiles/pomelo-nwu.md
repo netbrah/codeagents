@@ -7,15 +7,16 @@
 | 项 | 值 |
 |---|---|
 | GitHub | [@pomelo-nwu](https://github.com/pomelo-nwu) |
-| 真名 / 显示名 | pomelo（GitHub profile `name` 字段；邮箱 `czynwu@outlook.com`，`nwu` 疑为西北大学 Northwest University 缩写，推断） |
-| 公司 / 组织 | Alipay（蚂蚁 / 支付宝，profile `company` 字段） |
+| 真名 / 显示名 | pomelo（GitHub profile `name` 字段；邮箱 `（邮箱略）`，`nwu` 疑为西北大学 Northwest University 缩写，推断） |
+| 内部花名 | 山果 |
+| 公司 / 组织 | 内部 Qwen 团队（阿里生态，maintainer 2026-05-31 确认）；GitHub profile `company` 公开字段为 Alipay（蚂蚁 / 支付宝） |
 | 地区 | Hangzhou, China（杭州） |
 | 注册时间 | 2015-01-26（账号 ID 10703060） |
 | 个性签名 | "do one thing and do it well"（Unix 哲学） |
 | 2026-05 qwen-code merged PR | 11（约 +5.3k/-6.4k，含 auth 统一重构 #4287 的 +3987/-5304 大改） |
 | qwen-code 累计 merged PR | 65（+45,494 / −23,785） |
 | 首次 qwen-code PR | 2025-07-29 / #108（`feat: Add systemPromptMappings Configuration Feature`） |
-| 角色推断 | auth / provider 子系统 owner + i18n 国际化奠基者 + 文档/PR 流程治理者（maintainer 级，推断） |
+| 角色推断 | 内部 Qwen 团队成员（maintainer 2026-05-31 确认）；auth / provider 子系统 owner + i18n 国际化奠基者 + 文档/PR 流程治理者 |
 
 > 任务简报给出的「11 merged PR / +15k-13k」对应 **2026-05 当月**；本档案补齐 **累计 65 merged PR** 的全景。
 
@@ -48,7 +49,7 @@
   - `openclaw/openclaw` 2、`QwenLM/qwen-code-examples` 1、`modelstudioai/.github` 1、`vercel-labs/skills` 1、`Tongyi-WebInfra/gemini-cli` 1、`wenshao/codeagents` 1 等
 - 自有项目：54 个公开仓库，含原创 `claude-fetch-setup`（8 star，自动为 Claude Code 配置 fetch MCP）、`add-skill`（TS，open agent skills 工具）、`OpenSandbox`（AI 应用通用沙箱）、`craft-agents-oss`、`qwen-code-channel-skills`，以及 `openclaw`（fork）、`crawl4ai`/`yt-dlp` 等 fork。整体围绕 AI agent / skills / MCP 工具链。
 - 影响力指标：followers 207 / following 198（明显高于纯内部工程师画像，社区活跃度中上）。
-- 个人主页 / 博客 / 社交：`blog` 字段为空、无 `twitter_username`；公开 email `czynwu@outlook.com`。
+- 个人主页 / 博客 / 社交：`blog` 字段为空、无 `twitter_username`；公开 email `（邮箱略）`。
 - 背景推断：现任职 Alipay（蚂蚁 / 支付宝），常驻杭州；以 collaborator 身份深度参与 Qwen Code 的 auth/provider、i18n 与文档流程治理，承担 maintainer 级职责（推断，依据 profile company + PR 落在 QwenLM 官方仓库且涉及 PR 模板/agents 规范等治理类改动）。`GraphScope/portal` 的 77 个 PR 说明其更早活跃于阿里系图计算可视化（推断）。
 
 ## 备注 / 不确定项

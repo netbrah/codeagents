@@ -8,7 +8,8 @@
 |---|---|
 | GitHub | [@wenshao](https://github.com/wenshao)（id `1166785`） |
 | 真名 | Shaojin Wen（温绍锦） |
-| 公司 | Alibaba（阿里巴巴）— bio 自述「Aliyun DataWorks Tech Leader」 |
+| 内部花名 | 高铁 |
+| 公司 | Alibaba（阿里巴巴）— bio 自述「Aliyun DataWorks Tech Leader」；内部 Qwen 团队（maintainer 2026-05-31 确认） |
 | 地区 | 中国杭州（Hangzhou, Zhejiang） |
 | 注册时间 | 2011-11-02 |
 | Followers | ~3,920 |
@@ -19,7 +20,7 @@
 | 累计 merged PR（qwen-code） | **108**（截至 2026-05-31） |
 | 首次 merged PR | [#1791](https://github.com/QwenLM/qwen-code/pull/1791) · 2026-02-13 · `feat: add TPM throttling error handling with 1-minute retry delay` |
 | author_association | `COLLABORATOR`（GitHub API 标注） |
-| 角色推断 | Qwen Code 核心 maintainer / 高频 reviewer（推断） |
+| 角色 | 内部 Qwen 团队（maintainer 2026-05-31 确认）核心 maintainer / 高频 reviewer |
 
 ## 在 Qwen Code 的工作
 
@@ -63,7 +64,7 @@
 
 ## 备注 / 不确定项
 
-- bio 与公开邮箱（`shaojin.wensj@alibaba-inc.com`）显示其阿里身份；本档案不引用任何非公开联系方式用途。
+- bio 与公开邮箱（`（邮箱略）`）显示其阿里身份；本档案不引用任何非公开联系方式用途。
 - 「核心 maintainer」为基于 `COLLABORATOR` 权限标注 + 高频 review 类 PR + 当月排名的**推断**，未在 README/官方 wiki 单独核实其 maintainer 头衔。
 - 「真名 温绍锦」中文名为业界广泛公开认知（fastjson/druid 作者），GitHub `name` 字段英文为 Shaojin Wen。
 - 跨仓库 PR 总量 ~1,520 为 GitHub 搜索 API 即时返回值，可能含跨 org 历史数据，仅作量级参考。

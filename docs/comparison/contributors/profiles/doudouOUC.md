@@ -8,13 +8,14 @@
 |---|---|
 | GitHub | [@doudouOUC](https://github.com/doudouOUC) |
 | 真名 / 显示名 | jinye（GitHub profile `name` 字段） |
-| 公司 / 组织 | Alibaba Cloud（阿里云，profile `company` 字段） |
+| 内部花名 | 铭戎 |
+| 公司 / 组织 | Alibaba Cloud（阿里云，profile `company` 字段）；内部 Qwen 团队（maintainer 2026-05-31 确认） |
 | 地区 | Beijing（北京） |
 | 注册时间 | 2012-12-10（账号 ID 3007091，老账号） |
 | 2026-05 qwen-code PR | 100（+184k/-26k） |
 | qwen-code 累计 merged PR | 124（首 PR #3041 起，全部集中在本仓库） |
 | 首次 qwen-code PR | 2026-04-09 / #3041（`[codex] fix checkpointing init in non-repo directories`） |
-| 角色推断 | daemon/serve（守护进程模式）核心开发者 + telemetry（OTel 可观测性）owner（推断） |
+| 角色推断 | 内部 Qwen 团队（maintainer 2026-05-31 确认）；daemon/serve（守护进程模式）核心开发者 + telemetry（OTel 可观测性）owner（推断） |
 
 ## 在 Qwen Code 的工作
 

@@ -6,6 +6,7 @@
 |------|------|
 | GitHub | [@yiliang114](https://github.com/yiliang114)（user id 11473889） |
 | 真名 | 易良（GitHub `name` 字段公开填写） |
+| 内部花名 | 今井 |
 | 公司 | Alibaba（阿里巴巴，`company` 字段公开） |
 | 地区 | Hangzhou 杭州（`location` 字段公开） |
 | 个人站点 | https://yiliang.site ・ Twitter [@yiliang114](https://twitter.com/yiliang114) |
@@ -17,7 +18,7 @@
 | 全 GitHub merged PR | 227（跨仓库，见下） |
 | 首次 qwen-code PR | 创建 2025-11-17（#1056）；首个 merged 2025-12-10（#1059 VSCode Extension Implementation） |
 | 最近 merged | 2026-05-29（#3826） |
-| 角色推断 | **VSCode IDE Companion / WebUI / LSP 集成负责人**（CODEOWNER），兼任 CLI 核心稳定性 + 发布工程（推断） |
+| 角色 | **VSCode IDE Companion / WebUI / LSP 集成负责人**（CODEOWNER），兼任 CLI 核心稳定性 + 发布工程；Qwen Code 内部团队成员（阿里生态），内部花名"今井" |
 
 > **重要更正**：本档案调查所得数据与下发任务的已知前提（"37 merged PR、方向为 standalone installer + CI/release + weixin channel"）不符。实际公开数据为 **115 merged PR**，且主线方向是 **VSCode IDE Companion 扩展、WebUI、LSP 集成**。Installer / weixin / release 工程只是其工作的一部分，非主轴。下文以实际公开数据为准。
 

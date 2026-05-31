@@ -8,14 +8,15 @@
 |---|---|
 | GitHub | [@BZ-D](https://github.com/BZ-D) |
 | 真名 / 显示名 | Edenman（GitHub profile `name` 字段） |
-| 公司 / 组织 | Alibaba Cloud @Hangzhou（阿里云，杭州；profile `location` 字段）；南京大学在读研究生（profile `company`=Nanjing University） |
+| 内部花名 | 克竟 |
+| 公司 / 组织 | 内部 Qwen 团队（阿里生态；maintainer 2026-05-31 确认为内部团队成员）。GitHub 公开资料：Alibaba Cloud @Hangzhou（阿里云，杭州；profile `location` 字段）、南京大学在读研究生（profile `company`=Nanjing University） |
 | 专业方向 | 软件工程 / AI Agent Engineering（profile `bio`） |
 | 地区 | Hangzhou（杭州） |
 | 注册时间 | 2020-06-28（账号 ID 67549719） |
 | 2026-05 qwen-code PR | 当月 5 个 merged（#3491/#3916/#4037/#4277/#4502，约 +7.6k 行）；任务给定的「+9k」量级与实际相符 |
 | qwen-code 累计 merged PR | 11（+10,322 / -316），另有 4 个 CLOSED 未合（共发起 15 个） |
 | 首次 qwen-code PR | 2026-04-09 发起 / 2026-04-10 合入 · #3060（`fix: prevent Shift+Tab from accepting prompt placeholder suggestion`） |
-| 角色推断 | CLI / 终端交互体验方向贡献者：headless runaway-protection guardrails + `/diff` 交互式 diff 体系 + 终端 OSC 转义（超链接/主题/复制）专项（推断） |
+| 角色 | 内部 Qwen 团队成员（maintainer 2026-05-31 确认）。CLI / 终端交互体验方向贡献者：headless runaway-protection guardrails + `/diff` 交互式 diff 体系 + 终端 OSC 转义（超链接/主题/复制）专项 |
 
 ## 在 Qwen Code 的工作
 

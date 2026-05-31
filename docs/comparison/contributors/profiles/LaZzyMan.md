@@ -8,14 +8,16 @@
 |---|---|
 | GitHub | [@LaZzyMan](https://github.com/LaZzyMan)（id 23273105，2016-11 注册）|
 | 真名 | 顾盼（Gu Pan，GitHub profile `name` 字段公开）|
+| 内部花名 | 甄卓 |
 | 单位 / 地区 | Wuhan University（武汉大学，profile `company` 字段）|
-| 个人站 / 邮箱 | http://lazzy.site ｜ zeusdream7@gmail.com（公开）|
+| 个人站 / 邮箱 | http://lazzy.site ｜ （邮箱略）（公开）|
 | 2026-05 当月 | **22 merged PR，+38.8k/-2.6k**（[月活榜](../2026-05.md) 第 5）|
 | 累计（qwen-code）| **92 merged PR，+100.3k/-22.8k**（all-state 103）|
 | 首次 merged PR | **2026-01-06**（[#1383](https://github.com/QwenLM/qwen-code/pull/1383) 非交互模式工具执行反馈）|
 | 最近 merged PR | 2026-05-29（[#4623](https://github.com/QwenLM/qwen-code/pull/4623)）|
 | 月度分布 | 1月 17 / 2月 11 / 3月 25 / 4月 17 / 5月 22（持续高频，无断档）|
-| 角色推断 | Qwen Code **核心能力 / 模型层重度贡献者**——上下文压缩、权限/审批、worktree、auto-memory/skill 四大子系统的主要设计与重构者（推断为团队成员或长期 maintainer 级协作者）|
+| 公司 / 组织 | 内部 Qwen 团队（阿里生态，maintainer 2026-05-31 确认）；GitHub 公开 profile `company` 填 Wuhan University、个人站 lazzy.site，为个人公开资料 |
+| 角色 | Qwen Code **核心能力 / 模型层重度贡献者**——上下文压缩、权限/审批、worktree、auto-memory/skill 四大子系统的主要设计与重构者（内部 Qwen 团队成员，maintainer 2026-05-31 确认）|
 
 ## 在 Qwen Code 的工作
 
@@ -78,7 +80,7 @@
 - **真名公开**：GitHub profile `name` 字段直接显示「顾盼」，`company` 显示 Wuhan University，均为公开信息，非推断。
 - **22 vs 92 的口径**：「22」是 **2026 年 5 月当月** merged 数（[月活榜](../2026-05.md) 口径）；「92」是 2026-01 至 2026-05 在 qwen-code 的**累计** merged 数。两者不可混用。
 - 该贡献者在月活榜的「主要方向」被归纳为 *compaction 二次重构（BREAKING）+ computer-use 零配置 + worktree Phase D + auto-dream 默认开*，与本档案逐 PR 核对一致。
-- 是否为 QwenLM 正式员工 / 官方 maintainer：**未公开**（profile 无明确雇主声明，company 仅填高校）；其涉及版本 bump 与 auth/发布相关 PR，提示具备较高仓库权限（推断）。
+- 团队归属：**内部 Qwen 团队成员**（内部花名「甄卓」，maintainer 2026-05-31 确认）；GitHub 公开 profile 的 company 仅填 Wuhan University、个人站 lazzy.site，为其个人公开资料。其涉及版本 bump 与 auth/发布相关 PR，与具备较高仓库权限一致。
 
 ---
 

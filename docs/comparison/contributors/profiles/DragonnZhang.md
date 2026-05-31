@@ -8,14 +8,15 @@
 |---|---|
 | GitHub | [@DragonnZhang](https://github.com/DragonnZhang) |
 | 真名 / 显示名 | Dragon（GitHub profile `name` 字段） |
-| 公司 / 组织 | @QwenLM（profile `company` 字段，即 Qwen 团队） |
+| 内部花名 | 绿龙 |
+| 公司 / 组织 | @QwenLM（profile `company` 字段，即 Qwen 团队；maintainer 2026-05-31 确认内部团队成员） |
 | 地区 | 未公开（profile `location` 为空） |
 | 注册时间 | 2019-07-06（账号 ID 52599892） |
 | 2026-05 qwen-code PR | 11（+6,464 / -230，对应任务给出的「约 +6k/-0.2k」） |
 | qwen-code 累计 merged PR | 29（+21,321 / -668，COLLABORATOR 身份） |
 | 首次 qwen-code PR | 2025-12-05 提交 / 2025-12-11 merged · #1156（`feat: update references from Gemini to Qwen in setup commands and gitignore handling`） |
 | 跨仓库公开 PR 总计 | 47（其中 45 落在 QwenLM/qwen-code，其余为 qwen-code-action / qwen-code-examples 等周边及零星外部 fork） |
-| 角色推断 | Qwen Code 团队 collaborator，SDK / VS Code 扩展 / CLI 交互方向核心贡献者（推断） |
+| 角色 | Qwen Code 团队 collaborator，SDK / VS Code 扩展 / CLI 交互方向核心贡献者（maintainer 2026-05-31 确认内部团队） |
 
 > 说明：任务简报中的「11 merged PR / 约 +6k/-0.2k」实为 **2026-05 当月窗口** 数据；该贡献者 **累计** merged PR 为 29，体量 +21k/-0.7k，自 2025-12 起即持续贡献。
 

@@ -10,7 +10,7 @@
 | 真名 / 显示名 | Yan Shen（GitHub profile `name` 字段） |
 | 公司 / 组织 | 未公开（profile `company` 字段为空） |
 | 地区 | NanJing（南京，profile `location` 字段） |
-| 邮箱 | shenyankm@gmail.com（profile 公开 `email` 字段） |
+| 邮箱 | （邮箱略）（profile 公开 `email` 字段） |
 | 注册时间 | 2024-05-30（账号 ID 171212926，较新账号） |
 | 2026-05 qwen-code PR | 5（+10,030/-4,532，约 +10k/-5k） |
 | qwen-code 累计 merged PR | 8（首 PR #3270 起，全部集中在本仓库） |
@@ -41,7 +41,7 @@
 - PR 状态分布：8 merged、2 closed-unmerged（#3328 i18n、#3668 `feat(stats): add current session billing estimates`）、2 open（#4564 `feat(stats): expose token usage for cost visibility`、#4653 `feat(core): respect configurable agent ignore files`）。其中 stats / 计费可见性方向尝试过两次（#3668 被关闭、#4564 仍 open），说明在该方向有持续探索但尚未落地（推断）。
 - author_association = **CONTRIBUTOR**（非 COLLABORATOR），结合较新的账号（2024-05 注册）与较低的社区指标（followers 2 / following 1、仅 2 个公开仓库），画像更接近 **外部社区贡献者** 而非项目内部 / 官方团队成员（推断）。
 - 自有项目：2 个公开仓库 —— `qwen-code`（fork，用于提 PR）、`zhihu-lks`（TypeScript，无描述、0 star），无可据以判断背景的实质内容。
-- 个人主页 / 博客 / 社交：未公开（profile `blog`/`twitter_username`/`bio` 字段均为空；`email` 公开为 shenyankm@gmail.com）。
+- 个人主页 / 博客 / 社交：未公开（profile `blog`/`twitter_username`/`bio` 字段均为空；`email` 公开为 （邮箱略））。
 
 ## 备注 / 不确定项
 

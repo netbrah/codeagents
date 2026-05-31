@@ -8,7 +8,8 @@
 |---|---|
 | GitHub | [@ytahdn](https://github.com/ytahdn) |
 | 真名 / 显示名 | 未公开（profile `name` 字段为空） |
-| 公司 / 组织 | 未公开（profile `company` 字段为空） |
+| 内部花名 | 钉萁 |
+| 公司 / 组织 | 内部 Qwen 团队（阿里生态，maintainer 2026-05-31 确认） |
 | 地区 | 未公开（profile `location` 字段为空） |
 | 注册时间 | 2015-11-19（账号 ID 15921012） |
 | 2026-05 qwen-code PR | 3 merged（合计约 +30k/-4k；明细见下） |
@@ -43,7 +44,7 @@
 - 真名、公司、地区在 GitHub profile 上均为空，**未公开**；未做进一步身份关联。
 - 累计 merged PR = 3，全部集中在 2026-05 当月本仓库，与“首次 PR 即 2026-05-21”一致，账号虽 2015 年注册但 OSS 公开贡献起步较晚（推断为长期潜水后近期加入团队）。
 - 任务给出的「约 +30k/-4k」与实测 3 个 merged PR（#4380 +17121/-66、#4573 +11568/-4059、#4603 +1136/-41，合计约 +29.8k/-4.2k）一致。
-- “daemon 团队第 3 作者（继 doudouOUC + chiga0）”为依据 PR 时间线 + 共享 fork 协作信号的推断，非官方分工声明。
+- “daemon 团队第 3 作者（继 doudouOUC + chiga0）”依据 PR 时间线 + 共享 fork 协作信号判断；maintainer 2026-05-31 已确认 ytahdn 为内部 Qwen 团队成员（内部花名钉萁），具体团队内排序仍非官方分工声明。
 - 跨仓库 PR 总量因 GitHub search API 限流未能精确统计，仅依据公开 events 判断聚焦度。
 
 ---

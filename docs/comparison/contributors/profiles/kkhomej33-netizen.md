@@ -7,7 +7,7 @@
 | 项 | 值 |
 |---|---|
 | GitHub | [@kkhomej33-netizen](https://github.com/kkhomej33-netizen) |
-| 真名 / 显示名 | 未公开（profile `name` 字段为空；公开 email `kkhomej33@gmail.com`） |
+| 真名 / 显示名 | 未公开（profile `name` 字段为空；公开 email `（邮箱略）`） |
 | 公司 / 组织 | 未公开（profile `company` 字段为空） |
 | 地区 | 未公开（profile `location` 字段为空） |
 | 注册时间 | 2026-02-14（账号 ID 261661635，极新账号） |
@@ -39,7 +39,7 @@
 ## 备注 / 不确定项
 
 - 任务给出的“7 merged PR / 约 +2k”对应的是 **2026-05 当月窗口**（7 个、+2023）；跨全时段累计 merged 为 11（qwen-code）/ 12（含 openclaw），二者不冲突。
-- 真名、公司、地区均**未公开**；仅 profile 暴露公开 email `kkhomej33@gmail.com`，未据此做进一步身份关联。
+- 真名、公司、地区均**未公开**；仅 profile 暴露公开 email `（邮箱略）`，未据此做进一步身份关联。
 - “社区贡献者而非团队成员”为基于账号特征与 PR 分布的推断，未取得官方成员名单或 author_association 字段佐证。
 - 账号 ID（261661635）显著大于早期老贡献者，且注册时间晚（2026-02），与典型长期内部工程师画像不同（推断）。
 

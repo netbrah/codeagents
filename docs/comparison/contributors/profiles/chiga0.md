@@ -8,12 +8,14 @@
 |---|---|
 | GitHub | [@chiga0](https://github.com/chiga0)（id 24784430，注册于 2016-12） |
 | 真名 | **ChiGao**（GitHub profile `name` 字段；真实姓名拼写未公开） |
+| 内部花名 | 高琦 |
 | 个人站 | chigao.site｜location "Happy City"（占位，真实地点未公开）｜邮箱未公开 |
 | 2026-05 PR | **36 merged**（+51.9k / -3.9k），分支拆分 main 27 + daemon_mode_b_main 9 |
 | 累计 merged PR（qwen-code） | **40**（+57.1k / -4.3k）；另有 6 open + 27 closed |
 | 首次 merged PR | **2026-04-07**，#2770 `feat: support verbose and compact mode switcher with ctrl-o` |
 | 最新 merged PR | 2026-05-28，#4585（daemon non-blocking POST /prompt） |
-| 角色推断 | **（推断）daemon 团队第 2 作者** —— 仅次于 doudouOUC（99 PR）；专注 daemon **SDK / TUI 前端 + ACP 协议传输 + 跨客户端实时同步** |
+| 公司/组织 | 内部 Qwen 团队（阿里生态，maintainer 2026-05-31 确认） |
+| 角色推断 | **daemon 团队第 2 作者**（内部 Qwen 团队成员，maintainer 2026-05-31 确认）—— 仅次于 doudouOUC（99 PR）；专注 daemon **SDK / TUI 前端 + ACP 协议传输 + 跨客户端实时同步** |
 
 ## 在 Qwen Code 的工作
 

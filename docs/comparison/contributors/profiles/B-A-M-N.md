@@ -10,7 +10,7 @@
 | 显示名 | John London（GitHub `name` 字段，疑似笔名/化名，**未公开**真实身份） |
 | 个人简介 | "AI Systems Architect · Local-first · Deterministic-by-design. Open to contracts, consulting, and full-time roles." |
 | 主页 | https://bamnlanding.lovable.app |
-| 公开邮箱 | benevolentjoker@gmail.com（profile 公开字段） |
+| 公开邮箱 | （邮箱略）（profile 公开字段） |
 | 公开仓库 | 49 个（Python 主导：29 Python / 3 JS / 3 Go / 3 TS / 1 C#） |
 | Qwen Code 2026-05 | 7 个 merged PR，约 **+2,586 行**（净增） |
 | Qwen Code 累计 | 13 个 merged PR，约 **+4,535 行**（截至 2026-05-31） |
