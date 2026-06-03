@@ -252,6 +252,21 @@ POST   /session/:id/prompt                 现非阻塞 立刻返 202 Accepted w
                                            client side 不再需要 await HTTP response 完成
                                            ⚠️ wire 协议变化：旧 blocking client 会 reject 202（如果 await success body）
                                              SDK 已更新 await turn_complete by promptId
+
+# 2026-05-29 ~ 06-04 新增 route（doudouOUC / chiga0）
+POST   /session/:id/btw                     side question（"by the way"）—— 不打断主 prompt 流的旁路提问
+                                           PR#4610 ✅ + PR#4666 修跨 session 泄漏/超时/input cap/permission requestId cardinality
+POST   /session/:id/language                runtime 语言切换（chiga0 PR#4705 🚧 OPEN）
+POST   /workspace/mcp/servers              runtime MCP server add/remove（T2.8 关 #4514；doudouOUC PR#4552 ✅）
+                                           之前要 daemon restart，现可热增删 MCP server
+
+# 🔌 ACP / REST parity（chiga0 PR#4736 wave1 + PR#4737 wave2，🚧 OPEN，依赖 #4563）
+POST   /acp  {_qwen/...}                    给 /acp dispatch 加 ~25 个 _qwen/* extension method，
+                                           让 ACP-native client（Zed/Goose/IDE）能做 REST 能做的全部：
+                                             wave1 (20)：session extensions 7（recap/compress/meta/context-usage/...）
+                                                       + workspace memory + file operations + auth device-flow
+                                             wave2 (5)：agents CRUD
+                                           动机：之前这些只能走 bespoke REST，ACP client 够不着 → 补齐 dual transport 对偶
 ```
 
 ### Wave 5 — Architecture extraction（部分 MERGED）

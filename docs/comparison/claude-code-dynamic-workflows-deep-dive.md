@@ -167,6 +167,8 @@ Workflows 在 Agent SDK 中可用，与 CLI / Desktop / IDE / `claude -p` headle
 
 ## 六、对 Qwen Code 的启发
 
+> **🆕 2026-06-03 更新：qwen-code 已开始 port。** LaZzyMan 在 [issue #4721](https://github.com/QwenLM/qwen-code/issues/4721)「Dynamic Workflows / Ultracode port」下分阶段实现，[PR#4732](https://github.com/QwenLM/qwen-code/pull/4732) 落地 **P1**：`node:vm` sandbox 跑 model 写的 JS + `args`/`phase`/`log`/sequential `agent()` globals，`isWorkflowsEnabled()` 默认关（`QWEN_CODE_ENABLE_WORKFLOWS=1`）。关键细节——**subagent system prompt 逐字取自 claude-code 2.1.160 binary §XmO 常量**，determinism stub（`Date.now`/`Math.random` throw）也与 Claude workflow runtime 一致，是明确的"对齐式 port"。架构上选了 **core 层 in-process tool**（在 `/swarm` #3433 + Agent Team #2886 之上的第三层），**不走 daemon runtime**；P2 `parallel()` / P3 schema-mode `agent()`+pipeline / P5 `budget` 的 forward-compat seam 已留在 `SandboxOptions`。下文 §6.1–§6.3 是 port 开始前写的启发分析，保留作背景。
+
 ### 6.1 相似 abstraction 对比
 
 | 维度 | Claude Code Dynamic Workflows | Qwen Code daemon 系列 | chiga0 SDK | ytahdn web-shell |

@@ -2,9 +2,9 @@
 
 > Qwen Code 引入 HTTP daemon 模式的完整设计方案。基于 [SDK / ACP / Daemon 架构 Deep-Dive](../sdk-acp-daemon-architecture-deep-dive.md) 第七章"Qwen Code 引入 daemon 的工作量评估"展开为可执行的工程蓝图。
 
-## 零、项目概况速览（截至 2026-05-29）
+## 零、项目概况速览（截至 2026-06-04）
 
-> 一句话：**daemon Mode B 功能面已完整**（routes + 协议 + bridge 抽离 + permission mediation + MCP shared pool + 双 transport），**剩 release 工程化**（PR#4490 反向 merge + PR 28 npm publish + PR 31 cut），**sustaining 工作并行推进**（DaemonWorkspaceService 重构 / telemetry / 新 route），客户端生态已扩到 **REST+SSE / ACP HTTP / MCP stdio 三维入口**，是 daemon 阶段性收官前最后一段路。
+> 一句话：**daemon 功能面已超额完成 alpha 范围**（routes + 协议 + bridge 抽离 + permission mediation + MCP shared pool + 双 transport + 全套 telemetry + web-shell + ACP/REST parity 在建），**真正瓶颈是发布工程节奏** —— v0.16-alpha cut 卡在 **#4490 反向 merge（CONFLICTING，体量 +68k→+115k 越拖越大）**；功能侧 telemetry / web-shell / ACP-REST parity / 长会话恢复仍在猛推。
 
 ### 阶段定位
 
@@ -14,8 +14,9 @@
 | Stage 1.5a (PR#4113) 1 daemon = 1 workspace | 2026-05-15 | ✅ MERGED |
 | Wave 1-4 Protocol → Auth-gated mutation | 2026-05-16 ~ 18 | ✅ 24 PR MERGED |
 | Wave 5 F1/F2/F3/F4 prereq + chiga0 SDK UI 双轨 | 2026-05-19 ~ 28 | ✅ MERGED to `daemon_mode_b_main` |
-| **PR#4490 反向周期 merge `daemon_mode_b_main → main`** | 🚧 | **OPEN CHANGES_REQUESTED**（首次反向 merge，v0.16-alpha cut 前置）|
-| **PR 28 npm publish + PR 31 v0.16-alpha cut** | ⏳ | 待开 |
+| 持续猛推（telemetry 接入 daemon / web-shell 成型 / ACP-REST parity / 长会话恢复）| 2026-05-29 ~ 06-04 | ✅ ~22 PR MERGED to `daemon_mode_b_main` |
+| **PR#4490 反向周期 merge `daemon_mode_b_main → main`** | 🔴 | **OPEN CONFLICTING + CHANGES_REQUESTED**，**+115k/-12k 持续膨胀**（integration 分支移动比反向 merge 落地快，需先做 sync main PR 清冲突；merge strategy/时机/version tag 是 maintainer-only 决策）|
+| **PR 28 npm publish + PR 31 v0.16-alpha cut** | 🟢 Ready 但排队 | 都 Ready，**sequence after #4490 lands**（npm 从 main 发）；v0.16-alpha 范围冻结为 text-only + local-only，server-side code work ≈ 0 |
 
 **Wave plan 进度（22.75 / 31 ≈ 73%）**：
 
@@ -76,24 +77,23 @@ Wave 6 Release hardening         ░░░░░     PR 27 ✅ + PR 30a ✅；PR
 
 **关键差异化**：qwen-code 是**唯一同时打 ACP 标准 + MCP 标准**的 daemon —— Claude/Cursor 闭门；Goose 仅 ACP；qwen 开放协议生态是长期竞争轴。
 
-### 正在进行的工作（截至 2026-05-29 OPEN PRs）
+### 正在进行的工作（截至 2026-06-04 OPEN PRs）
 
-**优先级 1：v0.16-alpha cut 关键路径**：
-- 🔥 [PR#4490](https://github.com/QwenLM/qwen-code/pull/4490) `chore(integration): daemon_mode_b_main → main` —— **首次反向周期 merge**，+87931/-22289，14 feature PR 周期 merge，OPEN CHANGES_REQUESTED，**alpha cut 必先合**
-- ⏳ PR 28 npm publish scaffolding（发布清单已冻：`@qwen-code/{qwen-code, core, sdk, webui}`）
-- ⏳ PR 31 v0.16-alpha.0 cut
+**优先级 1：v0.16-alpha cut 关键路径（卡点）**：
+- 🔴 [PR#4490](https://github.com/QwenLM/qwen-code/pull/4490) `chore(integration): daemon_mode_b_main → main` —— **首次反向周期 merge**，**+115k/-12k 持续膨胀**（从 +88k 涨上来），OPEN **CONFLICTING** + CHANGES_REQUESTED。问题：integration 分支天天在动，反向 merge 还没合 main 又积了 5 个新 main commit → 需先做 sync main PR 清冲突才能转 ready；merge strategy / 时机 / version tag 是 maintainer-only 决策。**alpha cut 必先合**
+- 🟢 PR 28 npm publish + PR 31 v0.16-alpha.0 cut —— 都 Ready，但 sequence after #4490（npm 从 main 发）；v0.16-alpha 范围冻结 text-only + local-only，net server-side code work ≈ 0
 
-**优先级 2：F-series 收尾 + 架构 sustaining**：
-- 🚧 [PR#4563](https://github.com/QwenLM/qwen-code/pull/4563) `DaemonWorkspaceService` 重构（issue #4542 方案 C）+2054/-1011
-- 🚧 [PR#4556](https://github.com/QwenLM/qwen-code/pull/4556) telemetry trace daemon prompt lifecycle +1325/-424
-- 🚧 [PR#4552](https://github.com/QwenLM/qwen-code/pull/4552) T2.8 runtime MCP server add/remove +2886/-31
-- 🚧 [PR#4608](https://github.com/QwenLM/qwen-code/pull/4608) telemetry tool spans + session.id to daemon/ACP +728/-632
-- 🚧 [PR#4606](https://github.com/QwenLM/qwen-code/pull/4606) request-level logging for serve routes +178/-6
+**优先级 2：🔌 ACP / REST parity（chiga0 新线）**：让 `/acp` transport 达到 REST 同等能力，Zed/Goose/IDE 能做 REST 能做的全部：
+- 🚧 [PR#4736](https://github.com/QwenLM/qwen-code/pull/4736) **wave 1** —— 给 `/acp` dispatch 加 **20 个 `_qwen/*` extension method**（session extensions 7 + workspace memory + file operations + auth device-flow），ACP-native client 不再只能走 REST；依赖 #4563 先合
+- 🚧 [PR#4737](https://github.com/QwenLM/qwen-code/pull/4737) **wave 2** —— agents CRUD 5 method
+- 🚧 [PR#4563](https://github.com/QwenLM/qwen-code/pull/4563) `DaemonWorkspaceService` 重构（issue #4542 方案 C）+4294/-2269 —— **ACP parity wave 1/2 的前置依赖**
+- 🚧 [PR#4705](https://github.com/QwenLM/qwen-code/pull/4705) `POST /session/:id/language` runtime language switching / 🚧 [PR#4613](https://github.com/QwenLM/qwen-code/pull/4613) 跨 client model+approval 状态一致
 
-**优先级 3：新 daemon route + 客户端 UX**：
-- 🚧 [PR#4610](https://github.com/QwenLM/qwen-code/pull/4610) `POST /session/:id/btw` for side questions（doudouOUC）+329/-128
-- 🚧 [PR#4603](https://github.com/QwenLM/qwen-code/pull/4603) web-shell `/delete` 批量 delete（ytahdn）+948/-41
-- 🚧 [PR#4511](https://github.com/QwenLM/qwen-code/pull/4511) side-channel coordination design docs (A1/A2/A4/A5) +434
+**优先级 3：telemetry / web-shell / sustaining（持续猛推，~22 PR 已合 05-29~06-04）**：
+- 🔭 **telemetry 接入 daemon**（doudouOUC）：daemon prompt lifecycle trace #4556 ✅ / tool spans + session.id #4630 ✅ / client_id + permission spans #4628 ✅ / per-prompt traceId #4661 ✅ / route 覆盖扩全写路由 #4682 ✅ / llm_request 响应元数据 #4693 ✅ / 🚧 [PR#4749](https://github.com/QwenLM/qwen-code/pull/4749) daemon OTel metrics + 结构化 log records
+- 🌐 **web-shell 成型**（ytahdn）：`/delete` 批量 #4603 ✅ / UI+subagent 渲染+scroll-follow 重写 #4655 ✅(+12.6k) / 完整内联终端 UI #4710 ✅(+9.3k)
+- 🛡️ **长会话恢复健壮性**：compacted session replay #4694 ✅ / ring_evicted 自动恢复 #4702 ✅ / 并行 subagent transcript 隔离 #4689 ✅
+- 🆕 新 route：runtime MCP add/remove（**T2.8 关 #4514**）#4552 ✅ / `POST /session/:id/btw` #4610 ✅
 
 ### 仍未关的 backlog
 
@@ -109,17 +109,17 @@ Wave 6 Release hardening         ░░░░░     PR 27 ✅ + PR 30a ✅；PR
 
 **Wave 6 剩余**：PR 28 npm publish / PR 29 auto-gen token / PR 30 容器化 deployment refs / PR 31 cut
 
-### 未来方向参照：编排胶水层（dynamic workflows）
+### 编排胶水层（dynamic workflows）—— 🆕 已开工（issue #4721）
 
-> 关联 [Claude Code Dynamic Workflows Deep-Dive](../claude-code-dynamic-workflows-deep-dive.md)。
+> 关联 [Claude Code Dynamic Workflows Deep-Dive](../claude-code-dynamic-workflows-deep-dive.md)。**之前这一节是"未来方向参照"，2026-06-03 起 qwen-code 真正开始 port。**
 
-Claude Code 2026-05-28 随 Opus 4.8 发布的 **dynamic workflows**（Claude 即兴写 JS 编排脚本 + 隔离 runtime 后台跑几十到上百 subagent）提示了 daemon 系列**还差的最上面一层抽象**：
+我之前指出 daemon 系列还差「让 LLM 即兴写编排脚本 + 跑 fan-out + 收敛」的最上层抽象——对标 Claude Code 2026-05-28 随 Opus 4.8 发布的 dynamic workflows。**LaZzyMan 现在正以 [issue #4721](https://github.com/QwenLM/qwen-code/issues/4721)「Dynamic Workflows / Ultracode port」分阶段实现**：
 
-- **当前缺口**：daemon 已铺好「后台执行 + 多 client + 非阻塞 prompt」的底层管道（non-blocking `POST /prompt` 返 202 / context-usage API / ACP HTTP transport / jifeng MCP bridge），但**没有「让 LLM 即兴写编排脚本 + 在 daemon runtime 跑 fan-out + 收敛」的胶水层**。
-- **不需从零造**：可直接用 daemon 现有 route + jifeng MCP bridge 当 agent runtime，workflow 脚本只做 plan / fan-out / 收敛逻辑。
-- **bundled workflow 是低成本 GA 抓手**：仿 `/deep-research` 绑 deep-research / codebase-bug-sweep / migration-helper 三个 flow 作 dogfooding 入口；`InlineParallelAgentsDisplay`（PR#4477）是天然展示载体。
-- **避坑**：Anthropic 的双层 gate 静默失败是反例 —— daemon 已有 file logger（#4559）+ capability tag 机制，引入 workflow 灰度务必显式日志 + `/status` 暴露 flag 态。
-- **实施成本估算 ~9-13 人周**（runtime 3-5 + 编排原语 2-3 + `/workflows` UI 2 + 1 bundled flow 1-2 + 灰度 1），可拆 3 Wave；详 [deep-dive §六](../claude-code-dynamic-workflows-deep-dive.md#六对-qwen-code-的启发)。
+- 🚧 [PR#4732](https://github.com/QwenLM/qwen-code/pull/4732) **Workflow tool P1**（+2155 14 files，OPEN，target `main`）：`node:vm` sandbox 跑 model 写的 JS 脚本 + `args`/`phase`/`log`/**sequential `agent()`** globals；3 层架构（`WorkflowTool` / `WorkflowOrchestrator`+`createProductionDispatch` / `createWorkflowSandbox`）；`isWorkflowsEnabled()` 默认关（`QWEN_CODE_ENABLE_WORKFLOWS=1` opt-in）；determinism stub（`Date.now`/`Math.random` throw，与 Claude workflow runtime 一致）；subagent system prompt **逐字取自 claude-code 2.1.160 binary §XmO 常量**；P2/P3/P5 forward-compat seam（`parallel?`/`pipeline?`/`budget?`）已留在 `SandboxOptions`
+- **架构选择差异**：实现选了 **core 层 `node:vm` in-process tool**（第三层抽象，在已有 `/swarm` #3433 + Agent Team #2886 之上），**不是**走我那个 note 设想的 daemon-runtime 路径。即 workflow 是 CLI/core 能力，不依赖 daemon —— 与 Claude 把 workflow 嵌全 surface 的思路一致。
+- **后续**：P2 `parallel()` / P3 schema-mode `agent()` + pipeline / P5 budget 按 #4721 分阶段推进。
+
+> 原 ~9-13 人周估算 + bundled workflow / 避坑建议见 [deep-dive §六](../claude-code-dynamic-workflows-deep-dive.md#六对-qwen-code-的启发)；实际 P1 走 in-process tool 路径，成本结构与原估（daemon-runtime 路径）不同。
 
 ### 撤回的两条 backlog（架构 lesson）
 
