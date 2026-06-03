@@ -90,7 +90,7 @@
 | [Sandbox 排除](./sandbox-excluded-commands-deep-dive.md) | excludedCommands |
 | [安全审查](./security-review-command-deep-dive.md) | /security-review |
 | [隐私/遥测](./telemetry-privacy-deep-dive.md) | 隐私监控 |
-| [遥测架构](./telemetry-architecture-deep-dive.md) | 遥测系统 |
+| [遥测架构](./telemetry-architecture-deep-dive.md) | 遥测系统：Claude vs Qwen 四条并行管道（OTel traces/metrics/logs + 阿里云 RUM + 本地 UI）；#3731 分层 session-tracing 全 phase（interaction→llm_request→tool/hook + TTFT + GenAI semconv 双发）+ 客户端 HTTP span + W3C traceparent + daemon 跨进程 trace 传播；"默认开启"两链歧义澄清 |
 | [隐私设置](./privacy-settings-dialog-deep-dive.md) | 交互式隐私 |
 | [MDM 企业配置](./mdm-enterprise-deep-dive.md) | 企业策略 |
 | [企业代理](./enterprise-proxy-support-deep-dive.md) | CONNECT relay |

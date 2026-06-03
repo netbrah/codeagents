@@ -12,9 +12,9 @@
 | **上报端点** | Anthropic 内部 API + Datadog | 阿里云 RUM + OTLP（可配置，支持 gRPC / HTTP 双协议） |
 | **事件数量** | ~656 个 `tengu_*` 事件 | ~50 个事件类型 |
 | **采样策略** | 按事件类型动态采样（GrowthBook） | 批量刷新（1,000 条 / 60 秒） |
-| **调试追踪** | Perfetto（Chrome Trace，ant-only） | 层级 Span 树（interaction → llm_request → tool，v0.16.0 新增） |
-| **PII 保护** | 元数据禁止原始字符串 | 选择性 prompt 日志控制 + 敏感属性 opt-in（v0.16.0） |
-| **禁用方式** | `DISABLE_TELEMETRY=true` | `QWEN_TELEMETRY_ENABLED=false` |
+| **调试追踪** | Perfetto（Chrome Trace，ant-only） | 层级 Span 树（interaction → llm_request → tool/hook，#3731；2026-05 加 TTFT + GenAI semconv + 跨进程 daemon trace） |
+| **PII 保护** | 元数据禁止原始字符串 | 选择性 prompt 日志控制 + 敏感属性 opt-in |
+| **禁用方式** | `DISABLE_TELEMETRY=true` | OTel 链 `QWEN_TELEMETRY_ENABLED=false`（默认已关）；RUM 使用统计另需关 `getUsageStatisticsEnabled()`（默认开）|
 
 ---
 
@@ -198,6 +198,62 @@ session（根）
 // 每类含 snapshot (JSON 序列化详细指标)
 ```
 
+### 3.7 四条并行管道（澄清"默认开启"的歧义）
+
+Qwen Code 的遥测**不是单一系统，是四条并行管道**，各有独立开关——理解这点才能正确判断"默认开不开"：
+
+| # | 管道 | 去向 | 开关 | 默认 |
+|---|---|---|---|---|
+| ① | OTel Traces | OTLP(gRPC/HTTP) / 本地文件 / LogToSpan 桥 | `telemetry.enabled` (`QWEN_TELEMETRY_ENABLED`) | **OFF** |
+| ② | OTel Metrics | OTLP / 文件（10s 周期）| 同上 | **OFF** |
+| ③ | OTel Logs（events）| OTLP / 文件 | 同上 | **OFF** |
+| ④ | **QwenLogger RUM** | **阿里云 `*.rum.aliyuncs.com`** | `getUsageStatisticsEnabled()` | **ON** |
+| ⑤ | UI Telemetry | **纯本地内存**（驱动 TUI/IDE token·cost 面板）| 无（永不外传）| 本地 |
+
+> **关键纠正**：[隐私与遥测对比](./privacy-telemetry.md) 表里 Qwen Code 标"默认开启"指的是**管道④ QwenLogger RUM**（使用统计，默认 on，发阿里云）；而 **OTel 主链（①②③）`telemetry.enabled` 默认 false**。两者是独立开关，不要混为一谈：用户不配 OTel 就完全不产生 OTel 数据，但 RUM 使用统计需单独用 `getUsageStatisticsEnabled()` / 配置关闭。
+
+### 3.8 2026-05 演进：#3731 分层 tracing 全 phase + 跨进程 daemon trace
+
+`#3731` 是一个宽泛的"加固 OpenTelemetry 配置"伞 issue，其下 **hierarchical session-tracing** 子线在 2026-05 密集推进（`session-tracing.ts` 已从 883 行增至 975 行）：
+
+| Phase | PR | 状态 | 加了什么 |
+|---|---|---|---|
+| 1 | #4126 | ✅ | 统一 span 创建路径，扁平树→层级树（LLM/tool span 成 interaction 子节点）|
+| 1.5 | #4302 | ✅ | parent fallback / abort-as-result / log-span 一致性 polish |
+| 2 | #4321 | ✅ | `tool.blocked_on_user`（审批等待时长 + decision + source）+ `qwen-code.hook`（区分慢 hook vs 慢 tool）；tool span 生命周期上移到 `_schedule` 验证循环 |
+| 3 | #4410 | ⏳ OPEN | `qwen-code.subagent` span + 并发隔离（前台 child 继承 T0；fork/background 用 linked root + OTel Link）|
+| 4a | #4417 | ✅ | **TTFT 捕获**（首个用户可见 chunk，method-local 闭包防并发污染）+ **GenAI semconv 双发**（`gen_ai.*` 兼容层）|
+| 4b | #4432 | ⏳ OPEN | per-attempt HTTP-status 重试可见性（`api.retry.count` + 每次重试独立 LLM span）|
+
+**配套 PR**：
+- **#4390** 客户端 HTTP span（`instrumentation-undici`，每出站 fetch 一个 client span，分离网络延迟 vs 模型处理）+ opt-in **W3C traceparent 传播** + OTLP 自反馈防回环 guard
+- **#4499** 修 `startInteractionSpan` 漏传 parent ctx → 被铸随机 traceId 与 session 子树分裂；钉到 session root（基于 issue #4486 生产数据）
+- **#4482** `LogToSpanProcessor` 桥（后端收 traces 不收 logs 时，如阿里云 ARMS）：导出失败给有用错误 + 可注入 `diagnosticsSink` 不污染 Ink TUI
+- **#4565** skill-based RT 优化的**遥测地基**（接上死代码 `logSkillLaunchEvent` + `SkillLaunchEvent` 带 `prompt_id` 做 turn join），论点是"降 agent 轮数的杠杆在 skill 设计层不在框架层"
+
+**TTFT 语义差异**（vs Claude Code）：Qwen 测"首个用户可见内容 chunk"（含 text/functionCall/thought/inlineData，排除 metadata-only），比 Claude 测 `message_start` 更普适。
+
+**刻意规避 Claude 并发 bug**：`startToolBlockedOnUserSpan(toolSpan)` 显式传 span 对象，源码注释明说避开 Claude `sessionTracing` 的 `findLast`-by-type 反查（并发工具会错配 parent）。
+
+### 3.9 daemon 侧遥测（两条独立线）
+
+`qwen serve` daemon 的遥测分两条机制不同的线：
+
+1. **OTel trace 跨进程传播**（#4556 → #4630 → #4682）：daemon HTTP 路由 → ACP bridge dispatch → ACP child 三层，**W3C traceparent 塞进 `_meta` 跨进程**串成一条 trace，前端协议零改动；prompt FIFO 排队时恢复捕获的 OTel context。最终层级：
+   ```
+   [Daemon] qwen-code.daemon.request（路由 span）
+     └ qwen-code.daemon.bridge（prompt.dispatch）
+          ▼ 跨进程 W3C traceparent in _meta
+   [ACP Child] qwen-code.interaction（session.id, turn_status）
+     ├ qwen-code.llm_request / qwen-code.tool → tool.execution
+     └ conversation_finished
+   ```
+   `#4630` 给 daemon 路径的 llm_request/tool/tool.execution 补 `session.id`（ARMS 可按 session 查）；`#4682` 把覆盖扩到除 heartbeat 外所有写路由。
+
+2. **SSE 事件协议 stamping**（#4360，F4 prereq）：`_meta.serverTimestamp` / `errorKind` / `provenance(builtin\|mcp\|subagent)` / `originatorClientId` 打进 SSE 事件 `_meta`——服务多客户端重连去重 + triage，进 **SSE 事件流给 SDK reducer**（非 OTLP 后端）。与上面 OTel 线机制不同：前者进 OTLP/ARMS，后者进 SSE 流。
+
+> daemon 遥测设计详见 [Qwen Code Daemon 设计文档](./qwen-code-daemon-design/README.md)。
+
 ---
 
 ## 4. 隐私控制对比
@@ -236,8 +292,12 @@ session（根）
 | `packages/core/src/telemetry/qwen-logger/event-types.ts` | RUM 事件协议 |
 | `packages/core/src/telemetry/sdk.ts` | OTLP Exporter 配置（v0.16.0 新增 HTTP per-signal 路由、LogToSpanProcessor） |
 | `packages/core/src/telemetry/config.ts` | 隐私控制 + 目标选择 + resource attributes 解析（v0.16.0 扩展） |
-| `packages/core/src/telemetry/session-tracing.ts` | 层级 Span 树（v0.16.0 新增，883 行） |
-| `packages/core/src/telemetry/detailed-span-attributes.ts` | 敏感 span 属性（v0.16.0 新增，opt-in） |
-| `packages/core/src/telemetry/metrics.ts` | Metric 定义（含 session.id cardinality 控制） |
+| `packages/core/src/telemetry/session-tracing.ts` | 层级 Span 树（#3731，975 行） |
+| `packages/core/src/telemetry/session-context.ts` | 全局 session root OTel context（parent fallback / `/clear` 后 correlation） |
+| `packages/core/src/telemetry/detailed-span-attributes.ts` | 敏感 span 属性（opt-in，含 hash 去重 + 60KB 截断） |
+| `packages/core/src/telemetry/metrics.ts` | ~35 metric 定义（含 GenAI semconv 双发 + session.id cardinality 控制） |
+| `packages/core/src/telemetry/log-to-span-processor.ts` | log→span 桥（后端只收 trace 时）+ 敏感属性黑名单脱敏 |
 
-> **免责声明**: 以上分析基于 2026 年 Q1 初稿，2026-05-22 对照 v0.16.0 复核。Claude Code v2.1.89；Qwen Code v0.16.0。v0.15.0→v0.16.0 间遥测架构有实质变化：新增层级 Span 树（session-tracing.ts）、移除 TelemetryTarget.QWEN、新增 HTTP per-signal 端点路由、新增 resource attributes 自定义与 metric cardinality 控制、移除 tool_token_count 上报。
+> **免责声明**: 初稿基于 2026 Q1，2026-05-22 对照 v0.16.0 复核，**2026-06-03 再次复核补全 2026-05 演进**。Claude Code v2.1.89；Qwen Code 源码 HEAD（含 #4321/#4417/#4390/#4499/#4482/#4565 已合，#4410/#4432 仍 OPEN）。
+>
+> 2026-05 实质变化：**#3731 分层 tracing 推进到 Phase 4a**（TTFT 捕获 + GenAI semconv 双发）、**客户端 HTTP span + W3C traceparent 传播**（#4390）、**interaction span 钉 session root 修 trace 分裂**（#4499）、**LogToSpan 桥可观测性修复**（#4482）、**daemon 跨进程 trace 传播**（#4556/#4630/#4682）、**skill-RT 遥测地基**（#4565）。详 §3.7–§3.9。

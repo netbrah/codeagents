@@ -16,9 +16,11 @@
 | **Kimi CLI** | 无 | — | 否 | 否 | 否 |
 | **OpenCode** | 无 | — | 否 | 否 | 否 |
 | **Goose** | PostHog | 默认关闭（opt-in） | 是 | 是 | 否 |
-| **Qwen Code** | OTEL（重品牌）+ 阿里云 RUM | 开启 | 是 | 是 | 否 |
+| **Qwen Code** | OTEL（重品牌）+ 阿里云 RUM | RUM 开启 / **OTEL 默认关** ⓘ | 是 | 是 | 否 |
 | **Qoder CLI** | Qoder 自有 | 开启 | 是 | 未确认 | 否 |
 | **Hermes Agent** | **无内建遥测** | — | 否 | 否 | 否 |
+
+> ⓘ **Qwen Code 是两条独立管道**：OTel 主链（traces/metrics/logs，发 OTLP/文件）`telemetry.enabled` **默认 false**——不配就不产生 OTel 数据；阿里云 RUM 使用统计是**另一条**，`getUsageStatisticsEnabled()` **默认开**。"默认开启"指后者。详 [遥测架构 Deep-Dive §3.7](./telemetry-architecture-deep-dive.md#37-四条并行管道澄清默认开启的歧义)。
 
 ## 遥测端点
 
