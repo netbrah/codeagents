@@ -11,6 +11,8 @@
 > **2026-05-24 Claude Code v2.1.150 binary 复核**：v2.1.150 二进制 `strings` 扫描确认 **`background-tasks-dialog` / `BackgroundTasksSettings` / `BackgroundAppearance`** 三个组件名稳定存在（v2.1.145 时点已含相同 string count）—— Claude 在 v2.1.132 → v2.1.145 之间加了 **`/tasks` 单任务 transcript 详情对话框**（prompt + tool calls + result 三段式 + 状态 3 态 start/progress/error）+ **`/daemon` 服务化管理面板**（3 类 services：scheduled task / assistant / remote-control server）。即 **Claude 不止押云端 fleet，本地也加了 background tasks UI**；但 Qwen "4-kind 统一调度 framework" 仍领先 —— Claude `/daemon` 是 systemd-style 长跑服务管理（与 Qwen in-session task 不同维度），`/tasks` 是轻量单任务查看器。具体形态见 §零 [`background-tasks-dialog` 实际形态](#background-tasks-dialog-实际形态2026-05-24-binary-反编译)。
 >
 > **2026-05-26 PR#4477 ✅ MERGED**：wenshao 2026-05-24 开 [PR#4477](https://github.com/QwenLM/qwen-code/pull/4477) `feat(cli): dense inline panel + keyboard navigation for parallel agent fan-out` (target `main`, +809/-95 12 files, 9 commits, **MERGED 2026-05-26 06:23**) —— LiveAgentPanel 上**再加一层 inline dense panel + 完整键盘导航**，与 Claude Coordinator 拉开第二层差距。两个新能力：① **`InlineParallelAgentsDisplay`** —— `/review` 等 ≥2 parallel agent fan-out 组现在不再走 `CompactToolGroupDisplay` 的 `Agent × 9 / <last name>` 单行折叠或 `ToolMessage` 全展开，而是渲染密集面板（每 agent 一行：status `○`/`✔` · name · activity · elapsed · tokens）；live + committed 两阶段都渲；committed 入 `<Static>` 永久 scrollback。② **LiveAgentPanel 键盘导航**：`main` 作首行 + agent rows；输入框 `↓` focus panel 选 `main`；`↑↓` 在 `main` + agent 间导航带 `▸` 指示；`Enter` 直开 `BackgroundTasksDialog` detail 模式；`Esc` / `↑-at-top` 回输入框；新 `detail-from-panel` dialog 模式 `←` 回 panel 而非 list；可打印字符自动失焦 type 入输入框；`LiveAgentPanel.DEFAULT_MAX_ROWS` 5→12 让 9 个 `/review` agent 全可见。详 [§六.14](#已落地-14inline-dense-panel--liveagentpanel-keyboard-navpr4477-2026-05-24-open)。
+>
+> **2026-06-04 新增 [§六·半 Claude Code agent view](#六半claude-code-agent-view--跨会话-fleet-dashboard2026-05-新增)**：Claude Code 5 月最大新 surface `claude agents`（v2.1.139 Research Preview）——**跨会话 fleet dashboard**，与本文聚焦的单会话内 LiveAgentPanel / BackgroundTasksDialog 不是同一层。glance → peek → attach 三层渐进 + supervisor 进程托管 + Haiku 一句话摘要 + PR 状态着色。**Qwen 在"单会话内展示"已反超、"单会话后台调度"领先，但"跨会话 fleet 总览"这一层缺失** —— daemon 后端 multiplexing 已就绪，差一个 fleet dashboard 前端（web-shell 最值得补）。
 
 ## 零、最新动态（截至 2026-05-24，含 v0.16.0 release + Claude v2.1.150 binary 复核）
 
@@ -1084,6 +1086,88 @@ child process 继续跑（独立 AbortController）
 
 1. **`/agents --history` 归档对比视图**：当前 `BackgroundTasksDialog` 偏运行时管理；历史归档 + 对比 diff 仍未实现
 2. **monitor → `send_message` 集成**：PR#3684 自述"未做"清单第 2 项 —— `task_stop` 已通过 PR#3791 顺带覆盖，但 `send_message` 让 monitor 接收外部消息（如 LLM 主动 hint）暂未对接（详见 [§六.5](#已落地-5phase-c-event-monitor-toolpr3684-系列追踪以来最大单-pr)）
+
+---
+
+## 六·半、Claude Code agent view —— 跨会话 fleet dashboard（2026-05 新增）
+
+> 来源：官方文档 [code.claude.com/docs/en/agent-view](https://code.claude.com/docs/en/agent-view)（Research Preview，v2.1.139 引入，2026-05）。**这是 Claude Code 5 月最大的新 surface**，与本文聚焦的 LiveAgentPanel / BackgroundTasksDialog **不是同一层**：那两个是**单会话内**的 subagent/后台任务展示；agent view 是**跨会话的 fleet 总览**——把"本地后台 agent 舰队"做成一个 mission-control 仪表盘。
+
+### 形态：终端全屏的后台会话总览表
+
+`claude agents` 打开一个**全屏**的"所有后台会话一屏看"的表。每个后台会话是一个**完整的 Claude Code 对话**，由独立 supervisor 进程托管，**不需要终端开着也继续跑**。
+
+```text
+Claude Code v2.1.140 · model · ~/projects/game · 9 sessions   ← header
+─────────────────────────────────────────────────────────────
+Pinned
+  ✽ clawd walk cycle      Write assets/sprites/clawd-walk.png        3m
+Ready for review
+  ∙ jump physics          Opened PR with collision fix       PR #2048  2h
+Needs input
+  ✻ power-up design       needs input: double jump or wall climb?    1m
+Working
+  ✽ collision detection   Edit src/physics/CollisionSystem.ts        2m
+  ✢ playtest level 3      run 12 · all checkpoints cleared        in 4m
+Completed
+  ✻ title screen          result: menu, options, and credits done    9m
+  … 6 more                                                  ← 老的折叠
+─────────────────────────────────────────────────────────────
+> [dispatch input]                    ↑↓ move · Space peek · ? help  ← 底部派发框 + footer
+```
+
+**分组**（按"谁需要你"排序）：`Pinned` → `Ready for review`（开了 PR）→ `Needs input` → `Working` → `Completed`（finished/failed/stopped 合并）。`Ctrl+S` 改为按目录分组。
+
+### 每行信息：状态图标 + Haiku 摘要 + PR 标签
+
+| 维度 | 形态 |
+|---|---|
+| **状态图标颜色** | Working（动画）/ Needs input（黄）/ Idle（暗）/ Completed（绿）/ Failed（红）/ Stopped（灰）|
+| **图标形状（进程态）** | `✻`/`✽` 进程活着秒回 · `∙` **进程已退出但可从断点恢复** · `✢` `/loop` 休眠中（带 run 计数 + 倒计时）|
+| **一句话摘要** | **Haiku 模型生成**，运行中 ≤15s 刷一次 —— 不开 transcript 就知道在干啥；v2.1.161 起多 work item 时前缀 `2/5` done/total |
+| **PR 标签** | `PR #2048` 按 PR 状态着色（黄=等 review/挂 · 绿=过了 · 紫=merged · 灰=draft）；**"绿了就 review+merge"是大多数任务的收口点** |
+| **last-changed** | 右侧相对时间 |
+
+terminal tab title 还显示 `2 awaiting input · claude agents` 让 alt-tab 也能感知。
+
+### 最聪明的设计：glance → peek → attach 三层渐进
+
+| 层 | 键 | 看到 / 能做 |
+|---|---|---|
+| **glance** | 默认 | 一屏扫所有会话状态，只在某行变黄（需输入）/ 变绿（出结果）才介入 |
+| **peek** | `Space` | 侧面板：最近输出 / 它问的问题 / 开的 PR；**直接回复不离开表**（多选题按数字键 / `Tab` 填建议回复 / `!` 发 bash / `↑↓` peek 相邻会话）|
+| **attach** | `Enter`/`→` | 接管终端进完整会话（全屏，attach 时给"你离开期间发生了什么"recap）；`←` detach 回表，**detach 永不停会话** |
+
+> **核心洞察**：大多数时候在 **peek 层就够了**，不用进完整会话——这正是 fleet 规模下的关键 UX（N 个会话不可能每个都 attach 进去看 transcript）。
+
+### dispatch + 管理
+
+- **三入口**：agent view 里打字（每条 prompt = 新会话，并行）/ 会话内 `/bg` / shell `claude --bg "..."`
+- `! <command>` 派一个后台 bash job 也成一行；`/<command>` 派 skill/命令
+- **过滤**：输入框打 `a:<agent>` / `s:working` / `#2048`
+- **组织**：`Ctrl+T` pin（idle 不死）/ `Shift+↑↓` 重排 / `Ctrl+R` 改名 / `Ctrl+X` 停（再按删，连带删 worktree）
+- **shell 侧**：`claude logs <id>` / `claude stop` / `claude respawn` / `claude agents --json`（给 tmux-resurrect/状态栏）
+
+### 架构：supervisor 进程 + 落盘持久
+
+独立 **supervisor 进程**托管所有后台会话：关 agent view / 关 shell 都继续跑；状态**落盘持久**跨 auto-update / supervisor 重启 / 机器睡眠（醒来重连而非当 idle）；`∙` 退出的进程在 peek/reply/attach 时**从断点重启**。worktree 隔离：后台 subagent 写各自 worktree 不污染主 checkout。
+
+### 与 Qwen Code 的层级对照 + 借鉴点
+
+| 层级 | Claude Code | Qwen Code 现状 |
+|---|---|---|
+| **单会话内 subagent 展示** | LiveAgentPanel 类（Coordinator panel）| ✅ **LiveAgentPanel + InlineParallelAgentsDisplay**（PR#3909/#4477，本文 §六.10/§六.14，反超）|
+| **单会话后台任务 dialog** | `background-tasks-dialog`（v2.1.150 binary）| ✅ **BackgroundTasksDialog**（4-kind 统一调度，本文 §六，领先）|
+| **跨会话 fleet dashboard** | 🆕 **agent view（`claude agents`）** | ❌ **缺这一层** —— web-shell（ytahdn）是单会话 web 客户端，daemon 是多 client runtime，但**没有"跨会话 fleet 总览"surface** |
+
+**对 Qwen 的借鉴点（这是 Qwen 当前真缺的一层）**：
+
+1. **fleet dashboard 是 daemon 多 session 的天然消费面**：Qwen daemon Mode B 本就是"1 daemon × N session multiplexed"，**已经有 fleet 的后端，缺 fleet 的前端**。`GET /workspace/sessions`（PR#4241）已暴露 session 列表，web-shell 可在其上做一个 agent-view 式总览（按 Needs-input/Working/Completed 分组 + 状态图标 + 一句话摘要）。
+2. **glance → peek → attach 三层渐进值得直接搬**：Qwen web-shell 现在是"进一个会话看一个会话"，缺中间的 **peek 层**（不进会话就回复/看问题）。daemon 的 SSE 事件流 + `followup_suggestion`（PR#4507）已够支撑 peek 面板。
+3. **Haiku 式一句话摘要**：Qwen 可用便宜模型给每个 session 生成"在干啥"摘要（daemon 侧已有 `/recap` PR#4504，正好是这个能力的雏形）。
+4. **PR 状态着色收口**：把"会话开的 PR 状态"做进 fleet 行（绿了就 merge）—— 与 Qwen `/review` 9-agent fan-out 结合，是"派 review → fleet 看结果 → 绿了合"的闭环。
+
+> **判断**：Qwen 的**单会话内**展示（LiveAgentPanel/dense panel）已反超 Claude，**单会话后台调度**（4-kind）领先 Claude，但 **Claude 的 agent view 在"跨会话 fleet 总览"这一层是独一份**。这是 Qwen daemon + web-shell 下一步最值得补的 UX——后端 multiplexing 已就绪，差一个 fleet dashboard 前端。
 
 ---
 
