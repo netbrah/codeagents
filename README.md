@@ -102,6 +102,7 @@
 
 - [功能对比矩阵](./docs/comparison/features.md) | [隐私与遥测](./docs/comparison/privacy-telemetry.md) | [定价与成本](./docs/comparison/pricing.md) | [系统要求](./docs/comparison/system-requirements.md)
 - [架构深度对比](./docs/comparison/architecture-deep-dive.md) | [CLI vs IDE](./docs/comparison/cli-vs-ide-agents.md) | [开源 Managed Code Agents 对比](./docs/comparison/managed-agents-landscape.md)
+- [模型路由](./docs/comparison/model-routing.md) | [Qwen Code 对 DeepSeek 的支持](./docs/comparison/qwen-code-deepseek-support.md)（双协议 + 6 类 wire 怪癖 + hostname 安全分离 + KV cache 意识）
 
 ### 周报 / 进展跟踪
 
