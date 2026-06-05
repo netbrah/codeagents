@@ -108,6 +108,7 @@
 - **周报**：[2026-W22（05-24 ~ 05-31）](./docs/comparison/weekly/2026-W22-0524-0531.md) — Qwen Code / OpenCode / Codex / Claude Code 四方非 daemon 进展对比：Qwen compaction 二次重构 + computer-use + v0.16.2/v0.17.0 双发 / OpenCode acp-next 换代 / Codex Guardian 审批守门 + Python SDK beta / Claude Code Opus 4.8 + dynamic workflows
 - **月活贡献者**：[Qwen Code 2026 年 5 月](./docs/comparison/contributors/2026-05.md) — 补官方 wiki 缺的「最近一月活跃度」维度：当月 ~46 名作者 / ~390 PR，daemon 团队（doudouOUC 99 / chiga0 36 / ytahdn 3 / jifeng 1）当月主力。含 [19 位活跃者逐人深度档案](./docs/comparison/contributors/profiles/README.md)（GitHub 资料 / 累计足迹 / 跨仓库背景 / 角色推断）
 - **月度进展分析**：
+  - 🌟 [**四家 5 月战略全景**](./docs/comparison/2026-05-four-way-strategy.md) — Claude/Codex/OpenCode/Qwen 横向综合：**2026-05 是「长时程自主 agent」成行业共识的月份**，四家趋同补三层（本地 fleet 编排 / LLM 驱动大规模编排 / 自动批安全护栏），但变现逻辑+部署场景+工程文化分化
   - [OpenCode 2026 年 5 月](./docs/comparison/opencode-2026-05-progress.md) — 1567 commit（~27% 自动化水分）三线并行：Effect-TS 全栈重写 / ACP 完整重写硬切 / Zen 商业化基建；含与 Qwen Code 7 维设计对比
   - [OpenAI Codex 2026 年 5 月](./docs/comparison/codex-2026-05-progress.md) — 960 PR（~96% 内部 / ~0% 机器人）企业自托管 agent 平台：extension/plugin/skill 三层平台化 + app/exec/mcp 三平面 server + goal/Guardian/hook「长时程自主+每步可治理」+ Windows 企业部署 + Python SDK 独立 beta
   - [Claude Code 2026 年 5 月](./docs/comparison/claude-code-2026-05-progress.md) — 闭源 changelog 分析（28 版本 v2.1.126→159）：`claude agents` 本地后台 agent fleet（旗舰）+ Opus 4.8 + dynamic workflows + plugin/skill 平台 + auto mode 转默认 + /goal；**含四家 5 月战略对比**（共同押注「长时程自主 + 编排 fleet + 自动批安全」）
