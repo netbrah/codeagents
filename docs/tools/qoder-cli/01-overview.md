@@ -6,7 +6,7 @@
 **文档：** [docs.qoder.com](https://docs.qoder.com/cli/using-cli)
 **npm 包：** `@qoder-ai/qodercli` **v1.0.18**（2026-06-11，最新）
 
-> ⚠️ **2026-06 重大变化（v1.0 大版本）**：Qoder CLI **从 Go 二进制完全重写为 JS bundle，且 fork 自同公司的开源 Qwen Code**（Gemini CLI 血脉）——bundle 含 `ContentGenerator` / `replace`·`task`·`glob`·`web_fetch` 等 Gemini 系工具 / **`arena` 多模型（Qwen Code 招牌）** / `subagent` / `qwen-coder-qoder` 博客链接为证。**v0.x 的 Go 二进制时代结束**；下文「技术架构（二进制分析 v0.1.35）」描述的是 v0.x 历史形态，v1.0 已不适用。完整对比见 [Qwen Code vs Qoder CLI](../../comparison/qwen-code-vs-qoder-cli.md)。
+> ⚠️ **2026-06 重大变化（v1.0 大版本）**：Qoder CLI **从 Go 二进制完全重写为 JS bundle，基座是 Gemini CLI**——与 Qwen Code 是 Gemini CLI 的两个兄弟 fork，但**不是** Qwen Code 的 fork。bundle 保留 Gemini CLI 原版内部名（`geminiIgnoreFilter`、`GEMINI.md`/`MemoryDiscovery`、`ContentGenerator` 26×、`web_fetch`、`run_shell_command`），而 Qwen 专属标记（`DashScope`/`ModelScope`/`chat.qwen.ai`/`qwenOAuth`/`QwenContentGenerator`/`QWEN.md`）三方对照下在 bundle 中**全部为 0**（早前据 `arena` 推断为 Qwen fork 有误，`arena` 实为 protobuf `cc_enable_arenas`）。**v0.x 的 Go 二进制时代结束**；下文「技术架构（二进制分析 v0.1.35）」描述的是 v0.x 历史形态，v1.0 已不适用。完整对比见 [Qwen Code vs Qoder CLI](../../comparison/qwen-code-vs-qoder-cli.md)。
 
 ## 概述
 
@@ -285,9 +285,9 @@ ${project}/.qoder/
 | 维度 | Qoder CLI | Qwen Code |
 |------|-----------|-----------|
 | **开源** | ✗（闭源） | ✓（Apache-2.0） |
-| **语言** | Go | TypeScript |
-| **来源** | 独立开发 | Gemini CLI 分叉 |
-| **定价** | 信用制（Free 有限 → Pro $10） | 免费 OAuth 1000 次/天 |
+| **语言** | JS（v1.0；v0.x 为 Go） | TypeScript |
+| **来源** | Gemini CLI fork（v1.0；v0.x 独立 Go） | Gemini CLI 分叉 |
+| **定价** | 自营网关，账号统一计费 | 软件免费，模型自付（OAuth 免费层 2026-04-15 已停）|
 | **模型** | 多级别抽象 + 自动路由 | 直接选择模型名 |
 | **Quest 模式** | ✓（3 场景 × 3 环境） | ✗ |
 | **Claude 兼容** | `--with-claude-config` 读取 .claude | Claude 插件转换器 |
@@ -310,7 +310,7 @@ ${project}/.qoder/
 1. **闭源**：无法审计内部实现
 2. **低社区采用**：GitHub 仅 28 stars（qoder-action）
 3. **与 Qwen Code 定位重叠**：同公司两个类似产品
-4. **信用制**：免费层有限（Qwen Code 1000/天更慷慨）
+4. **闭源计费**：模型走自营网关统一计费（Qwen Code 虽也无第一方免费额度，但开源且可 BYOK 任意 provider）
 5. **Hooks 不完整**：仅 Notification hooks（其他类型计划中）
 6. **文档 404**：部分文档页面不可访问
 

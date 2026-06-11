@@ -275,7 +275,7 @@
 - **Codex CLI** 28 交互命令（官方文档验证）+ 15 CLI 子命令 + Rust 原生沙箱
 - **OpenCode** 使用 Ctrl+K 命令面板 + 23 个 TUI 斜杠命令
 - **Goose** 16 个交互式斜杠命令 + 15 个 CLI 命令（clap derive），MCP 原生架构
-- **Qoder CLI** v1.0 已从 Go 二进制重写为 **Qwen Code 同源 JS fork**（34MB esbuild bundle）；自营模型网关 + macOS Seatbelt 沙箱 + Quest 模式 + Claude Code 兼容（`--with-claude-config`）。详见 [Qwen Code vs Qoder CLI](./qwen-code-vs-qoder-cli.md)
+- **Qoder CLI** v1.0 已从 Go 二进制重写为 **Gemini CLI fork**（34MB esbuild bundle；与 Qwen Code 是兄弟 fork，非 Qwen Code fork）；自营模型网关 + macOS Seatbelt 沙箱 + Quest 模式 + Claude Code 兼容（`--with-claude-config`）。详见 [Qwen Code vs Qoder CLI](./qwen-code-vs-qoder-cli.md)
 
 ### 后台任务与多 Agent 协调
 
