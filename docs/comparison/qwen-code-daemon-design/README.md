@@ -2,9 +2,9 @@
 
 > Qwen Code 引入 HTTP daemon 模式的完整设计方案。基于 [SDK / ACP / Daemon 架构 Deep-Dive](../sdk-acp-daemon-architecture-deep-dive.md) 第七章"Qwen Code 引入 daemon 的工作量评估"展开为可执行的工程蓝图。
 
-## 零、项目概况速览（截至 2026-06-04）
+## 零、项目概况速览（截至 2026-06-11）
 
-> 一句话：**daemon 功能面已超额完成 alpha 范围**（routes + 协议 + bridge 抽离 + permission mediation + MCP shared pool + 双 transport + 全套 telemetry + web-shell + ACP/REST parity 在建），**真正瓶颈是发布工程节奏** —— v0.16-alpha cut 卡在 **#4490 反向 merge（CONFLICTING，体量 +68k→+115k 越拖越大）**；功能侧 telemetry / web-shell / ACP-REST parity / 长会话恢复仍在猛推。
+> 一句话：**daemon 功能集已正式合入 main（[PR#4490](https://github.com/QwenLM/qwen-code/pull/4490) MERGED 2026-06-11，+148639/-16017，46 commits / 386 files / +115k LOC）**，随 **v0.18.0-preview** 线发布——ACP bridge 包 + MCP transport pool + 4-strategy permission mediator + 全套 daemon route + ACP HTTP transport + web-shell + SDK 一次性进主干。**`daemon_mode_b_main` 不退役，继续作长期 integration 分支**周期反向 merge（#4490 是首次）；功能侧 web-shell 打磨 / rate limiting / reload-env / ACP 桌面集成仍在推。
 
 ### 阶段定位
 
@@ -14,9 +14,11 @@
 | Stage 1.5a (PR#4113) 1 daemon = 1 workspace | 2026-05-15 | ✅ MERGED |
 | Wave 1-4 Protocol → Auth-gated mutation | 2026-05-16 ~ 18 | ✅ 24 PR MERGED |
 | Wave 5 F1/F2/F3/F4 prereq + chiga0 SDK UI 双轨 | 2026-05-19 ~ 28 | ✅ MERGED to `daemon_mode_b_main` |
-| 持续猛推（telemetry 接入 daemon / web-shell 成型 / ACP-REST parity / 长会话恢复）| 2026-05-29 ~ 06-04 | ✅ ~22 PR MERGED to `daemon_mode_b_main` |
-| **PR#4490 反向周期 merge `daemon_mode_b_main → main`** | 🔴 | **OPEN CONFLICTING + CHANGES_REQUESTED**，**+115k/-12k 持续膨胀**（integration 分支移动比反向 merge 落地快，需先做 sync main PR 清冲突；merge strategy/时机/version tag 是 maintainer-only 决策）|
-| **PR 28 npm publish + PR 31 v0.16-alpha cut** | 🟢 Ready 但排队 | 都 Ready，**sequence after #4490 lands**（npm 从 main 发）；v0.16-alpha 范围冻结为 text-only + local-only，server-side code work ≈ 0 |
+| 持续猛推（telemetry 接入 daemon / web-shell / ACP-REST parity / 长会话恢复）| 2026-05-29 ~ 06-10 | ✅ MERGED to `daemon_mode_b_main` |
+| **🎉 [PR#4490](https://github.com/QwenLM/qwen-code/pull/4490) 首次反向周期 merge `daemon_mode_b_main → main`** | ✅ **MERGED 2026-06-11** | **daemon 功能集正式进 main**（+148639/-16017 487 files merge `531a15dd9`）；46 commits 涵盖 ACP bridge / MCP pool / permission mediator / 全 daemon route / web-shell / SDK |
+| 发布 | 2026-06-09~11 | daemon 随 **v0.18.0-preview.0/.1/.2** 线发布（不是单独 v0.16-alpha cut——release 线已演进到 v0.18）|
+
+> **重要：分支模型澄清**——`daemon_mode_b_main` 是**长期 integration 分支，不退役**。daemon 团队继续往它合 PR，再**周期性反向 merge 到 main**（#4490 是首次）。所以"daemon 合入 main"不是一次性事件，而是**进入周期性 integration 节奏**。
 
 **Wave plan 进度（22.75 / 31 ≈ 73%）**：
 
@@ -77,23 +79,24 @@ Wave 6 Release hardening         ░░░░░     PR 27 ✅ + PR 30a ✅；PR
 
 **关键差异化**：qwen-code 是**唯一同时打 ACP 标准 + MCP 标准**的 daemon —— Claude/Cursor 闭门；Goose 仅 ACP；qwen 开放协议生态是长期竞争轴。
 
-### 正在进行的工作（截至 2026-06-04 OPEN PRs）
+### 正在进行的工作（截至 2026-06-11）
 
-**优先级 1：v0.16-alpha cut 关键路径（卡点）**：
-- 🔴 [PR#4490](https://github.com/QwenLM/qwen-code/pull/4490) `chore(integration): daemon_mode_b_main → main` —— **首次反向周期 merge**，**+115k/-12k 持续膨胀**（从 +88k 涨上来），OPEN **CONFLICTING** + CHANGES_REQUESTED。问题：integration 分支天天在动，反向 merge 还没合 main 又积了 5 个新 main commit → 需先做 sync main PR 清冲突才能转 ready；merge strategy / 时机 / version tag 是 maintainer-only 决策。**alpha cut 必先合**
-- 🟢 PR 28 npm publish + PR 31 v0.16-alpha.0 cut —— 都 Ready，但 sequence after #4490（npm 从 main 发）；v0.16-alpha 范围冻结 text-only + local-only，net server-side code work ≈ 0
+**✅ 里程碑达成：daemon 功能集进 main**
+- 🎉 [PR#4490](https://github.com/QwenLM/qwen-code/pull/4490) `feat(daemon): merge daemon-mode feature batch into main` **MERGED 2026-06-11**（+148639/-16017 487 files，merge `531a15dd9`）—— 之前一直跟踪的卡点已解，46 commits / 386 files / +115k LOC 的 daemon 功能集（ACP bridge 包 / MCP transport pool / 4-strategy permission mediator / 全 daemon route / ACP HTTP transport / web-shell / SDK）正式进主干，随 **v0.18.0-preview** 线发布。
+- 分支模型：`daemon_mode_b_main` **继续作长期 integration 分支**，daemon 团队往它合 PR，再周期反向 merge 到 main。
 
-**优先级 2：🔌 ACP / REST parity（chiga0 新线）**：让 `/acp` transport 达到 REST 同等能力，Zed/Goose/IDE 能做 REST 能做的全部：
-- 🚧 [PR#4736](https://github.com/QwenLM/qwen-code/pull/4736) **wave 1** —— 给 `/acp` dispatch 加 **20 个 `_qwen/*` extension method**（session extensions 7 + workspace memory + file operations + auth device-flow），ACP-native client 不再只能走 REST；依赖 #4563 先合
-- 🚧 [PR#4737](https://github.com/QwenLM/qwen-code/pull/4737) **wave 2** —— agents CRUD 5 method
-- 🚧 [PR#4563](https://github.com/QwenLM/qwen-code/pull/4563) `DaemonWorkspaceService` 重构（issue #4542 方案 C）+4294/-2269 —— **ACP parity wave 1/2 的前置依赖**
-- 🚧 [PR#4705](https://github.com/QwenLM/qwen-code/pull/4705) `POST /session/:id/language` runtime language switching / 🚧 [PR#4613](https://github.com/QwenLM/qwen-code/pull/4613) 跨 client model+approval 状态一致
+**优先级 1：🔌 ACP / REST parity + ACP 桌面集成**：
+- ✅ [PR#4728](https://github.com/QwenLM/qwen-code/pull/4728) `feat(acp): support desktop qwen integration` **MERGED 2026-06-09 to main**（DragonnZhang, +9457/-227）—— 扩 ACP 支持，提供 command/skill/session/message metadata 给桌面 client（桌面 app 代码不进本仓库）
+- 🚧 ACP / REST parity wave 1/2（chiga0 [#4736](https://github.com/QwenLM/qwen-code/pull/4736)/[#4737](https://github.com/QwenLM/qwen-code/pull/4737)）+ `DaemonWorkspaceService` 重构（[#4563](https://github.com/QwenLM/qwen-code/pull/4563)）—— 让 `/acp` 达到 REST 同等能力
+- ✅ ACP 稳定性（tanzhenxin）：[#4925](https://github.com/QwenLM/qwen-code/pull/4925) 防 client 忽略 mid-turn drain 时 session/prompt hang / [#4979](https://github.com/QwenLM/qwen-code/pull/4979) resume tool call 后保 teammate identity
 
-**优先级 3：telemetry / web-shell / sustaining（持续猛推，~22 PR 已合 05-29~06-04）**：
-- 🔭 **telemetry 接入 daemon**（doudouOUC）：daemon prompt lifecycle trace #4556 ✅ / tool spans + session.id #4630 ✅ / client_id + permission spans #4628 ✅ / per-prompt traceId #4661 ✅ / route 覆盖扩全写路由 #4682 ✅ / llm_request 响应元数据 #4693 ✅ / 🚧 [PR#4749](https://github.com/QwenLM/qwen-code/pull/4749) daemon OTel metrics + 结构化 log records
-- 🌐 **web-shell 成型**（ytahdn）：`/delete` 批量 #4603 ✅ / UI+subagent 渲染+scroll-follow 重写 #4655 ✅(+12.6k) / 完整内联终端 UI #4710 ✅(+9.3k)
-- 🛡️ **长会话恢复健壮性**：compacted session replay #4694 ✅ / ring_evicted 自动恢复 #4702 ✅ / 并行 subagent transcript 隔离 #4689 ✅
-- 🆕 新 route：runtime MCP add/remove（**T2.8 关 #4514**）#4552 ✅ / `POST /session/:id/btw` #4610 ✅
+**优先级 2：daemon 新能力 + web-shell 持续打磨（daemon_mode_b_main，06-08~10）**：
+- 🆕 **rate limiting**（**T3.4 关 #4514**）：[PR#4861](https://github.com/QwenLM/qwen-code/pull/4861) `--rate-limit` token bucket 三档（prompt 10/min / mutation 30/min / read）默认 off
+- 🆕 **`POST /workspace/reload-env`**：[PR#4924](https://github.com/QwenLM/qwen-code/pull/4924) 不重启热重载 `.env`/`settings.env` + 刷新 idle session auth
+- 🌐 **web-shell 鼠标可达 + UX**（ytahdn）：double-ESC clear / thinking collapse（#4867）/ mode·model 指示器鼠标可选（#4874/#4887）/ `/settings` inline 面板 + 齿轮图标（#4944/#4972）/ context usage 鼠标可达存活 reload（#4958）
+- 🧪 daemon connection stress test + perf harness（#4862）
+
+**优先级 3：telemetry（doudouOUC，已随 #4490 进 main 一部分）**：daemon prompt lifecycle / tool spans + session.id / per-prompt traceId / route 全覆盖 / OTel metrics（详 [遥测架构 Deep-Dive §3.9](../telemetry-architecture-deep-dive.md)）
 
 ### 仍未关的 backlog
 
@@ -101,13 +104,13 @@ Wave 6 Release hardening         ░░░░░     PR 27 ✅ + PR 30a ✅；PR
 - T2.1 `loadSession` / `resume` graduate from `unstable_`（需 #4253 prereq）
 - T2.2 Pair tokens + per-client revocation（L sized，security review）
 
-**#4514 Tier-3 全部待开**：branch/rewind/restore HTTP / `--max-body-size` / rate-limiting / `/extensions` HTTP / `/tasks` HTTP / multi-daemon coord
+**#4514 Tier-3 剩余**：branch/rewind/restore HTTP / `--max-body-size` / `/extensions` HTTP / `/tasks` HTTP / multi-daemon coord（**rate-limiting T3.4 已由 [#4861](https://github.com/QwenLM/qwen-code/pull/4861) 关**）
 
 **#4511 side-channel design 剩余**：A2 / A5（A1+A4 ✅）
 
 **Wave 5 剩余**：F4 client adapter 本体（scope 已两次 revisit）/ PR 25 output sinks
 
-**Wave 6 剩余**：PR 28 npm publish / PR 29 auto-gen token / PR 30 容器化 deployment refs / PR 31 cut
+**Wave 6 剩余**：PR 29 auto-gen token / PR 30 容器化 deployment refs（daemon 已随 v0.18.0-preview 线发布，原 PR 28/31 v0.16-alpha cut 框架被 v0.18 线取代）
 
 ### 编排胶水层（dynamic workflows）—— 🆕 已开工（issue #4721）
 

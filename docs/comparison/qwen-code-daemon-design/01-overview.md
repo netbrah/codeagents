@@ -158,7 +158,9 @@ Mode B 之下进一步区分**3 种 deployment form**，钉死 daemon host 与 w
 >
 > 🎉 **Wave 1+2+2.5+3+4 + W5 PR 22a+22b/1+22b/2 + 多 follow-up 同夜冲合**（2026-05-16~19 共 **38 MERGED + 7 OPEN/draft + 3 CLOSED**）；
 >
-> 📦 **产品 v0.16.0 已发布（2026-05-21，[PR#4404](https://github.com/QwenLM/qwen-code/pull/4404)）**：semver 0.15.11 → 0.16.0 全 workspace 包 bump（含新 `acp-bridge` 包）。v0.16.0 **在 main 上**含 daemon **Wave 1-4 全部 + Wave 5 PR 22-series**；Wave 5 **F-series（F1/F2/F3 + F4 prereq）在 `daemon_mode_b_main` 分支上尚未周期 merge → 不在 v0.16.0**。⚠️ 产品 semver v0.16.0 ≠ daemon Wave plan 的 "PR 31 v0.16 production-ready" 里程碑（后者是 daemon Mode B 功能完备宣告，详 [§06 Wave 6](./06-roadmap.md)）。
+> 📦 **产品 v0.16.0 已发布（2026-05-21，[PR#4404](https://github.com/QwenLM/qwen-code/pull/4404)）**：semver 0.15.11 → 0.16.0 全 workspace 包 bump（含新 `acp-bridge` 包）。v0.16.0 **在 main 上**含 daemon **Wave 1-4 全部 + Wave 5 PR 22-series**；Wave 5 F-series 当时还在 `daemon_mode_b_main` 分支。
+>
+> 🎉 **daemon 功能集已合入 main（[PR#4490](https://github.com/QwenLM/qwen-code/pull/4490) MERGED 2026-06-11，+148639/-16017 487 files，merge `531a15dd9`）**：首次 `daemon_mode_b_main → main` 周期反向 merge，46 commits / +115k LOC 涵盖 ACP bridge 包 / MCP transport pool / 4-strategy permission mediator / 全 daemon route / ACP HTTP transport / web-shell / SDK，随 **v0.18.0-preview** 线发布（release 线已从 v0.16-alpha 演进到 v0.18）。`daemon_mode_b_main` **不退役，继续作长期 integration 分支**周期反向 merge。
 >
 > 🆕 **maintainer 分支策略重组（2026-05-19）**：剩余 Mode B 工作（PR 22b/3 + 22b' + PR 23/24/25/26）不再走 main，而是**拆为 F1-F5 feature PRs** target 长期 integration 分支 `daemon_mode_b_main`；最终通过 `daemon_mode_b_main → main` 周期 merge PR 触发 full CI matrix。**F-series + chiga0 SDK 侧并行 track + ytahdn web-shell + jifeng MCP bridge 当前状态（截至 2026-05-29）**：
 

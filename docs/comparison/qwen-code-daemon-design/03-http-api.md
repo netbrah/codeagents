@@ -259,6 +259,16 @@ POST   /session/:id/btw                     side question（"by the way"）—�
 POST   /session/:id/language                runtime 语言切换（chiga0 PR#4705 🚧 OPEN）
 POST   /workspace/mcp/servers              runtime MCP server add/remove（T2.8 关 #4514；doudouOUC PR#4552 ✅）
                                            之前要 daemon restart，现可热增删 MCP server
+POST   /workspace/reload-env               热重载 .env / settings.env 不重启 daemon + 刷新 idle session auth
+                                           （doudouOUC PR#4924 ✅ MERGED 2026-06-10）—— 新旧 session 立即用更新后的 env
+
+# 🚦 per-tier HTTP rate limiting（T3.4 关 #4514；doudouOUC PR#4861 ✅ MERGED 2026-06-08）
+--rate-limit  flag                         opt-in token bucket 连续滴漏补充，默认 off 保向后兼容
+                                           三档：prompt 10/min · mutation 30/min · read（更高）
+
+# ✅ daemon 功能集已合入 main（PR#4490 MERGED 2026-06-11，+148639/-16017 487 files，随 v0.18.0-preview 发布）
+#                                          以上全部 route + ACP HTTP transport + MCP pool + permission mediator
+#                                          + web-shell + SDK 正式进主干；daemon_mode_b_main 继续作 integration 分支周期反向 merge
 
 # 🔌 ACP / REST parity（chiga0 PR#4736 wave1 + PR#4737 wave2，🚧 OPEN，依赖 #4563）
 POST   /acp  {_qwen/...}                    给 /acp dispatch 加 ~25 个 _qwen/* extension method，
