@@ -4,7 +4,7 @@
 
 ## 零、项目概况速览（截至 2026-06-11）
 
-> 一句话：**daemon 功能集已正式合入 main（[PR#4490](https://github.com/QwenLM/qwen-code/pull/4490) MERGED 2026-06-11，+148639/-16017，46 commits / 386 files / +115k LOC）**，随 **v0.18.0-preview** 线发布——ACP bridge 包 + MCP transport pool + 4-strategy permission mediator + 全套 daemon route + ACP HTTP transport + web-shell + SDK 一次性进主干。**`daemon_mode_b_main` 不退役，继续作长期 integration 分支**周期反向 merge（#4490 是首次）；功能侧 web-shell 打磨 / rate limiting / reload-env / ACP 桌面集成仍在推。
+> 一句话：**daemon 功能集已正式合入 main（[PR#4490](https://github.com/QwenLM/qwen-code/pull/4490) MERGED 2026-06-11，+148639/-16017，46 commits / 386 files / +115k LOC）**，随 **v0.18.0-preview** 线发布——ACP bridge 包 + MCP transport pool + 4-strategy permission mediator + 全套 daemon route + ACP HTTP transport + web-shell + SDK 一次性进主干。**`daemon_mode_b_main` 不退役，继续作长期 integration 分支**周期反向 merge（#4490 是首次）。2026-06-11 同日另落地三件大事：**官方桌面 app 包（#3778 +358953）进 main** / **ACP/REST parity 29 method 达成（#4827）** / **ACP WebSocket transport（#4773）** —— daemon 客户端生态从"3 维入口"扩到"多 transport + 官方桌面 app"。
 
 ### 阶段定位
 
@@ -58,7 +58,7 @@ Wave 6 Release hardening         ░░░░░     PR 27 ✅ + PR 30a ✅；PR
 
 详 [§02 Architectural Decisions](./02-architectural-decisions.md)。
 
-### 客户端生态（3 维入口已建）
+### 客户端生态（多维入口 + 官方桌面 app）
 
 ```text
                 ┌──────────────────────────────────────────────┐
@@ -66,16 +66,19 @@ Wave 6 Release hardening         ░░░░░     PR 27 ✅ + PR 30a ✅；PR
                 │  HttpAcpBridge + EventBus + workspace pool    │
                 └──────────────────┬───────────────────────────┘
                                    │
-       ┌───────────────────┬───────┴───────┬─────────────────┐
-       ▼                   ▼               ▼                 ▼
-  ① REST+SSE           ② ACP HTTP      ③ MCP stdio       (4) ACP stdio
-  /session/* + /workspace/*   /acp     qwen-serve-bridge   (legacy local)
-  消费者:                消费者:        消费者:            (in-process TUI)
-  - web-shell (ytahdn)  - Zed         - Qoder
-  - webui (chiga0)      - Goose       - Claude Desktop
-  - 3 SDK / channel     - future      - Cursor / any MCP
-    adapter / IM bot      ACP SDK       客户端
+   ┌──────────┬──────────┬─────────┴────┬──────────┬───────────┐
+   ▼          ▼          ▼              ▼          ▼           ▼
+ ① REST+SSE ② ACP HTTP ③ ACP WebSocket ④ MCP stdio ⑤ 桌面 app  (legacy)
+ /session/* + /acp(SSE)  WS /acp        qwen-serve-  packages/   ACP stdio
+ /workspace/*            (#4773 phase2) bridge       desktop     (in-proc TUI)
+ 消费者:     消费者:                     消费者:      (#3778      
+ - web-shell - Zed / Goose / IDE        - Qoder      官方桌面    
+ - webui     - 任何 ACP-native client    - Claude     app，基于  
+ - 3 SDK     （#4827 达 29 method         Desktop     ACP SDK)   
+ - channel     REST parity）             - Cursor               
 ```
+
+> **2026-06-11 大跨步**：①②③ 三套 northbound transport（REST+SSE / ACP HTTP / ACP WebSocket）齐了，且 ACP 侧经 #4827 **29 个 `_qwen/*` method 达 REST 完整 parity**；新增**官方桌面 app**（#3778，`packages/desktop/`，基于 ACP SDK）。daemon 客户端生态从"3 维入口"扩到"多 transport + 官方桌面 app + web-shell + MCP-native"。
 
 **关键差异化**：qwen-code 是**唯一同时打 ACP 标准 + MCP 标准**的 daemon —— Claude/Cursor 闭门；Goose 仅 ACP；qwen 开放协议生态是长期竞争轴。
 
@@ -85,16 +88,17 @@ Wave 6 Release hardening         ░░░░░     PR 27 ✅ + PR 30a ✅；PR
 - 🎉 [PR#4490](https://github.com/QwenLM/qwen-code/pull/4490) `feat(daemon): merge daemon-mode feature batch into main` **MERGED 2026-06-11**（+148639/-16017 487 files，merge `531a15dd9`）—— 之前一直跟踪的卡点已解，46 commits / 386 files / +115k LOC 的 daemon 功能集（ACP bridge 包 / MCP transport pool / 4-strategy permission mediator / 全 daemon route / ACP HTTP transport / web-shell / SDK）正式进主干，随 **v0.18.0-preview** 线发布。
 - 分支模型：`daemon_mode_b_main` **继续作长期 integration 分支**，daemon 团队往它合 PR，再周期反向 merge 到 main。
 
-**优先级 1：🔌 ACP / REST parity + ACP 桌面集成**：
-- ✅ [PR#4728](https://github.com/QwenLM/qwen-code/pull/4728) `feat(acp): support desktop qwen integration` **MERGED 2026-06-09 to main**（DragonnZhang, +9457/-227）—— 扩 ACP 支持，提供 command/skill/session/message metadata 给桌面 client（桌面 app 代码不进本仓库）
-- 🚧 ACP / REST parity wave 1/2（chiga0 [#4736](https://github.com/QwenLM/qwen-code/pull/4736)/[#4737](https://github.com/QwenLM/qwen-code/pull/4737)）+ `DaemonWorkspaceService` 重构（[#4563](https://github.com/QwenLM/qwen-code/pull/4563)）—— 让 `/acp` 达到 REST 同等能力
-- ✅ ACP 稳定性（tanzhenxin）：[#4925](https://github.com/QwenLM/qwen-code/pull/4925) 防 client 忽略 mid-turn drain 时 session/prompt hang / [#4979](https://github.com/QwenLM/qwen-code/pull/4979) resume tool call 后保 teammate identity
+**优先级 1：🖥️ 桌面 app + 🔌 ACP transport 三件套（2026-06-11 集中落地）**：
+- 🎉 [PR#3778](https://github.com/QwenLM/qwen-code/pull/3778) `feat(desktop): Add desktop app package with Qwen ACP SDK integration` **MERGED 2026-06-11 to main**（DragonnZhang, **+358953 1590 files**）—— **新 `packages/desktop/` 官方桌面 app 包**，基于 Qwen ACP SDK 集成；前置 [#4728](https://github.com/QwenLM/qwen-code/pull/4728) 扩 ACP 提供 command/skill/session/message metadata 给桌面 client。**daemon 客户端生态再添一维：官方桌面 app**
+- ✅ [PR#4827](https://github.com/QwenLM/qwen-code/pull/4827) `feat(serve): ACP/REST parity — 29 new _qwen/* methods` **MERGED 2026-06-11**（chiga0, +1729，替代 #4736，依赖 #4563 已合）—— **29 个 `_qwen/*` method 达成完整 ACP/REST parity**（session ext 6 + memory + files + auth device-flow + agents CRUD），ACP-native client（Zed/Goose/IDE）可做 REST 能做的全部；tracking #4782
+- ✅ [PR#4773](https://github.com/QwenLM/qwen-code/pull/4773) `feat(serve): ACP WebSocket transport (RFD phase 2)` **MERGED 2026-06-11**（chiga0, +1088）—— **ACP WebSocket transport 与 SSE 共存**，新 transport-agnostic 接口；daemon 现有 3 套 northbound transport（REST+SSE / ACP HTTP / ACP WebSocket）
+- ✅ ACP 稳定性（tanzhenxin）：[#4925](https://github.com/QwenLM/qwen-code/pull/4925) 防 client 忽略 mid-turn drain 时 hang / [#4979](https://github.com/QwenLM/qwen-code/pull/4979) resume tool call 后保 teammate identity
 
 **优先级 2：daemon 新能力 + web-shell 持续打磨（daemon_mode_b_main，06-08~10）**：
 - 🆕 **rate limiting**（**T3.4 关 #4514**）：[PR#4861](https://github.com/QwenLM/qwen-code/pull/4861) `--rate-limit` token bucket 三档（prompt 10/min / mutation 30/min / read）默认 off
-- 🆕 **`POST /workspace/reload-env`**：[PR#4924](https://github.com/QwenLM/qwen-code/pull/4924) 不重启热重载 `.env`/`settings.env` + 刷新 idle session auth
-- 🌐 **web-shell 鼠标可达 + UX**（ytahdn）：double-ESC clear / thinking collapse（#4867）/ mode·model 指示器鼠标可选（#4874/#4887）/ `/settings` inline 面板 + 齿轮图标（#4944/#4972）/ context usage 鼠标可达存活 reload（#4958）
-- 🧪 daemon connection stress test + perf harness（#4862）
+- 🆕 **`POST /workspace/reload`**：[PR#4965](https://github.com/QwenLM/qwen-code/pull/4965) 统一 settings 热重载（`diffSettingsKeys` 只刷真变的 + `settings_reloaded` 事件）—— 取代更窄的 `/workspace/reload-env`（已移除）
+- 🌐 **web-shell 持续打磨**（ytahdn / wenshao / yuanyuanAli）：鼠标可达 cluster（#4867/#4874/#4887/#4944/#4958/#4972）/ task auth + goal workflows（#4856 +5442）/ SSE 重连稳定性 + toast API（#4952）/ **图片上传 + echo**（#4922）/ tool call 合并成 tool_group（#4975）/ thinking 折叠 5 行窗口（#4977）
+- 🧪 daemon connection stress test + perf harness（#4862）/ per-session stats 隔离（#4954）/ `QWEN_CODE_SESSION_ID` 经 AsyncLocalStorage 绑当前 session（#4998）
 
 **优先级 3：telemetry（doudouOUC，已随 #4490 进 main 一部分）**：daemon prompt lifecycle / tool spans + session.id / per-prompt traceId / route 全覆盖 / OTel metrics（详 [遥测架构 Deep-Dive §3.9](../telemetry-architecture-deep-dive.md)）
 
