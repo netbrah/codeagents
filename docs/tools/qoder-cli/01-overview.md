@@ -1,15 +1,18 @@
 # 1. Qoder CLI 概述
 
-**开发者：** QoderAI（阿里巴巴通义灵码团队）
+**开发者：** QoderAI（阿里巴巴通义灵码系）
 **许可证：** 专有（商业条款 qoder.com/product-service）
 **官网：** [qoder.com/cli](https://qoder.com/cli)
 **文档：** [docs.qoder.com](https://docs.qoder.com/cli/using-cli)
-**npm 包：** `@qoder-ai/qodercli` v0.1.35
-**最后更新：** 2026-03
+**npm 包：** `@qoder-ai/qodercli` **v1.0.18**（2026-06-11，最新）
+
+> ⚠️ **2026-06 重大变化（v1.0 大版本）**：Qoder CLI **从 Go 二进制完全重写为 JS bundle，且 fork 自同公司的开源 Qwen Code**（Gemini CLI 血脉）——bundle 含 `ContentGenerator` / `replace`·`task`·`glob`·`web_fetch` 等 Gemini 系工具 / **`arena` 多模型（Qwen Code 招牌）** / `subagent` / `qwen-coder-qoder` 博客链接为证。**v0.x 的 Go 二进制时代结束**；下文「技术架构（二进制分析 v0.1.35）」描述的是 v0.x 历史形态，v1.0 已不适用。完整对比见 [Qwen Code vs Qoder CLI](../../comparison/qwen-code-vs-qoder-cli.md)。
 
 ## 概述
 
-Qoder CLI 是阿里巴巴通义灵码团队推出的**闭源**终端 AI 编程代理。与同公司的 Qwen Code（开源，Gemini CLI 分叉）不同，Qoder CLI 是独立的商业产品，使用 **Go 语言**编写，以原生 43MB 静态链接二进制分发。
+Qoder CLI 是阿里巴巴通义灵码系推出的**闭源**终端 AI 编程代理。**v1.0（2026-06）起 fork 自同公司的开源 Qwen Code**——即 Qoder 与 Qwen Code 现在是 Gemini CLI 血脉的兄弟 fork，共享底座（工具 / Arena / subagent / MCP / 1M 上下文），但 Qoder 套上**自营模型网关 + 账号计费 + macOS Seatbelt 沙箱 + 企业能力**做成闭源商业产品。
+
+> 历史：v0.x（至 2026-03 v0.1.35）曾是独立的 **Go 语言** 43MB 静态链接二进制，内部包 `code.alibaba-inc.com/qoder-core/qodercli/`。v1.0 放弃该路线，改 fork Qwen Code。
 
 核心特色：
 - **Quest 模式**：规格驱动自主执行——先生成 Spec 文档，用户确认后执行，支持本地/Worktree/远程三种环境

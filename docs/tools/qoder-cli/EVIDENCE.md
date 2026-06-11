@@ -1,6 +1,21 @@
 # Qoder CLI 二进制分析证据
 
-## 基本信息
+## ⚠️ v1.0.18 复核（2026-06-11）：Go 二进制 → Qwen Code fork
+
+**重大变化**：Qoder CLI v1.0 已**从 Go 二进制完全重写为 JS bundle，fork 自 Qwen Code**（Gemini CLI 血脉）。`@qoder-ai/qodercli` v1.0.18 npm 包静态分析证据：
+
+- **包形态**：`bundle/qodercli.js`（34 MB esbuild bundle）+ `postinstall.cjs` 自述 "**pure JS bundle**"；copyright `Google LLC` / Apache-2.0（Gemini CLI 血脉），**不再是 Go 二进制**
+- **fork 自 Qwen Code 的证据**（bundle 字符串）：`contentgenerator` 41× / 工具名全 Gemini 系（`replace` 1265× · `task` 197× · `shell` · `glob` 43× · `grep` 23× · `run_shell_command` · `web_fetch`）/ **`arena` 11×（Qwen Code 招牌多模型）** / `subagent` 222× / 博客链接 `.../blog/qwen-coder-qoder`
+- **新增 macOS Seatbelt 沙箱**：6 个 `.sb` profile（`strict`/`restrictive`/`permissive` × `proxied`/`open`，`(deny default)` + 选择性 allow）
+- **Qoder 自有**：浏览器登录 + PAT（`QODER_PERSONAL_ACCESS_TOKEN`）；自营网关 `api.qoder.sh`（全球）/ `api.qoder.com.cn`（国内）；`qoder-plugin` / `qoder-marketplace` / `qoder-enterprise-` / `remote-control`
+- **slash 命令**：`/help` `/mcp` `/mcp-config` `/hook-config` `/plugins` `/usage` `/remote-control` `/token` `/authorize` `/compare` `/metrics` `/otel`
+- **依赖**：`sharp`（图像/多模态）+ ripgrep + Node ≥ 20；两渠道 `@latest` / `@beta`（Node 原生兼容版）
+
+完整对比见 [Qwen Code vs Qoder CLI](../../comparison/qwen-code-vs-qoder-cli.md)。
+
+---
+
+## 基本信息（v0.x 历史 — Go 二进制时代，v1.0 已重写取代）
 - 包: @qoder-ai/qodercli v0.1.35
 - 二进制: /usr/local/lib/node_modules/@qoder-ai/qodercli/bin/qodercli
 - 格式: ELF 64-bit LSB executable, x86-64, statically linked, stripped

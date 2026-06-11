@@ -55,7 +55,7 @@
 | [SWE-agent](./docs/tools/swe-agent.md) | Princeton | MIT | Python | 19k | 100+ | SWE-bench 评估 |
 | [Copilot CLI](./docs/tools/copilot-cli/) | GitHub | 专有 | TypeScript | 10k | 多种 | 67 GitHub 工具 |
 | [Kimi CLI](./docs/tools/kimi-cli/) | 月之暗面 | Apache-2.0 | Python | 7k | 6 | Wire 协议，D-Mail |
-| [Qoder CLI](./docs/tools/qoder-cli/) | QoderAI | 专有 | Go | — | 多种 | Quest 模式 |
+| [Qoder CLI](./docs/tools/qoder-cli/) | QoderAI（阿里） | 专有 | JS（v1.0=Qwen Code fork） | — | 多种 | 自营网关 + macOS 沙箱 + Quest |
 
 ---
 
@@ -130,6 +130,7 @@
 
 - [Claude Code vs Cursor](./docs/comparison/claude-code-vs-cursor.md) | [vs Copilot CLI](./docs/comparison/claude-code-vs-copilot-cli.md) | [Aider vs Goose](./docs/comparison/aider-vs-goose.md)
 - [Qwen vs Claude Code](./docs/comparison/qwen-vs-claude-code.md) | [vs Gemini vs Kimi](./docs/comparison/qwen-vs-gemini-vs-kimi.md) | [OpenCode vs Qwen](./docs/comparison/opencode-vs-qwen-source.md)
+- [Qwen Code vs Qoder CLI](./docs/comparison/qwen-code-vs-qoder-cli.md)（阿里同源双 fork：开源免费 vs 闭源商业化）
 
 <details><summary><b>使用指南</b></summary>
 
