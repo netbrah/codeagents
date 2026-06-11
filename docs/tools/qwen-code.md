@@ -9,20 +9,20 @@
 
 ## 概述
 
-Qwen Code 是阿里云推出的开源 AI 编程代理，运行在终端中。基于 Google Gemini CLI 分叉并大幅增强，针对 Qwen3-Coder 系列模型优化，是中国首款由大模型厂商发布的终端编程工具。支持 6+ 提供商（Qwen OAuth/DashScope/ModelScope/Anthropic/Google/自定义），提供免费 OAuth 额度和完整的多语言国际化。
+Qwen Code 是阿里云推出的开源 AI 编程代理，运行在终端中。基于 Google Gemini CLI 分叉并大幅增强，针对 Qwen3-Coder 系列模型优化，是中国首款由大模型厂商发布的终端编程工具。支持 6+ 提供商（Qwen OAuth/DashScope/ModelScope/Anthropic/Google/自定义），可 BYOK 接入任意 OpenAI/Anthropic/Gemini 兼容端点（含 DeepSeek 等低价选项），并提供完整的多语言国际化。
 
 ## 核心功能
 
 ### 基础能力
 - **终端原生**：基于 Ink + React 的终端 UI
 - **16 个内置工具**：文件编辑、Bash 执行、Grep 搜索、Web 抓取等
-- **多提供商**：Qwen OAuth（免费）、DashScope、ModelScope、Anthropic、Google、自定义端点（6+）
+- **多提供商**：Qwen OAuth、DashScope、ModelScope、Anthropic、Google、自定义端点（6+），支持 BYOK 任意兼容 provider
 - **MCP 支持**：模型上下文协议（SSE + Stdio）
 - **LSP 集成**：语言服务器协议支持
 - **多语言 UI**：中/英/日/德/俄/葡 6 种语言
 
 ### 独特功能
-- **免费 OAuth 额度**：通义账号每天 1000 次免费请求
+- **开源 + BYOK 任意 provider**：Apache-2.0 开源，可接入 OpenAI/Anthropic/Gemini 兼容端点（含 DeepSeek 等低价选项）
 - **基于 Gemini CLI**：继承 Gemini CLI 架构并大幅增强
 - **Plan 模式**：显式规划阶段，执行前需审批
 - **多代理终端**：Tmux/iTerm2 后端支持并行代理
@@ -117,9 +117,10 @@ qwen --version
 
 ## 模型支持
 
-| 提供商 | 模型 | 认证方式 | 免费额度 |
+| 提供商 | 模型 | 认证方式 | 计费 |
 |--------|------|---------|---------|
-| **Qwen OAuth** | coder-model (qwen3.5-plus) | 浏览器 OAuth | 1000 次/天 |
+| **Qwen OAuth** | coder-model (qwen3.5-plus) | 浏览器 OAuth | 免费层 2026-04-15 已停，需 Coding Plan 订阅 |
+| **阿里云 Coding Plan** | Qwen/GLM/Kimi/Minimax | 月度订阅 | 付费订阅 |
 | DashScope | qwen3-coder-plus, turbo | API Key | 按量付费 |
 | ModelScope | qwen3-coder 系列 | API Key | 按量付费 |
 | Anthropic | Claude 3.5 Sonnet, Opus | API Key | 无 |
@@ -208,7 +209,7 @@ qwen --version
 
 ## 优势
 
-1. **免费额度**：OAuth 登录即享每天 1000 次免费请求
+1. **开源 + BYOK**：Apache-2.0 开源，可 BYOK 接入任意兼容 provider（含 DeepSeek 等低价选项），不锁定第一方计费
 2. **多语言 UI**：6 种语言本地化，对中文开发者极友好
 3. **多提供商**：不锁定单一模型，灵活切换
 4. **完整 SDK**：TypeScript + Java SDK，支持编程式集成
@@ -308,7 +309,7 @@ QWEN_SANDBOX=docker qwen
 
 ## 使用场景
 
-- **最适合**：中文开发者、需要免费额度的用户、阿里云生态用户
+- **最适合**：中文开发者、希望开源 + BYOK 低价 provider（如 DeepSeek）的用户、阿里云生态用户
 - **适合**：日常编码、多提供商切换、SDK 集成
 - **不太适合**：需要极强推理能力的复杂任务（受限于模型能力）
 

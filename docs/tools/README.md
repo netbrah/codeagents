@@ -21,7 +21,7 @@
 |------|------|------|------|
 | [Cursor CLI](./cursor-cli.md) | 单文件 | 476 | AI 原生 IDE，Background Agent，Rules 系统 |
 | [Warp](./warp.md) | 单文件 | 382 | Warp 2.0 ADE，Oz 代理，16 命令 |
-| [Qwen Code](./qwen-code.md) | 单文件 | 332 | Gemini CLI 分叉，免费 1000 次/天，40 命令 |
+| [Qwen Code](./qwen-code.md) | 单文件 | 332 | Gemini CLI 分叉，开源 + BYOK 任意 provider，40 命令 |
 | [Goose](./goose.md) | 单文件 | 208 | MCP 原生，16 命令，Recipe 模板 |
 | [Continue](./continue.md) | 单文件 | 190 | VS Code/JetBrains，68 提供商，37 上下文 |
 | [SWE-agent](./swe-agent.md) | 单文件 | 178 | SWE-bench 74%+，Docker 沙箱 |

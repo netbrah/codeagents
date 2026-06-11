@@ -23,7 +23,7 @@
 | 主题 | ✅ 37 种主题 | ✅ 主题系统 | OpenCode 更多 |
 | i18n 多语言 | ✅ Web/桌面 16 种语言（TUI 仅英文） | ✅ 6 语言 | 对等（OpenCode Web/桌面更多） |
 | Agent Arena | ❌ | ✅ | **Qwen 独有** |
-| 免费 OAuth | ❌ | ✅ 1000 次/天 | **Qwen 独有** |
+| 认证 | BYOK（无第一方免费层） | Qwen OAuth（免费层 2026-04-15 已停，现需订阅/BYOK） | 对等（均需订阅/BYOK） |
 | 扩展格式转换 | ❌ | ✅ Claude/Gemini 格式 | **Qwen 独有** |
 | **SQLite 持久化** | ✅ Drizzle ORM | ❌ JSONL 文件 | **需补全** |
 | **HTTP 服务器** | ✅ Hono + WebSocket + MDNS | ❌ | **需补全** |
@@ -290,10 +290,9 @@ interface SessionVersion {
 |------|---------------|--------------|
 | **Agent Arena** | 多模型并行竞争评估 | ❌ |
 | **6 语言 UI** | CLI 6 种语言 | TUI 仅英文（但 Web/桌面 16 种语言） |
-| **免费 OAuth** | 每天 1000 次 | ❌ |
 | **扩展格式转换** | Claude/Gemini 扩展自动转换 | ❌ |
 
-> 注：多提供商支持（Qwen 5 个 vs OpenCode 100+ via models.dev + Vercel AI）、Plan 模式审批（两者都有权限系统）、交互式 Shell（两者都支持 bash 执行）经 R2 核实非 Qwen 独有优势，已移除。
+> 注：多提供商支持（Qwen 5 个 vs OpenCode 100+ via models.dev + Vercel AI）、Plan 模式审批（两者都有权限系统）、交互式 Shell（两者都支持 bash 执行）经 R2 核实非 Qwen 独有优势，已移除。Qwen OAuth 免费层已于 2026-04-15 终止，两者均需订阅或 BYOK，亦非 Qwen 独有优势。
 
 ---
 

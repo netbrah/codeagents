@@ -21,7 +21,7 @@
 | Agent Arena | ❌ | ✅ `ArenaManager.ts` | **Qwen 独有** |
 | 视觉/图像 | ✅ 图片粘贴/读取 | ✅ YOLO 自动切换视觉模型 | 对等（Qwen 自动切换更强） |
 | 6 语言 UI | ❌ | ✅ 中/英/日/德/俄/葡 | **Qwen 独有** |
-| 免费 OAuth | ❌ | ✅ 1000 次/天 | **Qwen 独有** |
+| 开源 + BYOK 任意 provider | 部分（仅 Anthropic key） | ✅ Apache-2.0 + OpenAI/Anthropic/Gemini 兼容 BYOK（含 DeepSeek） | **Qwen 独有**（Qwen OAuth 免费层 2026-04-15 已停，现需订阅/BYOK） |
 | **`--bare` 模式** | ✅ | ❌ | **需补全** |
 | **延迟工具加载** | ✅ ToolSearch | ❌ | **需补全** |
 | **断路器增强** | ✅ 连续 N 次计数 | 部分（布尔标志） | **需增强** |
@@ -372,8 +372,8 @@ Qwen Code 已有 `generateJson()` 方法（`baseLlmClient.ts:72-130`），支持
 | **Agent Arena** | `ArenaManager.ts`，多模型并行 worktree 对比 | 多模型竞争评估（Claude Teammates 是协作，无竞争模式） |
 | **视觉模型 YOLO 自动切换** | 根据输入自动切换视觉模型（Claude Code 支持图片但无自动切换） | 多模态体验更流畅 |
 | **6 语言 UI** | 中/英/日/德/俄/葡完整本地化 | 全球化覆盖 |
-| **免费 OAuth** | 每天 1000 次 | 零门槛试用 |
-| **多提供商** | Qwen OAuth + DashScope + ModelScope + Anthropic + Google + 自定义（6+） | 模型灵活性 |
+| **开源 + BYOK 任意 provider** | Apache-2.0，可接 OpenAI/Anthropic/Gemini 兼容端点（含 DeepSeek 等低价选项） | 不锁定单一模型，可控成本（Qwen OAuth 免费层 2026-04-15 已停，现需订阅/BYOK） |
+| **多提供商** | Qwen OAuth + 阿里云 Coding Plan + DashScope + ModelScope + Anthropic + Google + 自定义（6+） | 模型灵活性 |
 | **Claude/Gemini 扩展转换** | 自动格式转换 | 跨生态兼容 |
 
 ---
@@ -386,7 +386,7 @@ Qwen Code 已有 `generateJson()` 方法（`baseLlmClient.ts:72-130`），支持
 
 > 注：交互式 Shell（`!` 模式切换 + `!{...}` 注入）、结构化输出（`generateJson()`）、插件市场基础设施（`marketplace.ts`）、LSP（`lsp.ts`）经核实均已存在，从缺失列表移除。
 
-**Qwen Code 不需要复制 Claude Code 的一切**——Agent Arena、6 语言 UI、免费 OAuth、多提供商是独有竞争力。重点补全 `--bare` 模式和企业管控两个核心缺口。
+**Qwen Code 不需要复制 Claude Code 的一切**——Agent Arena、6 语言 UI、开源 + 多 provider BYOK（可接 DeepSeek 等低价选项）是独有竞争力。重点补全 `--bare` 模式和企业管控两个核心缺口。
 
 ---
 

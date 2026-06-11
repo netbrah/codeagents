@@ -20,7 +20,7 @@
 | 能力 | 实现 | 竞品状态 |
 |------|------|---------|
 | **多 Provider 内容生成** | Anthropic / OpenAI / DashScope / DeepSeek / OpenRouter / ModelScope | Claude Code 仅 Claude，Gemini CLI 仅 Gemini |
-| **免费 OAuth 额度** | 通义账号 1000 次/天免费 | 竞品均需付费或自带 API Key |
+| **开源 + BYOK 任意 provider** | Apache-2.0 开源，可接 OpenAI/Anthropic/Gemini 兼容端点（含 DeepSeek 等低价选项） | Claude Code / Cursor 闭源且锁定第一方计费 |
 | **Arena 多模型竞赛** | 多模型在隔离 worktree 中竞争执行 | 竞品无 |
 | **CoreToolScheduler** | Agent/Task 工具并行 + 其他工具串行 | Claude Code 全量 StreamingToolExecutor；Gemini CLI 全串行 |
 | **规则权限系统** | L3→L4→L5 多层权限评估 | Claude Code 内置权限；Gemini CLI 仅 IDE 层 |
@@ -70,7 +70,7 @@
 
 ### 独特功能
 - **Arena 模式**：多模型竞争执行
-- **免费 OAuth**：通义账号 1000 次/天
+- **开源 + BYOK**：Apache-2.0 开源，可接任意兼容 provider（含 DeepSeek 等低价选项）
 - **三格式扩展兼容**：Qwen + Claude + Gemini
 - **/btw 旁问**：不中断主对话的快速提问
 - **/insight 代码洞察**：分析代码库生成洞察
@@ -106,9 +106,10 @@ qwen --version
 
 ## 五、模型支持
 
-| 提供商 | 默认模型 | 认证方式 | 免费额度 |
+| 提供商 | 默认模型 | 认证方式 | 计费 |
 |--------|---------|---------|---------|
-| **Qwen OAuth** | qwen3.5-plus | 浏览器 OAuth | 1000 次/天 |
+| **Qwen OAuth** | qwen3.5-plus | 浏览器 OAuth | 免费层 2026-04-15 已停，需 Coding Plan 订阅 |
+| **阿里云 Coding Plan** | Qwen/GLM/Kimi/Minimax | 月度订阅 | 付费订阅 |
 | DashScope | qwen3-coder-plus | API Key | 按量 |
 | Anthropic | Claude 系列 | API Key | 无 |
 | Google | Gemini 系列 | API Key | 有限 |

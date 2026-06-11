@@ -614,7 +614,7 @@ Codex config + rollout/sessions（带 import ledger 追踪来源）
 |------|------|
 | **多 Provider** | Anthropic/OpenAI/DashScope/DeepSeek 等 10+ Provider |
 | **Agent Arena** | 多模型并行竞赛评估 |
-| **免费 OAuth** | 1000 次/天 |
+| **开源 + BYOK 任意 provider** | Apache-2.0，可接 OpenAI/Anthropic/Gemini 兼容端点（含 DeepSeek 等低价选项）；Qwen OAuth 免费层 2026-04-15 已停，现需订阅/BYOK |
 | **多渠道部署** | DingTalk/Telegram/WeChat/Web |
 | **国际化** | 6 语言 i18n |
 | **Gemini CLI 兼容** | fork 自 Gemini CLI，共享上游改进 |

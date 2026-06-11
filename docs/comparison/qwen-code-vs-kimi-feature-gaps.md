@@ -32,7 +32,7 @@
 | Todo/任务管理 | ✅ todoWrite | ✅ SetTodoList | 对等 |
 | **Arena 竞争模式** | ✅ ArenaManager | ❌ | **Qwen 独有** |
 | **6 语言 UI** | ✅ 中/英/日/德/俄/葡 | ❌ | **Qwen 独有** |
-| **免费 OAuth 1000/天** | ✅ | ❌ | **Qwen 独有** |
+| **认证** | Qwen OAuth（免费层 2026-04-15 已停，现需订阅/BYOK） | OAuth + API Key | 对等（均需订阅/BYOK） |
 | **扩展市场** | ✅ marketplace.ts | ❌ | **Qwen 独有** |
 | **Claude/Gemini 扩展转换** | ✅ | ❌ | **Qwen 独有** |
 | **多终端后端** | ✅ Tmux/iTerm2/进程内 | ❌ | **Qwen 独有** |

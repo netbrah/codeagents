@@ -12,7 +12,7 @@
 | **许可证** | 专有 | Apache-2.0 |
 | **模型** | Claude 系列（锁定） | Qwen OAuth + DashScope + ModelScope + Anthropic + Google + 自定义（6+ 提供商） |
 | **上下文** | 100 万 token（Opus 4.6） | 100 万 token（Qwen3 商用版） |
-| **免费层** | Claude Pro/Max 订阅内含 | 每天 1000 次免费（OAuth） |
+| **计费** | Claude Pro/Max 订阅内含 | 软件开源免费；模型自付（OAuth 免费层 2026-04-15 已停，需 Coding Plan 订阅或 BYOK） |
 | **插件仓库** | 13 个官方插件 | 扩展系统 + Claude/Gemini 格式转换 |
 
 ---
@@ -521,7 +521,7 @@ interface SubagentConfig {
 
 | 特性 | 说明 |
 |------|------|
-| **免费 OAuth** | 通义账号每天 1000 次 |
+| **开源 + BYOK** | Apache-2.0 软件免费，模型可接任意 provider |
 | **6+ 提供商** | Qwen OAuth + DashScope + ModelScope + Anthropic + Google + 自定义 |
 | **Arena 模式** | 多代理竞争/协作（Team/Swarm/Arena） |
 | **Tmux/iTerm2 分屏** | 可视化并行代理 |
@@ -543,7 +543,7 @@ interface SubagentConfig {
 |------|------|------|
 | **复杂推理** | Claude Code | Claude 模型推理能力最强 |
 | **企业部署** | Claude Code | 5 层设置 + 企业管控 + 沙箱 |
-| **免费使用** | Qwen Code | OAuth 1000 次/天 |
+| **低成本/自托管** | Qwen Code | 开源免费 + BYOK 可接 DeepSeek 等低价 provider |
 | **多模型切换** | Qwen Code | 6+ 提供商灵活切换 |
 | **中文开发** | Qwen Code | 6 语言 UI + Qwen 模型中文能力 |
 | **代码审查** | Claude Code | code-review 插件（4 并行代理） |
@@ -558,7 +558,7 @@ interface SubagentConfig {
 
 **Claude Code** 是闭源但功能最完善的商业代理——Rust 原生性能、Prompt Hook 的 LLM 驱动决策、5 层企业管控、13 个官方插件构成了最成熟的生态。但模型锁定和付费门槛是限制。
 
-**Qwen Code** 是功能最丰富的开源代理——6+ 提供商灵活接入、Arena 多代理框架、6 语言国际化、免费 OAuth 额度构成了最有吸引力的开源方案。但作为 Gemini CLI 分叉，部分代码仍带上游痕迹。
+**Qwen Code** 是功能最丰富的开源代理——Apache-2.0 开源 + BYOK 任意 provider（可接 DeepSeek 等低价选项）、6+ 提供商灵活接入、Arena 多代理框架、6 语言国际化构成了最有吸引力的开源方案。但作为 Gemini CLI 分叉，部分代码仍带上游痕迹；模型调用需 Coding Plan 订阅或 BYOK（OAuth 免费层 2026-04-15 已停）。
 
 两者在工具系统、Hook 架构、技能系统上有**高度相似性**（均为声明式工具 + 事件 Hook + Markdown 技能），说明业界正在收敛到一套共同的代理架构模式。
 

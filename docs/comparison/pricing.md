@@ -13,7 +13,7 @@
 | **Codex CLI** | API 按量 | 无 | 按 token |
 | **Aider** | API 按量（自带 key） | 无 | 取决于所选模型 |
 | **Gemini CLI** | API + 免费层 | 每日额度 | API 按量 |
-| **Qwen Code** | 免费 + API | 每日额度 | DashScope 按量 |
+| **Qwen Code** | 开源 + 订阅/BYOK | 无第一方免费额度（OAuth 免费层 2026-04-15 已停） | Coding Plan 订阅 / BYOK 按量 |
 | **Kimi CLI** | API 按量 | 有限免费额度 | Moonshot API 按量 |
 | **Goose** | API 按量（自带 key） | 无 | 取决于所选模型 |
 | **OpenCode** | API 按量 | 无 | 取决于提供商 |
@@ -72,7 +72,7 @@ API 按量价格（参考）：
 | Codex CLI | gpt-5.1-codex | ~50K in + ~10K out | ~$0.20 |
 | Aider | claude-sonnet-4.6 | ~30K in + ~5K out | ~$0.17 |
 | Gemini CLI | gemini-2.5-pro | ~50K in + ~10K out | 免费层 |
-| Qwen Code | qwen3.5-plus | ~50K in + ~10K out | 免费层 |
+| Qwen Code | qwen3.5-plus | ~50K in + ~10K out | Coding Plan 订阅内 / BYOK 按量（可接 DeepSeek 等低价 provider） |
 
 ### 场景 2：开发一个新功能（~30 分钟）
 
@@ -101,7 +101,8 @@ API 按量价格（参考）：
 | 策略 | 适用工具 | 说明 |
 |------|---------|------|
 | **选择小模型做简单任务** | 全部 | Haiku/mini 比 Opus 便宜 10-20 倍 |
-| **利用免费层** | Gemini CLI, Qwen Code, Copilot | 先核对 `docs/data/agents-metadata.json` 中当前免费层额度 |
+| **利用免费层** | Gemini CLI, Copilot | 先核对 `docs/data/agents-metadata.json` 中当前免费层额度 |
+| **BYOK 接低价 provider** | Qwen Code | 开源软件免费，模型可 BYOK 任意兼容 provider（如 DeepSeek/OpenRouter/Fireworks）压低单价 |
 | **Prompt Caching** | Claude Code, Aider | 减少重复系统提示的 token 费用 |
 | **上下文压缩** | 全部 | 定期 /compact 减少 token 累积 |
 | **Aider 的 /architect** | Aider | 用强模型规划、弱模型执行，节省 50%+ |

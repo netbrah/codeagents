@@ -237,7 +237,7 @@
 | Goose | API 按量 | ~$0.02-0.10 | ~$0.50-3 | 多提供商 |
 | Gemini CLI | API 按量/免费 | 免费 | ~$0.10-1 | 1500 次/天免费层 |
 | OpenHands | API 按量 | ~$0.05-0.20 | ~$2-10 | 多代理消耗更高 |
-| Qwen Code | 免费/API | 免费 | 免费 | 每日 1000 次 |
+| Qwen Code | 开源 + 订阅/BYOK | 取决于 provider | 取决于 provider | 软件开源免费；模型走 Coding Plan 订阅或 BYOK（OAuth 免费层 2026-04-15 已停） |
 | Kimi CLI | API 按量 | ~$0.01-0.05 | ~$0.20-1 | 国内模型成本低 |
 
 ### 内置命令能力对比
@@ -333,7 +333,7 @@
 3. **Continue** - CI/CD 集成
 
 ### 最适合中文开发者
-1. **Qwen Code** - 每日 1000 次免费，阿里云生态
+1. **Qwen Code** - 开源 + BYOK 任意 provider（可接 DeepSeek 等低价选项），阿里云生态
 2. **Kimi CLI** - 双模式交互，Ctrl-X 快捷键，多提供商
 3. **Claude Code** - 中文理解能力强
 
@@ -348,5 +348,5 @@
 | SWE-agent | 74% | 慢 | 高 | 基准之王 |
 | Cline | ~40% | 中等 | 中等 | IDE 原生 |
 | OpenHands | ~55% | 慢 | 很高 | 完全自主 |
-| Qwen Code | N/A | 快 | 低 | 免费额度高 |
+| Qwen Code | N/A | 快 | 低 | 开源 + BYOK 低价 provider |
 | Kimi CLI | N/A | 中等 | 中等 | 双模式 + 子代理 + 插件 |

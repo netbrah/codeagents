@@ -26,7 +26,7 @@
   - **auth / provider 子系统 owner（推断）**：从 provider-first auth registry（#3864）、统一安装流水线，到 2026-05 的 `Connect a Provider` 大重构（#4287，把 provider 配置统一进 core、简化 `/auth` 对话框），再到移除 legacy `qwen auth` CLI 子命令改走 TUI（#3959），是认证/Provider 接入这条主线的长期负责人。期间陆续接入 OpenRouter（#3576）、Idealab（#3955）等第三方 provider，并产出 custom API key wizard 的 PRD（#3583）与向导步骤指示器 UX（#3607）。
   - **i18n 国际化奠基者**：#1058 引入 UI 与 LLM 输出的国际化框架，#1616 补齐巴西葡萄牙语（pt-BR）并重构 i18n 架构、#1332 修多语言问题。是该项目多语言能力的开创者（推断）。
   - **文档 / PR 流程治理（maintainer 级，推断）**：#1260 按 Claude Code 的组织方式重构整套 docs（+4674/−5369）、#4496 加 Working Principles 并重整 PR 模板、#3522 收紧 PR 模板校验、#3952 给 create-issue 命令加双语要求；同时维护 `QwenLM/qwen-code-docs`（43 merged PR）。这类对 agents 规范、PR 模板、issue 模板的改动通常只由有仓库治理权限者执行。
-  - **模型 / Coding Plan 接入与运营**：长期更新 Coding Plan 可用模型（qwen3.5-plus/qwen3.6-plus 默认模型、glm-4.7 / kimi-k2.5 / qwen3-coder-next 等第三方模型 #1907）、调整 Qwen OAuth 免费额度（#1730 由 2000 降至 1000）、发布公告 banner。
+  - **模型 / Coding Plan 接入与运营**：长期更新 Coding Plan 可用模型（qwen3.5-plus/qwen3.6-plus 默认模型、glm-4.7 / kimi-k2.5 / qwen3-coder-next 等第三方模型 #1907）、调整 Qwen OAuth 免费额度（#1730 由 2000 降至 1000；该免费层后于 2026-04-15 整体停止）、发布公告 banner。
   - **/context 命令与可观测性**：#1835 新增 `/context` 命令展示上下文窗口 token 占用拆分，#4512 校准 `/context` 拆分与真实 API 请求一致。
   - **桌面端 multi-brand**：#4581（2026-05）为 desktop 增加多品牌支持与发行构建指南（+664/−190）。
   - **安全与稳定化**：#1601 修复 `READ_ONLY_ROOT_COMMANDS` 中 awk/sed 命令注入漏洞、#4416 稳定 flaky sticky-todo 重测、#3725 清理 legacy Gemini workflows、#588 把 Gemini CLI 品牌引用全量替换为 Qwen Code。

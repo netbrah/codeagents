@@ -23,7 +23,7 @@
         │               │                │
         ▼               ▼                ▼
   ┌───────────┐   Cursor/Cline     ┌──────────┐
-  │ 优先级？   │                    │ 免费优先？│
+  │ 优先级？   │                    │ 开源优先？│
   └─────┬─────┘                    └────┬─────┘
         │                          是 ──┤── 否
   ┌─────┼─────┐                    │         │
@@ -55,7 +55,7 @@ Code   CLI   本地
 | Git 重度工作流 | Aider | Claude Code |
 | GitHub 生态 | Copilot CLI | Continue |
 | 中文开发者 | Qwen Code | Kimi CLI |
-| 免费额度高 | Qwen Code | Gemini CLI |
+| 开源 + BYOK 任意 provider | Qwen Code | Gemini CLI |
 | 学习 | mini-swe-agent | Aider |
 | 隐私/自托管 | TabbyML | OpenHands |
 | 完全自动化 | OpenHands | SWE-agent |

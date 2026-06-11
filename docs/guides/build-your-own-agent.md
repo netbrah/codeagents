@@ -271,7 +271,7 @@ QwenCode 是中文场景下的最优基座选择：
 
 1. **完全开源**（Apache-2.0）——可审计、可修改、可分发
 2. **6+ 提供商**——不锁定单一模型，可接入 Qwen/Claude/GPT/Gemini
-3. **免费 OAuth**——1000 次/天，零成本启动
+3. **BYOK 任意 provider**——可接 DeepSeek 等低价兼容端点，自控成本（Qwen OAuth 免费层 2026-04-15 已停，现需订阅/BYOK）
 4. **AGENTS.md 原生支持**（v0.13.0+）——跨 Agent 兼容
 5. **Arena 模式**——多模型竞争选优，独特差异化
 6. **Gemini CLI 分叉**——继承成熟的策略引擎、压缩算法、MCP 集成

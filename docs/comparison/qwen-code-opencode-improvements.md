@@ -730,7 +730,7 @@ bonjour.publish({
 | 功能 | Qwen Code | OpenCode |
 |------|-----------|----------|
 | **Agent Arena** | ✅ 多模型并行竞争评估 | ❌ |
-| **免费 OAuth** | ✅ 每天 1000 次 | ❌ |
+| **开源 + 多 provider BYOK** | ✅ Apache-2.0 + Qwen OAuth/Anthropic/Google/自定义 | ⚠️ 独立 provider 体系 |
 | **扩展格式转换** | ✅ Claude/Gemini 扩展自动转换 | ❌ |
 | **6 语言 CLI** | ✅ 中/英/日/韩/法/德 | ❌ TUI 仅英文 |
 | **Doom Loop 检测** | ✅ 工具 5 次 + 内容 10 次 | ⚠️ 仅权限拒绝 3 次 |
@@ -1418,7 +1418,7 @@ Assistant:
 | 能力 | 说明 |
 |------|------|
 | **Agent Arena** | 多模型并行竞赛评估 |
-| **免费 OAuth** | 1000 次/天免费额度 |
+| **开源 + 多 provider BYOK** | Apache-2.0，模型可接 Qwen OAuth/Anthropic/Google/自定义 |
 | **Gemini CLI 兼容** | fork 自 Gemini CLI，共享上游改进 |
 | **扩展格式转换** | Claude/Gemini 扩展自动转换 |
 | **多渠道部署** | DingTalk/Telegram/WeChat/Web |

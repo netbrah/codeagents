@@ -16,7 +16,7 @@
 | 审批模式（4 种） | ✅ DEFAULT/AUTO_EDIT/YOLO/PLAN | ✅ 同 4 种 | 对等 |
 | Memory 工具 | ✅ 全局 + 扩展 + 项目 + 子目录 | ✅ 继承同一多层体系 | 对等 |
 | 多提供商 | ❌ 仅 Gemini | ✅ 6+ 提供商 | **Qwen 独有** |
-| 免费 OAuth | ❌ | ✅ 1000 次/天 | **Qwen 独有** |
+| 开源 + BYOK 任意 provider | ❌ 仅 Gemini/Code Assist | ✅ Apache-2.0 + OpenAI/Anthropic/Gemini 兼容 BYOK | **Qwen 独有** |
 | 6 语言 UI | ❌ | ✅ | **Qwen 独有** |
 | Arena 多代理 | ❌ | ✅ | **Qwen 独有** |
 | 子代理管理 | ✅ 5 内置子代理 + /agents 命令（v0.12.0+） | ✅ SubagentManager + Arena 竞争模式 | 对等（Qwen 额外有 Arena） |
@@ -264,7 +264,7 @@ interface ToolResult {
 | 功能 | Qwen Code 增强 | Gemini CLI 缺失 |
 |------|---------------|----------------|
 | **多提供商** | Qwen OAuth + DashScope + ModelScope + Anthropic + Google + 自定义（6+） | 仅 Gemini |
-| **免费 OAuth** | 每天 1000 次 | 无 |
+| **开源 + BYOK** | Apache-2.0，OpenAI/Anthropic/Gemini 兼容 BYOK（含 DeepSeek） | 仅 Gemini/Code Assist |
 | **6 语言 UI** | 中/英/日/德/俄/葡 | 仅英文 |
 | **Arena 模式** | 多模型并行竞争 | 无 |
 | **Arena 多终端后端** | Arena 模式支持 iTerm/Tmux/InProcess 后端 | 无 Arena 模式 |
@@ -278,7 +278,7 @@ interface ToolResult {
 
 **1 个开发者体验 P1**：LLM 响应录制回放（`--fake-responses` 离线测试）
 
-**Qwen Code 作为分叉已大幅超越上游**——6+ 提供商、免费 OAuth、Arena、6 语言 UI 是独有竞争力。上游的模型路由器（8 策略类）和安全检查器值得借鉴，但 A2A 和 Code Assist 是 Google 专属功能，无需复制。
+**Qwen Code 作为分叉已大幅超越上游**——开源 + 多 provider BYOK、Arena、6 语言 UI 是独有竞争力。上游的模型路由器（8 策略类）和安全检查器值得借鉴，但 A2A 和 Code Assist 是 Google 专属功能，无需复制。
 
 ---
 

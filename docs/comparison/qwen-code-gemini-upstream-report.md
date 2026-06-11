@@ -46,7 +46,7 @@ backport 不会丢失 Qwen Code 独立发展的优势：
 | CoreToolScheduler | Agent 工具并行执行 | 核心差异 |
 | 规则权限系统 | L3→L4→L5 多层评估 | 核心差异 |
 | Arena 多模型竞赛 | 竞品无 | 独有 |
-| 免费 OAuth 额度 | 1000 次/天 | 独有 |
+| 开源 + 多 provider BYOK | Apache-2.0，模型可接 Qwen OAuth/Anthropic/Google/自定义 | 独有 |
 | 分离重试预算 | 内容/流异常/速率限制分别计数 | 工程优势 |
 | 三格式扩展兼容 | Qwen + Claude + Gemini | 生态优势 |
 | **多渠道部署** | DingTalk/Telegram/WeChat/Web（webui 14,414 行） | **Gemini CLI 无** |
@@ -124,7 +124,7 @@ backport 不会丢失 Qwen Code 独立发展的优势：
 | **P2** | [Voice Response Formatter 语音格式化](./qwen-code-gemini-upstream-report-details.md#item-50) — Markdown→语音友好纯文本转换（473 行） | 无语音支持 | 小 | — |
 | **P2** | [Triage 代码问题检测](./qwen-code-gemini-upstream-report-details.md#item-51) — Issue 识别 + 重复代码检测 UI（1,728 行） | 无代码分析 UI | 中 | — |
 | **P2** | [CodeAssist 企业集成](./qwen-code-gemini-upstream-report-details.md#item-52) — 用户分层 + 信用额度 + 管理员策略 + MCP 管控（9,825 行） | 无企业集成 | 大 | — |
-| **P2** | [Billing/Credits 计费系统](./qwen-code-gemini-upstream-report-details.md#item-53) — Google One AI 额度管理 + 超额策略 + 计费集成（449 行） | 免费模型 | 中 | — |
+| **P2** | [Billing/Credits 计费系统](./qwen-code-gemini-upstream-report-details.md#item-53) — Google One AI 额度管理 + 超额策略 + 计费集成（449 行） | 无第一方计费（Coding Plan 订阅或 BYOK provider 计费） | 中 | — |
 | **P0** | [安全 .env + Workspace Trust Headless 模式 🆕](./qwen-code-gemini-upstream-report-details.md#item-56) — 禁止 IDE_STDIO 等关键 key 被 .env 覆盖（**RCE 修复**），headless 模式默认 untrusted | `loadEnvironment()` 无 trust 检查 | 中 | [#25022](https://github.com/google-gemini/gemini-cli/pull/25022) + [#25814](https://github.com/google-gemini/gemini-cli/pull/25814) + [#24170](https://github.com/google-gemini/gemini-cli/pull/24170) |
 | **P1** | [Memory 系统 4 层 Prompt-Driven 重构 🆕](./qwen-code-gemini-upstream-report-details.md#item-55) — 删 MemoryManagerAgent 转主 agent prompt 编辑 4 层 (project/global/session/turn) | 单层 user memory，无 agent | 中 | [#25716](https://github.com/google-gemini/gemini-cli/pull/25716) |
 | **P1** | [Core Tools Allowlist + Shell 验证增强 🆕](./qwen-code-gemini-upstream-report-details.md#item-57) — 白名单工具模式 + shell substitution 96 个攻击向量回归测试 | 仅 deny-list 模式 | 中 | [#25720](https://github.com/google-gemini/gemini-cli/pull/25720) |
@@ -222,7 +222,7 @@ fork 后 Gemini CLI 新增了大量 Qwen Code 中完全不存在的模块：
 |------|-----------|-----------|------|
 | **模型路由** | 8 策略组合 + 分类器 | 直接指定模型 | Gemini 显著领先 |
 | **Agent 协议** | AsyncIterable + 事件回放 | 基础 Agent 调用 | Gemini 领先 |
-| **企业功能** | CodeAssist 分层 + 计费 | 免费 OAuth | 不同路线 |
+| **企业功能** | CodeAssist 分层 + 计费 | 开源 + BYOK（Coding Plan 订阅或自带 provider） | 不同路线 |
 | **多渠道** | 仅 CLI + IDE | CLI + IDE + Web + 聊天平台 | **Qwen Code 领先** |
 | **多模型** | 仅 Gemini 系列 | 10+ Provider | **Qwen Code 领先** |
 | **代码分析** | Triage Issue/Duplicate | 无 | Gemini 领先 |

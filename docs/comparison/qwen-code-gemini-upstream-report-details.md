@@ -1538,7 +1538,7 @@ const MemoizedAppHeader = memo(AppHeader);
 
 **Gemini CLI 源码索引**：`packages/core/src/code_assist/` 完整目录
 
-**Qwen Code 现状**：无企业集成。使用免费 OAuth 额度模型。
+**Qwen Code 现状**：无企业集成。模型调用走 Qwen OAuth（Coding Plan 订阅）或 BYOK provider，无第一方免费额度（OAuth 免费层 2026-04-15 已停）。
 
 **实现成本评估**：
 - 新增代码：~2000+ 行
@@ -1553,7 +1553,7 @@ const MemoizedAppHeader = memo(AppHeader);
 
 ### 53. Billing/Credits 计费系统（P2）
 
-**问题**：当用户免费额度耗尽时，没有优雅的处理方式——要么硬停止、要么不限制。
+**问题**：当用户额度/配额耗尽时（由 Coding Plan 订阅或 BYOK provider 决定），没有优雅的处理方式——要么硬停止、要么不限制。
 
 **Gemini CLI 的解决方案**：`packages/core/src/billing/`（3 文件 449 行）：
 - 信用类型追踪（`GOOGLE_ONE_AI`）
@@ -1564,7 +1564,7 @@ const MemoizedAppHeader = memo(AppHeader);
 
 **Gemini CLI 源码索引**：`packages/core/src/billing/`
 
-**Qwen Code 现状**：免费模型，无计费系统。
+**Qwen Code 现状**：无第一方计费系统，额度/计费由 Coding Plan 订阅或 BYOK provider 决定（OAuth 免费层 2026-04-15 已停）。
 
 **实现成本评估**：
 - 涉及文件：~3 个

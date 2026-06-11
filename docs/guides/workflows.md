@@ -716,6 +716,6 @@ git apply trajectories/*/patches/*.patch
 - [Skill 设计指南](./skill-design.md) — 自定义 Skill 创建
 - [AGENTS.md 配置指南](./agents-md.md) — 项目指令文件编写
 - [Claude Code 用户指南](./claude-code-user-guide.md) — 15 个实用技巧
-- [Qwen Code 用户指南](./qwen-code-user-guide.md) — Arena 模式 + 免费 OAuth
+- [Qwen Code 用户指南](./qwen-code-user-guide.md) — Arena 模式 + 开源 + BYOK 任意 provider
 - [测试/Lint 反射循环](../comparison/test-reflection-deep-dive.md) — Aider 3 次反射 vs 实际编译验证
 - [Git 集成与版本控制](../comparison/git-integration-deep-dive.md) — 自动提交归因 + 检查点回退

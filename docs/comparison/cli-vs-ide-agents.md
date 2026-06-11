@@ -20,7 +20,7 @@ Everything Code Agent（各 Agent 差异化扩展）
   │
   ├── 各 Agent 的差异化扩展
   │   ├── Claude Code: Teammates 多代理 + Channels 消息推送 + /schedule 定时
-  │   ├── Qwen Code: Arena 多模型竞争 + 6 语言 i18n + 免费 OAuth 额度
+  │   ├── Qwen Code: Arena 多模型竞争 + 6 语言 i18n + 开源 + BYOK 任意 provider
   │   ├── Gemini CLI: TOML 策略引擎 + Conseca 语义安全 + 7 策略模型路由
   │   ├── Codex CLI: Cloud 远程执行 + 三平台 OS 沙箱 + MCP Server 角色
   │   ├── Kimi CLI: Wire 多客户端协议 + D-Mail 时间回溯 + Agent/Shell 双模式

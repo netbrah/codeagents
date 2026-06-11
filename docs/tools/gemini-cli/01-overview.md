@@ -219,7 +219,7 @@ Qwen Code 是 Gemini CLI 的分叉项目（Apache-2.0 合法），继承了：
 ## 社区生态
 
 ### 主要分叉
-- **Qwen Code**（`QwenLM/qwen-code`）：阿里云官方分叉，使用 Qwen3-Coder-480B，增加多提供商支持、免费 OAuth、6 语言国际化
+- **Qwen Code**（`QwenLM/qwen-code`）：阿里云官方分叉，使用 Qwen3-Coder-480B，增加多提供商支持、BYOK 任意兼容 provider、6 语言国际化
 - **LLxprt Code**：社区分叉，支持 Ollama/OpenAI/Anthropic/OpenRouter 多模型
 - **qwen_cli_coder**、**easy-llm-cli**、**open-gemini-cli**、**ollama-code**：各类社区多模型分叉
 
