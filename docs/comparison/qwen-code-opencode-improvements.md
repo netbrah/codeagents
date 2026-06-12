@@ -1,13 +1,13 @@
 # Qwen Code 改进建议 — 对标 OpenCode
 
-> 基于 OpenCode (anomalyco/opencode) 源码逐项比对，识别 Qwen Code 可借鉴的 **34 项**能力（其中 **4 项已赶超**——item-13 Hook / item-14 Worktree / item-16 LSP / item-20 Skill）。OpenCode 一个月内（2026-04-24 → 2026-05-24）从 **216K → 312K 行**（+44%，1596 commits），新增 4 个独立 packages 推进 desktop app / LLM cache policy / Scout agent / TUI diff viewer 等方向。
+> 基于 OpenCode (anomalyco/opencode) 源码逐项比对，识别 Qwen Code 可借鉴的 **35 项**能力（其中 **6 项已实现/赶超**——item-8 HTTP 服务器（daemon）/ item-13 Hook / item-14 Worktree / item-15 ACP 服务端（daemon）/ item-16 LSP / item-20 Skill；**1 项上游已移除**——item-32 Scout）。最近一个月（2026-05-24 → 2026-06-12）755 commits，仓库大重构（cli / server / tui 提取为独立 packages）+ specs/v2 规范启动 + 发布 v1.16 / v1.17 两个 minor 线。
 >
-> **最后核对日期**：2026-05-24（两侧源码均已 `git pull` 刷新；新增 item-30~34，refresh item-5/12 状态）
+> **最后核对日期**：2026-06-13（两侧源码均已 `git pull` 刷新；首次叠加 release notes v1.15.11 → v1.17.4 对照；新增 item-35，item-32 标记上游移除，refresh item-4/5/8/11/12/15/30 状态）
 >
 > **相关报告**：
 > - [Claude Code 改进建议报告（256 项）](./qwen-code-improvement-report.md)——行业领先者对比
 > - [Gemini CLI 上游 backport 报告（53 项）](./qwen-code-gemini-upstream-report.md)——上游可 backport 改进
-> - [Codex CLI 对标改进报告（25 项）](./qwen-code-codex-improvements.md)——沙箱、Apply Patch、Feature Flag、网络代理等
+> - [Codex CLI 对标改进报告（30 项）](./qwen-code-codex-improvements.md)——沙箱、Apply Patch、Feature Flag、网络代理等
 > - [/review 功能分析](./qwen-code-review-improvements.md)——审查功能 5 方对比
 
 ---
@@ -27,9 +27,9 @@
 | [13](#item-13) | Plugin 插件系统（18 种 Hook）⚠️ 部分赶超 | **P1** | 2 周 | `plugin/` | 2,618 行 → Qwen **17,443 行**（Hook 反超，但无 npm 分发） |
 | [14](#item-14) | Worktree 增强管理 ✅ | **P1** | 1 天 | `worktree/` | 612 行 → Qwen **826 行** |
 | [7](#item-7) | Batch 工具（并行工具调用） | **P2** | 3 天 | `tool/batch.ts` | — |
-| [8](#item-8) | HTTP 服务器（多客户端架构） | **P2** | 3 周 | `server/server.ts` | — |
+| [8](#item-8) | HTTP 服务器（多客户端架构）✅ 已实现（daemon Mode B） | **P2** | ✅ | `server/server.ts` | — |
 | [9](#item-9) | Instance 上下文隔离 | **P2** | 3 天 | `server/instance.ts` | — |
-| [15](#item-15) | ACP Agent 协议服务端 | **P2** | 2 周 | `acp/` | 1,987 行 3 文件 |
+| [15](#item-15) | ACP Agent 协议服务端 ✅ 已实现（daemon `/acp`） | **P2** | ✅ | `acp/` | 1,987 行 3 文件 |
 | [16](#item-16) | LSP 多语言服务器管理 ✅ | **P2** | ✅ 已实现 | `lsp/` | 2,919 行 → Qwen **7,422 行** |
 | [17](#item-17) | NPM 动态包安装 | **P2** | 2 天 | `npm/` | 188 行 |
 | [18](#item-18) | Permission 规则引擎 | **P2** | 3 天 | `permission/` | 520 行 4 文件 |
@@ -45,11 +45,12 @@
 | [27](#item-27) | Effect 框架工具集 | **P3** | — | `effect/` | 851 行 6 文件 |
 | [28](#item-28) | 可配置工具输出截断限制 | **P2** | 1 天 | `tool/truncate.ts` + `config/config.ts` | 106 行（PR#23770）|
 | [29](#item-29) | TUI 编辑器上下文 builtin protocol | **P2** | 1 周 | `cli/cmd/tui/context/editor.ts` | 448 行（PR#24034）|
-| [30](#item-30) | Desktop app v2（Electron 桌面客户端）🆕 | **P2** | 3-4 周 | `packages/desktop/` | 2,969 行 |
-| [31](#item-31) | LLM cache policy auto-placement 🆕 | **P1** | 1-2 周 | `packages/llm/cache-policy.ts` | ~720 行 |
-| [32](#item-32) | Scout 智能 repo 研究 agent 🆕 | **P1** | 2-3 周 | `tool/repo_overview.ts` + `repo_clone.ts` | ~440 行 |
-| [33](#item-33) | TUI Diff Viewer（file-tree + 折叠 + 语法高亮）🆕 | **P2** | 1-2 周 | `tui/.../diff-viewer-file-tree.tsx` | ~500 行 |
-| [34](#item-34) | Thinking content collapse（推理模型 UX）🆕 | **P2** | 3-5 天 | `tui/context/thinking.ts` | ~220 行 |
+| [30](#item-30) | Desktop app v2（Electron 桌面客户端） | **P2** | 3-4 周 | `packages/desktop/` | 2,969 行 |
+| [31](#item-31) | LLM cache policy auto-placement | **P1** | 1-2 周 | `packages/llm/src/cache-policy.ts` | ~720 行 |
+| [32](#item-32) | Scout 智能 repo 研究 agent ❌ 上游已移除 | ~~P1~~ | — | ~~`tool/repo_overview.ts`~~（#30435 移除） | — |
+| [33](#item-33) | TUI Diff Viewer（file-tree + 折叠 + 语法高亮） | **P2** | 1-2 周 | `packages/tui/src/feature-plugins/system/diff-viewer-*.tsx` | ~500 行 |
+| [34](#item-34) | Thinking content collapse（推理模型 UX） | **P2** | 3-5 天 | `packages/tui/src/context/thinking.ts` | ~220 行 |
+| [35](#item-35) | Managed workspace cloning + Session 跨 workspace 迁移 🆕 | **P2** | 1-2 周 | `session move` + workspace clone（v1.16.0~v1.17.0） | — |
 
 ---
 
@@ -314,6 +315,8 @@ OpenCode 实现了完整的 session 分叉/回退系统，核心是 `SessionReve
 **意义**："试错-回退-再试"是 AI 辅助开发的核心工作流——用户经常需要 Agent 尝试多种方案。
 **缺失后果**：方案失败后用户需手动恢复代码 + 重新建立对话上下文——严重中断工作流。
 **改进收益**：一键回退到任意对话节点 + 文件系统同步恢复——探索多方案的成本从"分钟级"降为"秒级"。
+
+**2026-06-13 状态更新**：差距已大幅收窄——Qwen Code v0.18.0 落地 `/branch`（会话分叉到新 session）、`/rewind`（回滚到此前轮次，别名 `rollback`）+ 跨会话文件快照（#4897）。OpenCode 侧本窗口新增 `run --replay` 交互式会话回放（v1.16.0）与 session 自定义 metadata API（v1.15.13）——剩余差距主要是 replay 回放。
 
 ---
 
@@ -582,7 +585,9 @@ batch({
 
 <a id="item-8"></a>
 
-### 8. HTTP 服务器——多客户端架构（P2）
+### 8. HTTP 服务器——多客户端架构（P2）✅ 已实现（daemon Mode B）
+
+> **2026-06-13 状态变更**：**Qwen Code 已实现并反超**——`qwen serve` daemon（REST + SSE + ACP HTTP/WS + MCP 桥四套北向接口，1 daemon = 1 workspace × N session 多路复用）已合入 main 并随 **v0.18.0 正式版**发布（2026-06-12）。多客户端生态落地 web-shell / webui / TS-Python-Java SDK / 官方桌面 app / `/demo` 调试页，能力面已超过 OpenCode 的 Hono server（详见 [daemon 设计系列](./qwen-code-daemon-design/README.md)）。下述 OpenCode 设计保留作横向参照（其 MDNS 发现、basic-auth 密码与 4096 端口 fallback 策略仍可对照）。
 
 **问题**：Qwen Code 是单进程 CLI 应用——TUI 和 Agent 引擎紧耦合。无法实现：① Web UI 远程访问 Agent；② 多个终端共享同一 Agent 会话；③ 桌面应用连接 Agent 后端。
 
@@ -794,6 +799,8 @@ bonjour.publish({
 
 **实现成本**：~3 周（Provider 插件框架 + 5-10 个主要 Provider 适配）
 
+**2026-06-13 状态更新**：OpenCode provider 面持续扩张——**connector-based 认证流 + provider 凭据存储**（v1.17.4）、AWS Bedrock 跑 OpenAI 模型（v1.16.0）、Snowflake Cortex（v1.16.2）、Cohere North（v1.17.0）、vLLM interleaved reasoning 字段（v1.17.0）、OpenAI WebSocket transport 实验（v1.15.12）。凭据存储方向可与 [Codex item-12 加密本地 secrets](./qwen-code-codex-improvements.md#item-12) 对照——Qwen Code 的 OAuth 凭据仍为明文 JSON 落盘。
+
 ---
 
 <a id="item-13"></a>
@@ -847,9 +854,11 @@ bonjour.publish({
 
 <a id="item-15"></a>
 
-### 15. ACP Agent Client Protocol 服务端（P2）
+### 15. ACP Agent Client Protocol 服务端（P2）✅ 已实现（daemon `/acp`）
 
-**问题**：Qwen Code 只能被用户直接操作，不能被其他 Agent 或应用程序以 API 形式调用。
+> **2026-06-13 状态变更**：**Qwen Code 已实现**——daemon `/acp` 端点提供 ACP **HTTP + WebSocket** 双 transport（#4472 / #4773），并通过 29 个 `_qwen/*` extension method 与 REST 控制面能力对等（#4827）；另有 `qwen --acp` stdio 单进程形态。OpenCode 侧本窗口推进 `acp-next`（prompts / slash commands / usage updates，v1.15.12）与 ACP session 全量 replay 修复（v1.16.0），双方在 ACP 服务端上已并行成熟。
+
+**问题**：Qwen Code 只能被用户直接操作，不能被其他 Agent 或应用程序以 API 形式调用。（已解决）
 
 **OpenCode 的解决方案**：`acp/`（3 文件 1,987 行）——完整的 Agent Client Protocol 服务端实现：
 
@@ -859,10 +868,6 @@ bonjour.publish({
 - 权限请求/审批流程
 - 多 MCP 服务器支持
 - 流式响应 + 上下文限制管理
-
-**Qwen Code 现状**：有 ACP 客户端集成工具，但无 ACP 服务端。
-
-**实现成本**：~2 周（协议实现 + 会话管理）
 
 ---
 
@@ -1232,6 +1237,8 @@ TUI autocomplete + prompt
 
 **意义**：覆盖非开发者 / 跨平台分发场景；与 daemon `web-shell` 是互补不是替代。
 
+**2026-06-13 状态更新**：OpenCode Desktop 进入 Windows 深水区——**WSL-backed Desktop 支持 + WSL server 管理**（v1.17.0）、draft 跨 tab 保留、附件跟随活动项目、Linux launcher 图标身份修复（v1.17.2）。Qwen Code 官方桌面 app（#3778）本窗口也接通 mac 签名公证 + Windows 自动更新（#5013/#5028）——双方桌面化并行推进，本项性质从"差距"转为"互相对照"。
+
 ---
 
 <a id="item-31"></a>
@@ -1272,7 +1279,9 @@ TUI autocomplete + prompt
 
 <a id="item-32"></a>
 
-### 32. Scout 智能 repo 研究 agent 🆕（P1）
+### 32. Scout 智能 repo 研究 agent ❌ 上游已移除（原 P1）
+
+> **2026-06-13 状态变更**：OpenCode 已于本窗口**整体移除 Scout agent**（`chore(opencode): remove scout agent`，[#30435](https://github.com/anomalyco/opencode/pull/30435)）——`repo_overview.ts` / `repo_clone.ts` 及 scout prompt 全部删除。上月还是新增方向，一个月后即下线，说明该实验未通过上游验证。**本项不再作为推荐改进**；下述设计仅作历史参考（"repo 首问预热"这个问题本身仍真实存在，但应等待更成熟的方案信号再投入）。
 
 **问题**：用户开新 session 第一句问"这个 repo 怎么 work"或"帮我把 X 模块的功能解释下"——agent 没有自动的 repo overview 机制，只能从 README + 几个文件 read 后猜测。如果是不熟的开源 repo（如想读 Linux kernel 某子系统），agent 缺乏"先扫一遍再回答"的能力。
 
@@ -1390,6 +1399,36 @@ Assistant:
 
 **改进收益**：使用 o1 / Qwen-QwQ 等推理模型的对话可读性显著提升。
 
+**2026-06-13 状态更新**：Qwen Code **web-shell 侧已实现**——thinking 输出折叠为 5 行滚动窗口（[#4977](https://github.com/QwenLM/qwen-code/pull/4977)，2026-06-11 合并）；原生 TUI 侧仍待对齐。OpenCode 侧文件已迁移至 `packages/tui/src/context/thinking.ts`（TUI 提取为独立 package）。
+
+---
+
+<a id="item-35"></a>
+
+### 35. Managed workspace cloning + Session 跨 workspace 迁移 🆕（P2）
+
+**问题**：用户想"把当前会话搬到项目的一个实验副本上继续"——例如在主仓对话到一半，想在不污染主仓的副本里尝试激进重构。Qwen Code 的 `--worktree` / `enter_worktree` 走 git worktree（**不带未提交的 dirty 改动和 untracked 文件**），daemon 模式下 session 又绑定单一 workspace（1 daemon = 1 workspace），会话无法跨项目副本流转。
+
+**OpenCode 的解决方案**（v1.16.0 → v1.17.0 连续两个 minor 推进）：
+
+- **Managed workspace cloning**：克隆项目副本时**保留 dirty + untracked 文件**（比 git worktree 语义更完整，v1.16.0）
+- **Session move**：会话可在 workspace / 目录之间移动（v1.16.0）；TUI move 对话框高亮 project copies、当前位置预选、可直接删除副本（v1.17.0）
+- **移动后保障**：新 project copy 先 bootstrap 再切换；move 完成后向会话注入"工作目录已变更"提醒，避免 agent 用旧路径（v1.17.0）
+
+**Qwen Code 现状**：v0.18.0 新增 `/cd`（"Move this session to a new working directory"，#4890）——**目录级移动已有**；缺的是 ① 带 dirty/untracked 的受管副本克隆 ② daemon 模式跨 workspace 流转 ③ 副本生命周期管理（列出/删除/bootstrap）。
+
+**Qwen Code 修改方向**：
+1. `enter_worktree` 增加 `--with-dirty` 模式：worktree 创建后 `git stash apply` + untracked 文件 rsync
+2. 受管副本注册表（`~/.qwen/workspaces.json`）：记录副本来源 + 创建时间，`/cd` 补全可列出
+3. daemon 模式：session 迁移 = 导出 session state + 在目标 workspace daemon 重建（依托现有 export/resume）
+4. `/cd` 移动后向 LLM history 注入 cwd 变更提醒（OpenCode 同款防错设计）
+
+**实现成本**：~1-2 周（1 人）
+
+**意义**：「主仓对话 → 副本实验」工作流原生化，与 Arena（多副本竞争）形成互补。
+
+**改进收益**：激进重构/方案对比不再污染主仓，也不丢会话上下文。
+
 ---
 
 ## 模块级架构差异
@@ -1433,8 +1472,8 @@ Assistant:
 | **Provider 数** | 25+ 动态加载 | 3-4 硬编码 | OpenCode 领先 |
 | **插件生态** | npm 包分发 + 18 Hook | 内置 Hook ~10 种 | OpenCode 领先 |
 | **持久化** | SQLite + Event Sourcing | JSONL | OpenCode 领先 |
-| **多客户端** | TUI + Web + Desktop + Electron | CLI + Web + IDE | 相当 |
-| **会话管理** | Snapshot + Revert + Share | 基础 resume | OpenCode 领先 |
+| **多客户端** | TUI + Web + Desktop + Electron | daemon 多端（TUI / web-shell / 桌面 app / SDK×3 / ACP / MCP 桥） | 相当（HTTP server vs daemon 两种架构） |
+| **会话管理** | Snapshot + Revert + Share + replay + move | `/branch` `/fork` `/rewind` `/cd` + 跨会话快照 | OpenCode 略领先（Share / replay / workspace move） |
 | **多模型竞赛** | 无 | Arena | **Qwen Code 领先** |
 | **多渠道** | 无 | DingTalk/Telegram/WeChat | **Qwen Code 领先** |
 | **国际化** | 仅英文 | 6 语言 | **Qwen Code 领先** |
@@ -1452,6 +1491,67 @@ Assistant:
 | **后续** | 按需 | LSP / PTY / Share / Control-Plane 等 | 平台进化 |
 
 ## 更新日志
+
+### 2026-06-13（OpenCode 上游 `git pull` + release notes 对照 · 新增 1 项 + 移除 1 项 + 2 项状态翻转）
+
+**OpenCode 源码扫描**：`2026-05-24 → 2026-06-12` 间 **755 commits**，HEAD `27ca0f882`（branch `dev`）。首次叠加 **release notes v1.15.11 → v1.17.4**（含 v1.16.0 / v1.17.0 两个 minor）逐版对照。
+
+**LOC 口径换轨**：旧报告 312,027 行口径无法复现；改用可复现口径 `packages/**/*.ts(x)`：**420,384（05-24）→ 496,828（06-12，+18%）**。Qwen Code 同期 `packages/**/*.ts(x)` = 1,292,728 行（daemon/web-shell/desktop 合入所致）。
+
+**仓库大重构**（新增 5 个 packages，移除 1 个）：
+
+| package | 行数 | 性质 |
+|---|---|---|
+| `packages/tui/` | 38,488 | **TUI 从 `packages/opencode/src/cli/cmd/tui` 提取为独立包**（item-29/33/34 源码路径随迁）|
+| `packages/stats/` | 23,071 | opencode.ai stats 站点（SolidStart + Lambda），仓库工程项非产品能力 |
+| `packages/server/` | 2,372 | server 层提取（item-8 对应物）|
+| `packages/cli/` | 937 | CLI 入口提取 |
+| `packages/effect-sqlite-node/` | 214 | SQLite 绑定库（item-5 配套）|
+| ~~`packages/extensions/`~~ | — | 移除（zed extension 下线，#30628）|
+
+另：`specs/v2/` 规范文集启动（tools / session / provider-model / provider-policy / config / instructions / catalog-config-plugin-lifecycle）+ **v2 API endpoints** 开始落地（create/fetch sessions、list questions、resolve active location，v1.17.4）——OpenCode 在酝酿 v2 架构。
+
+**状态变化（本次最重要）**：
+
+| 变化 | 说明 |
+|---|---|
+| ❌ **item-32 Scout 上游已移除** | `chore(opencode): remove scout agent`（#30435）——上月刚列为 P1 新方向，一个月后整体下线。教训：上游实验性 feature 波动大，P1 判定应等一个版本周期 |
+| ✅ **item-8 HTTP 服务器 → Qwen 已实现** | `qwen serve` daemon（REST+SSE+ACP+MCP 桥）随 v0.18.0 正式发布，多客户端生态完整落地 |
+| ✅ **item-15 ACP 服务端 → Qwen 已实现** | daemon `/acp` HTTP+WS 双 transport + 29 method parity |
+| 🆕 **item-35 Managed workspace cloning + session move** | v1.16.0~v1.17.0 连续推进；Qwen `/cd` 已覆盖目录移动半边，缺受管副本克隆 |
+
+**Item refresh**：
+
+| Item | 刷新内容 |
+|---|---|
+| [item-4](#item-4) | OpenCode：`run --replay` 会话回放 + session metadata API；Qwen：`/branch` `/rewind` + 跨会话快照已落地，差距收窄至 replay |
+| [item-5](#item-5) | `effect-sqlite-node`（214 行）SQLite 绑定独立包 |
+| [item-11](#item-11) | snapshot 创建复用源 git objects，大仓不再长时间 re-hash（v1.17.4）|
+| [item-12](#item-12) | connector-based 认证 + provider 凭据存储（v1.17.4）；Bedrock-OpenAI / Snowflake Cortex / Cohere North / vLLM interleaved reasoning |
+| [item-30](#item-30) | Desktop **WSL 支持 + WSL server 管理**（v1.17.0）；与 Qwen 桌面 app（mac 公证 + Win 自动更新）并行推进 |
+| [item-34](#item-34) | Qwen web-shell 已实现 thinking 5 行折叠窗（#4977）；原生 TUI 待对齐 |
+
+**两侧趋同（不单列 item）**：
+
+| OpenCode 侧 | Qwen Code 对应 |
+|---|---|
+| `fff`-backed 高速文件搜索（v1.17.0）| fzfWorker 模糊搜索（v0.18.0，#5049 随 dist 分发）|
+| 运行中 subagent 可转后台（v1.16.2）| `/fork` 派生后台代理 + `/tasks` 调度 |
+| skill discovery + file-based agent loading（v1.16.0）| skills 目录发现 + `.qwen/agents/` 文件加载（已有）|
+| session move + cwd 变更提醒（v1.17.0）| `/cd` 会话迁移工作目录（#4890）|
+| edit 拒绝 loose match 防误覆盖（v1.16.2）| —（Qwen edit 严格 old_string 匹配语义本就如此）|
+
+#### 次要变更不单列 item
+
+| 变更 | 不单列原因 |
+|---|---|
+| X-Session-Id sticky routing header（v1.17.0）| 代理部署细节，item-8 已 ✅ |
+| MCP local server `cwd` 支持 / 日志透传 / catalog 分页（v1.17.x）| MCP 工程细节 |
+| Copilot token-based billing 跟踪（v1.16.0）| 单 provider 计费适配 |
+| session 持久化 system context（v1.16.2）/ config 自下而上加载（v1.15.13）| 内部一致性修复 |
+| provider context-overflow 一次性自动恢复（v1.17.0）| 容错细节，可在 Qwen 压缩链路做等价检查 |
+
+---
 
 ### 2026-05-24（OpenCode 上游 `git pull` · 新增 5 项 + 2 项 refresh）
 
@@ -1550,4 +1650,4 @@ Assistant:
 
 ---
 
-*分析基于 OpenCode (anomalyco/opencode, branch `dev`, HEAD `0cf99cf5f`, **312,027 行**) 和 Qwen Code 源码 (**631,020 行 TS**)。最后核对：2026-05-24。审计标准：仅算 merge 到 `origin/dev` 的代码，PR/branch 上未合 feature 不算 OpenCode 已发布能力。*
+*分析基于 OpenCode (anomalyco/opencode, branch `dev`, HEAD `27ca0f882`, **496,828 行** `packages/**/*.ts(x)`) 和 Qwen Code 源码 (**1,292,728 行** 同口径)。最后核对：2026-06-13（源码 + release notes v1.15.11~v1.17.4 双对照）。审计标准：仅算 merge 到 `origin/dev` 的代码，PR/branch 上未合 feature 不算 OpenCode 已发布能力。*
