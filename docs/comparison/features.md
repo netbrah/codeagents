@@ -268,14 +268,14 @@
 
 **关键发现：**
 - **Claude Code** 命令数 ~86（v2.1.132），独有 `/review`（代码审查）`/remote-control`（远程控制）`/ultrareview`（云端 fleet 评审）`/ultraplan`（云端 plan 协作）`/autofix-pr`（PR auto-fix）
-- **Qwen Code** 52 命令（v0.15.9）+ **`/branch` `/fork`**（PR#3539 ✓ 2026-05-08 · session fork 分支）+ `/resume` 搜索增强（PR#3880 ✓ 2026-05-08 · free-text + j/k preview + Ctrl+B branch toggle），原有 `/tasks`（PR#3642 background tasks 调度入口）+ Arena / 语言 / 洞察 / 扩展独有命令
+- **Qwen Code** 57 命令（v0.18.0，含 5 个条件启用）+ 7 bundled skills（`/review` `/loop` `/batch` `/simplify` `/stuck` `/new-app` `/qc-helper`），含 `/branch`（session 分支）、`/fork`（后台代理派生）、`/tasks`（background tasks 调度）、`/goal` `/plan` `/recap` `/cd` `/compress-fast` + 托管记忆三件套（`/remember` `/forget` `/dream`）+ Arena / 语言 / 洞察 / 扩展独有命令
 - **Aider** ~42 命令，文件/上下文管理和模式切换最细粒度
 - **Gemini CLI / Qwen Code / Kimi CLI** 命令体系接近（Gemini CLI 分叉谱系）
 - **Copilot CLI** 34 命令 + 67 工具 + 3 内置代理，GitHub 生态深度集成
 - **Codex CLI** 28 交互命令（官方文档验证）+ 15 CLI 子命令 + Rust 原生沙箱
 - **OpenCode** 使用 Ctrl+K 命令面板 + 23 个 TUI 斜杠命令
 - **Goose** 16 个交互式斜杠命令 + 15 个 CLI 命令（clap derive），MCP 原生架构
-- **Qoder CLI** v1.0 已从 Go 二进制重写为 **Gemini CLI fork**（34MB esbuild bundle；与 Qwen Code 是兄弟 fork，非 Qwen Code fork）；自营模型网关 + macOS Seatbelt 沙箱 + Quest 模式 + Claude Code 兼容（`--with-claude-config`）。详见 [Qwen Code vs Qoder CLI](./qwen-code-vs-qoder-cli.md)
+- **Qoder CLI** v1.0 已从 Go 二进制重写为 **Gemini CLI fork**（34MB esbuild bundle；与 Qwen Code 是兄弟 fork，非 Qwen Code fork）；自营模型网关 + Quest 模式 + plugins/marketplace + Claude Code 迁移链（`qoder migrate --from-claude`，v0.x 的 `--with-claude-config` 已移除）；TUI 命令 45+（静态提取下界）。详见 [Qwen Code vs Qoder CLI](./qwen-code-vs-qoder-cli.md)
 
 ### 后台任务与多 Agent 协调
 

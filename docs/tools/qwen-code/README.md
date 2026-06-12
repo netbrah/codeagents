@@ -9,9 +9,9 @@
 | 文档 | 内容 | 改进方向 |
 |------|------|---------|
 | [01-概述](./01-overview.md) | 核心能力、与上游差异、已知差距 | 差距速查 |
-| [02-命令](./02-commands.md) | 41 命令 + CLI 参数 | 命令差距 |
+| [02-命令](./02-commands.md) | 57 命令（v0.18.0）+ 7 bundled skills + CLI 参数 | 命令差距 |
 | [03-架构](./03-architecture.md) | Agent Loop、Arena、CoreToolScheduler、多 Provider | 核心循环改进 |
-| [04-工具](./04-tools.md) | 16 核心工具 + MCP | 工具差距 |
+| [04-工具](./04-tools.md) | 41 工具（24 默认 + 17 条件）+ MCP | 工具差距 |
 | [05-设置](./05-settings.md) | 7 层配置 + Hook 系统 | Hook 扩展 |
 | [06-扩展](./06-extensions.md) | 三格式扩展兼容 | 扩展生态 |
 

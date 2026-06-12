@@ -2,7 +2,7 @@
 
 > Qwen Code 的 HTTP daemon 运行时：一个长驻进程把一个 workspace 的 N 个 AI session 同时服务给多种客户端（web / 桌面 / IDE / SDK / MCP）。本系列覆盖架构、API、部署、安全与使用指南。
 >
-> **当前状态（2026-06-12）**：daemon 功能集**已合入 main**（[PR#4490](https://github.com/QwenLM/qwen-code/pull/4490)），随 **v0.18.0-preview** 线发布。开发在 `daemon_mode_b_main` 长期 integration 分支进行，周期性反向 merge 回 main。
+> **当前状态（2026-06-13）**：daemon 功能集**已合入 main**（[PR#4490](https://github.com/QwenLM/qwen-code/pull/4490)），随 **v0.18.0 正式版**发布（2026-06-12，#5050）。开发在 `daemon_mode_b_main` 长期 integration 分支进行，周期性反向 merge 回 main。
 
 ## 一、daemon 是什么
 

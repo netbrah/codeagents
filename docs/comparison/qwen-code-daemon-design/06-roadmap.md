@@ -4,7 +4,7 @@
 
 ## TL;DR
 
-`qwen serve` daemon 从第一个原型（2026-05-13，#3889）到功能集合入 main（2026-06-11，#4490）用了约一个月，当前随 **v0.18.0-preview** 线发布。日常开发在 `daemon_mode_b_main` 长期 integration 分支进行，周期性反向 merge 回 main（#4490 是首次）。
+`qwen serve` daemon 从第一个原型（2026-05-13，#3889）到功能集合入 main（2026-06-11，#4490）用了约一个月，已随 **v0.18.0 正式版**发布（2026-06-12，#5050）。日常开发在 `daemon_mode_b_main` 长期 integration 分支进行，周期性反向 merge 回 main（#4490 是首次）。
 
 本篇回答四个问题：**已经落地了什么 → 正在做什么 → 按什么原则演进 → 远期还有哪些方向**，并附与 OpenCode / Anthropic Managed Agents 的定位对照。文中 `#NNNN` 均指 QwenLM/qwen-code 仓库的 PR / issue 编号。
 
@@ -23,7 +23,8 @@
 | 05-16 ~ 05-18 | 生产化基线：capability registry / typed event 协议契约、会话生命周期（load / resume / close）、可靠性（heartbeat / 背压 / 重放）、只读控制面 + 诊断、写路由门禁、文件读写安全边界、OAuth device-flow | #4175（rollout tracker，能力明细见 §1.2）|
 | 05-19 ~ 05-28 | 架构抽取与生态：acp-bridge 独立包、MCP 共享连接池、PermissionMediator、SDK UI 层、web-shell、ACP HTTP transport、非阻塞 prompt、MCP 桥 qwen-serve-bridge | #4319 / #4336 / #4335 / #4328 / #4353 / #4380 / #4472 / #4585 / #4555 |
 | 06-08 ~ 06-10 | rate limiting、workspace 配置热重载、web-shell 打磨 | #4861 / #4965 |
-| 06-11 | **daemon 功能集合入 main**，随 v0.18.0-preview 线发布；同日：官方桌面 app、ACP/REST 29-method parity、ACP WebSocket transport | #4490 / #3778 / #4827 / #4773 |
+| 06-11 | **daemon 功能集合入 main**；同日：官方桌面 app、ACP/REST 29-method parity、ACP WebSocket transport | #4490 / #3778 / #4827 / #4773 |
+| 06-12 | **v0.18.0 正式发布**；同日批次：直连 shell 显式 opt-in、session title 即时广播、env 热重载、桌面 app mac 签名公证 + Windows 自动更新 | #5050 / #5031 / #5035 / #4924 / #5013 / #5028 |
 
 一个月的节奏可以读成四步：**先钉边界**（1 daemon = 1 workspace）→ **再补多 client 生产 must-have**（身份 / 生命周期 / 可靠性 / 写门禁）→ **然后抽架构**（acp-bridge 独立包 / MCP pool / PermissionMediator）→ **最后开客户端生态**（SDK / web-shell / 桌面 app / ACP parity）。期间日常开发在 `daemon_mode_b_main` integration 分支累积，main 始终保持可发布。
 

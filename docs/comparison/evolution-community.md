@@ -193,7 +193,7 @@
 
 | 文件 | Claude Code | Copilot CLI | Codex CLI | Gemini CLI | Qwen Code | Kimi CLI | Qoder CLI |
 |------|-------------|-------------|-----------|-----------|-----------|----------|-----------|
-| `CLAUDE.md` | ✓（原生） | ✓（读取） | ✗ | ✗ | ✓（读取） | ✗ | ✓（`--with-claude-config`） |
+| `CLAUDE.md` | ✓（原生） | ✓（读取） | ✗ | ✗ | ✓（读取） | ✗ | ✗（v1.0；经 `migrate --from-claude` 一次性迁移） |
 | `AGENTS.md` | ✗ | ✓（读取） | ✓（原生） | ✗ | ✓（读取） | ✓（原生） | ✓（原生） |
 | `GEMINI.md` | ✗ | ✓（读取） | ✗ | ✓（原生） | ✓（原生） | ✗ | ✗ |
 | `CODEX.md` | ✗ | ✗ | ✓（原生） | ✗ | ✗ | ✗ | ✗ |
@@ -201,4 +201,4 @@
 | `.github/copilot-instructions.md` | ✗ | ✓（原生） | ✗ | ✗ | ✗ | ✗ | ✗ |
 | `.cursor/rules/` | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
 
-> **关键发现：** Copilot CLI 读取最多格式（CLAUDE.md + GEMINI.md + AGENTS.md + copilot-instructions）。Qoder CLI 通过 `--with-claude-config` 兼容 Claude Code 完整配置（skills、commands、subagents）。Qwen Code 使用 QWEN.md（兼容 GEMINI.md）。
+> **关键发现：** Copilot CLI 读取最多格式（CLAUDE.md + GEMINI.md + AGENTS.md + copilot-instructions）。Qoder CLI v1.0 不再运行时读取 `.claude` 配置（v0.x 的 `--with-claude-config` 已移除），改为 `qoder migrate --from-claude` 一次性迁移 + marketplace 对接 Claude 插件市场格式。Qwen Code 使用 QWEN.md（兼容 GEMINI.md）。

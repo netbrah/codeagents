@@ -37,8 +37,8 @@
 - DeepSeek 端点: https://api.deepseek.com/v1
 - OpenRouter 端点: https://openrouter.ai/api/v1
 
-## 命令系统（41 命令，v0.13.0）
-继承 Gemini CLI + 新增: /arena, /language, /insight, /extensions, /loop
+## 命令系统（57 内置命令 + 7 bundled skills，v0.18.0）
+继承 Gemini CLI + 新增: /arena, /language, /insight, /extensions, /btw, /goal, /tasks, /branch, /fork, /plan, /recap, /cd, /compress-fast, 托管记忆三件套（/remember /forget /dream）等；bundled skills: /review /loop /batch /simplify /stuck /new-app /qc-helper
 
 ## Arena 模式（全新，Qwen 添加）
 - 多模型竞争执行，每个模型在隔离 git worktree 中运行

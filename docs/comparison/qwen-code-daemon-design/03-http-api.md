@@ -83,7 +83,7 @@ GET /capabilities
 {
   "v": 1,
   "protocolVersions": { "current": "v1", "supported": ["v1"] },
-  "qwenCodeVersion": "0.18.0-preview...",
+  "qwenCodeVersion": "0.18.0",
   "mode": "http-bridge",
   "features": [/* 64 个 tag */],
   "modelServices": [],
@@ -137,7 +137,7 @@ GET /capabilities
 | `POST /session/:id/prompt` | 发起 turn（**非阻塞**） | 立即 `202 {promptId, lastEventId}`；body `prompt` = 非空 content block 数组；可选 `deadlineMs`（仅当 server 配置 `--prompt-deadline-ms` 时生效，只能缩短不能延长）；结果经 SSE `turn_complete` / `turn_error` 按 `promptId` 关联 | #4585 |
 | `POST /session/:id/cancel` | 取消当前 turn | SSE 广播 `prompt_cancelled`（语义为"已请求取消"）；originator 的 SSE 断连同样触发取消 | #3889 |
 | `POST /session/:id/btw` | 旁路提问（side question） | body `{question}`；单轮、无工具，不打断主 prompt 流 | #4610 |
-| `POST /session/:id/shell` | daemon 端直接执行 shell（`!` 前缀） | body `{command}`，bypass LLM；输出走 SSE `user_shell_command` / `user_shell_result`；命令与结果注入 LLM history | #4576 |
+| `POST /session/:id/shell` | daemon 端直接执行 shell（`!` 前缀） | **显式 opt-in**：需 `qwen serve --enable-session-shell` 且已配置 bearer token 才生效，调用方 clientId 必须已绑定目标 session（REST / ACP `_qwen/session/shell` / bridge 三入口同一策略）。body `{command}`，bypass LLM；输出走 SSE `user_shell_command` / `user_shell_result`；命令与结果注入 LLM history | #4576 #5031 |
 | `POST /session/:id/recap` | "我做到哪了"一句话摘要 | fast model 侧查询；`{sessionId, recap}`，`recap` 可为 `null`（历史过短/瞬时失败，仍 200） | — |
 | `POST /session/:id/tasks/:taskId/cancel` | 取消 background task | strict gate | — |
 | `POST /session/:id/goal/clear` | 清除 session goal | strict gate | — |
@@ -189,6 +189,7 @@ GET /capabilities
 | `GET /workspace/settings` | 读 settings | — | — |
 | `POST /workspace/settings` | 写单个 settings key | strict gate；`{scope, key, value}`；条件 tag `workspace_settings`；SSE `settings_changed` | — |
 | `POST /workspace/reload` | settings 热重载 | strict gate；diff settings keys 只刷真变化的 idle session，不重启 daemon；SSE `settings_reloaded`；条件 tag `workspace_reload` | #4965 |
+| `POST /workspace/reload-env` | env 热重载（`.env` / `settings.env`） | strict gate；boot 时快照全部文件 key，支持正确删除已移除的 key；刷新所有 idle session 的认证（新 API key 即时生效）；SSE `env_reloaded`；SDK `DaemonClient.reloadEnv()` | #4924 |
 | `POST /workspace/init` | 脚手架 `QWEN.md` | strict gate；`{force?}`，已存在默认 `409 workspace_init_conflict`；**纯机械创建不调 LLM**；SSE `workspace_initialized` | #4250 |
 | `GET /workspace/:id/sessions` | session 列表（分页） | `:id` = URL-encoded 绝对 workspace 路径，与绑定 workspace 不符 → `400 workspace_mismatch`；`?cursor=&size=` cursor 分页，非法 cursor → `400 invalid_cursor` | #4902 |
 
@@ -328,7 +329,7 @@ data: {"id":42,"v":1,"type":"session_update","data":{...},"originatorClientId":"
 |---|---|
 | `model_switched` / `model_switch_failed` | 模型切换结果 |
 | `approval_mode_changed` | 审批模式变更 |
-| `session_metadata_updated` | `PATCH metadata` 之后广播 |
+| `session_metadata_updated` | `PATCH metadata` 之后广播；ACP 子进程记录 session title 时也即时广播 `{sessionId, displayName, titleSource}`（经 `qwen/notify/session/title-update` 侧信道，client 无需等列表轮询，#5035） |
 | `session_closed` | `DELETE /session/:id` 之后广播（`reason: 'client_close'` 等） |
 | `session_died` | ACP child 退出 → 该 daemon 全部 session 死亡 |
 | `session_rewound` / `session_branched` | rewind / branch 完成 |
@@ -341,13 +342,14 @@ data: {"id":42,"v":1,"type":"session_update","data":{...},"originatorClientId":"
 | `stream_error` | 流内错误帧 |
 | `state_resync_required` / `replay_complete` | 见 §6.2 |
 
-**Workspace 广播（12）**——经全部活跃 session 的 bus fan-out，informational（读后写仍以 read-after-write 为准）：
+**Workspace 广播（13）**——经全部活跃 session 的 bus fan-out，informational（读后写仍以 read-after-write 为准）：
 
 | 事件 | 触发 |
 |---|---|
 | `memory_changed` / `agent_changed` | memory / agents 写路由 |
 | `tool_toggled` | tools enable 路由 |
 | `settings_changed` / `settings_reloaded` | settings 写 / `POST /workspace/reload` |
+| `env_reloaded` | `POST /workspace/reload-env` |
 | `workspace_initialized` | `POST /workspace/init` |
 | `mcp_server_added` / `mcp_server_removed` | 运行时 MCP 增删 |
 | `mcp_server_restarted` / `mcp_server_restart_refused` | MCP 重启 |
@@ -453,6 +455,6 @@ HTTP:   agent → SSE permission_request → 任一 client POST /permission/:req
 
 ---
 
-> **免责声明**: daemon 功能集随 v0.18.0-preview 线发布，仍处 preview 阶段；`unstable_` 前缀路由 / capability 的 shape 可能变化。本篇路由与事件清单核实自 qwen-code main 分支源码（`packages/cli/src/serve/`、`packages/acp-bridge/src/`、`packages/sdk-typescript/src/daemon/`），截至 2026-06-12，后续版本可能增删。
+> **免责声明**: daemon 功能集已随 v0.18.0 正式版发布（2026-06-12）；`unstable_` 前缀路由 / capability 的 shape 仍可能变化。本篇路由与事件清单核实自 qwen-code main 分支源码（`packages/cli/src/serve/`、`packages/acp-bridge/src/`、`packages/sdk-typescript/src/daemon/`），截至 2026-06-13，后续版本可能增删。
 
 下一篇：[04 — Deployment & Client →](./04-deployment-and-client.md)

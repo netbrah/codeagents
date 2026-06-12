@@ -6,7 +6,7 @@
 
 本篇回答"**为什么这样设计**"：`qwen serve` daemon 的 9 个核心架构决策，每条给出备选项、取舍依据与现状落点。最核心的是决策 2 状态进程模型——**1 daemon = 1 workspace × N session 多路复用**：与 `qwen --acp` stdio 的 1:1 心智对齐、OS 进程级隔离、cgroup quota 与 K8s 天然契合、blast radius 最小。贯穿所有决策的设计原则是"**不要为你不需要的东西付费**"（见文末 [设计原则](#设计原则--不要为你不需要的东西付费)）。
 
-daemon 功能集已合入 qwen-code main（PR#4490，v0.18.0-preview 线），本篇所有"现状"均指 main 分支当前实现。
+daemon 功能集已合入 qwen-code main（PR#4490），随 v0.18.0 正式版发布（2026-06-12），本篇所有"现状"均指 main 分支当前实现。
 
 ## 术语速查
 

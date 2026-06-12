@@ -1,6 +1,8 @@
 # 2. Qoder CLI 技术架构（Go 二进制分析）
 
 > 基于 v0.1.35 二进制文件（43MB, ELF 64-bit, Go 静态链接, stripped）分析。
+>
+> ⚠️ **本文描述的是 v0.x 历史架构**。v1.0（2026-06）已完全重写为 Gemini CLI fork 的 JS bundle，本文 Go 架构均不再适用——v1.0 分析见 [EVIDENCE](./EVIDENCE.md) 与 [Qwen Code vs Qoder CLI](../../comparison/qwen-code-vs-qoder-cli.md)。
 
 ## 二进制结构
 
@@ -145,6 +147,8 @@ code.alibaba-inc.com/qoder-core/qodercli/
 - Claude Code Subagents（代理定义）
 
 这表明 Qoder CLI 内部实现了 Claude Code 的配置解析器。
+
+> v1.0 已移除该运行时参数，改为 `qoder migrate --from-claude` 一次性迁移命令（bundle 中 `--with-claude-config` 字符串为 0）。
 
 ## 10 个内置主题
 

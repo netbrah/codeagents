@@ -1,13 +1,10 @@
 # 2. Qwen Code 命令系统——贡献者参考
 
-> 41 个内置命令 + MCP prompts + bundled skills + 用户自定义。相比 Claude Code（~79 个）差距较大，相比上游 Gemini CLI（~41 个）接近但缺少 /rewind、/agents 等命令。
+> **57 个内置命令**（v0.18.0：52 个常驻 + 5 个条件启用）+ **7 个 bundled skill 命令** + MCP prompts + 用户自定义。早期缺失的 /plan、/rewind 等已落地。
 >
-> **改进方向**：/plan（PR#2921 open）、/thinkback（PR#2917 open）、/clear --history（PR#2915 open）。缺少的命令见 [Claude Code 命令对比](../claude-code/02-commands.md)。
-
-源码: `packages/cli/src/services/BuiltinCommandLoader.ts`（注册所有内置命令）
+> 源码: `packages/cli/src/services/BuiltinCommandLoader.ts`（注册所有内置命令）
 >
-> **注**: 本文档统计为 41 个命令。v0.12 及更早版本为 40 个（39 斜杠 + 1 Skill `/review`），
-> v0.13.0 新增 `/loop` 命令（源码: `commands/loopCommand.ts`），增至 41。
+> **注**: 条件启用的 5 个命令——`/ide`（IDE 检测成功）、`/trust`（folderTrust 开启）、`/lsp`（LSP 开启）、`/dream` `/forget`（托管自动记忆开启）。`/loop` 已从内置命令转为 bundled skill。
 
 ## 命令加载机制
 
@@ -32,12 +29,16 @@
 | `/model` | — | 切换模型 | `commands/modelCommand.ts` |
 | `/clear` | `reset`, `new` | 清除对话历史 | `commands/clearCommand.ts` |
 | `/compress` | `summarize` | 压缩上下文 | `commands/compressCommand.ts` |
+| `/compress-fast` | — | 无 LLM 的规则式上下文压缩 | `commands/compressFastCommand.ts` |
 | `/context` | — | 查看 token 用量 | `commands/contextCommand.ts` |
 | `/copy` | — | 复制上次回复 | `commands/copyCommand.ts` |
 | `/tools` | — | 查看可用工具列表 | `commands/toolsCommand.ts` |
 | `/settings` | — | 查看/修改设置 | `commands/settingsCommand.ts` |
 | `/permissions` | — | 管理权限规则 | `commands/permissionsCommand.ts` |
 | `/memory` | — | 查看/编辑记忆 | `commands/memoryCommand.ts` |
+| `/remember` | — | 保存持久记忆 | `commands/rememberCommand.ts` |
+| `/forget` | — | 删除匹配的托管记忆（条件启用） | `commands/forgetCommand.ts` |
+| `/dream` | — | 整理托管自动记忆主题文件（条件启用） | `commands/dreamCommand.ts` |
 | `/mcp` | — | 管理 MCP 服务器 | `commands/mcpCommand.ts` |
 
 ### 会话管理
@@ -46,6 +47,12 @@
 |------|------|------|------|
 | `/restore` | — | 恢复历史会话检查点 | `commands/restoreCommand.ts` |
 | `/resume` | — | 继续上次会话 | `commands/resumeCommand.ts` |
+| `/rewind` | `rollback` | 回滚对话到之前的轮次 | `commands/rewindCommand.ts` |
+| `/branch` | — | 把当前对话 fork 到新会话 | `commands/branchCommand.ts` |
+| `/fork` | — | 派生继承全部对话的后台代理 | `commands/forkCommand.ts` |
+| `/rename` | `tag` | 会话改名/打标签 | `commands/renameCommand.ts` |
+| `/delete` | — | 删除历史会话 | `commands/deleteCommand.ts` |
+| `/recap` | — | 生成一行会话回顾 | `commands/recapCommand.ts` |
 | `/export` | — | 导出当前会话 | `commands/exportCommand.ts` |
 | `/quit` | `exit` | 退出 | `commands/quitCommand.ts` |
 
@@ -56,11 +63,17 @@
 | `/agents` | — | 管理子代理 | `commands/agentsCommand.ts` |
 | `/skills` | — | 查看可用技能 | `commands/skillsCommand.ts` |
 | `/approval-mode` | — | 切换审批模式（plan/default/auto-edit/yolo） | `commands/approvalModeCommand.ts` |
+| `/plan` | — | 进入/退出计划模式 | `commands/planCommand.ts` |
+| `/goal` | — | 设定目标——达成条件前持续工作 | `commands/goalCommand.ts` |
+| `/tasks` | — | 后台任务调度入口 | `commands/tasksCommand.ts` |
 | `/stats` | `usage` | 显示统计信息 | `commands/statsCommand.ts` |
+| `/diff` | — | 显示工作区相对 HEAD 的变更统计 | `commands/diffCommand.ts` |
+| `/doctor` | — | 安装与环境诊断 | `commands/doctorCommand.ts` |
 | `/editor` | — | 设置外部编辑器 | `commands/editorCommand.ts` |
 | `/hooks` | — | 管理 Hook 配置 | `commands/hooksCommand.ts` |
 | `/init` | — | 初始化项目配置（生成 QWEN.md） | `commands/initCommand.ts` |
-| `/trust` | — | 管理信任设置 | `commands/trustCommand.ts` |
+| `/trust` | — | 管理信任设置（条件启用） | `commands/trustCommand.ts` |
+| `/lsp` | — | LSP 服务器状态（条件启用） | `commands/lspCommand.ts` |
 | `/summary` | — | 生成对话摘要 | `commands/summaryCommand.ts` |
 | `/setup-github` | — | 设置 GitHub Actions | `commands/setupGithubCommand.ts` |
 
@@ -69,10 +82,12 @@
 | 命令 | 别名 | 用途 | 源码 |
 |------|------|------|------|
 | `/theme` | — | 切换颜色主题 | `commands/themeCommand.ts` |
+| `/statusline` | — | 配置状态栏 | `commands/statuslineCommand.ts` |
 | `/vim` | — | 切换 Vim 编辑模式 | `commands/vimCommand.ts` |
 | `/terminal-setup` | — | 配置终端集成 | `commands/terminalSetupCommand.ts` |
 | `/ide` | — | IDE 集成管理 | `commands/ideCommand.ts` |
 | `/directory` | `dir` | 目录管理 | `commands/directoryCommand.tsx` |
+| `/cd` | — | 把当前会话迁移到新工作目录 | `commands/cdCommand.ts` |
 | `/language` | — | 切换 UI 语言 | `commands/languageCommand.ts` |
 
 ### 信息与反馈
@@ -92,17 +107,19 @@
 | `/extensions` | **扩展管理**——安装/卸载/列表 | `commands/extensionsCommand.ts` |
 | `/btw` | **快速旁问**——不中断主对话的侧边提问 | `commands/btwCommand.ts` |
 
-### Skill 命令
+### Bundled Skill 命令（7 个）
 
-| 命令 | 用途 | 实现 |
-|------|------|------|
-| `/review` | 代码审查（四代理并行） | Skill（`skills/bundled/review/SKILL.md`） |
+源码: `packages/core/src/skills/bundled/*/SKILL.md`
 
-> `/review` 的四个审查维度（源码: `packages/core/src/skills/bundled/review/SKILL.md`）：
-> 1. **Correctness & Security** — 逻辑错误、空值处理、竞态条件、注入漏洞
-> 2. **Code Quality** — 代码风格一致性、命名规范、重复代码
-> 3. **Performance** — N+1 查询、内存泄漏、不必要重渲染
-> 4. **Undirected Audit** — 无预设维度，全新视角审查
+| 命令 | 用途 |
+|------|------|
+| `/review` | 代码审查（四代理并行：Correctness & Security / Code Quality / Performance / Undirected Audit） |
+| `/loop` | 按计划循环执行 prompt（`/loop 5m check the build`；原 v0.13 内置命令，已转为 skill） |
+| `/batch` | 多文件并行批量操作（自动发现文件、分块执行） |
+| `/simplify` | 审查近期变更的复用/质量/效率问题并直接应用清理 |
+| `/stuck` | 诊断卡死/变慢的 Qwen Code 会话（扫描问题进程、高 CPU） |
+| `/new-app` | 从零创建应用的工作流（需求收集、技术选型、脚手架） |
+| `/qc-helper` | 基于官方文档回答 Qwen Code 用法/配置/排障问题 |
 
 ## 子命令
 

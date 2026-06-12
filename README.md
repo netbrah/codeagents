@@ -55,7 +55,7 @@
 | [SWE-agent](./docs/tools/swe-agent.md) | Princeton | MIT | Python | 19k | 100+ | SWE-bench 评估 |
 | [Copilot CLI](./docs/tools/copilot-cli/) | GitHub | 专有 | TypeScript | 10k | 多种 | 67 GitHub 工具 |
 | [Kimi CLI](./docs/tools/kimi-cli/) | 月之暗面 | Apache-2.0 | Python | 7k | 6 | Wire 协议，D-Mail |
-| [Qoder CLI](./docs/tools/qoder-cli/) | QoderAI（阿里） | 专有 | JS（v1.0=Gemini CLI fork） | — | 多种 | 自营网关 + macOS 沙箱 + Quest |
+| [Qoder CLI](./docs/tools/qoder-cli/) | QoderAI（阿里） | 专有 | JS（v1.0=Gemini CLI fork） | — | 多种 | 自营网关 + Quest + Claude 迁移链 |
 
 ---
 
@@ -69,7 +69,7 @@
 | [Hermes Agent](./docs/tools/hermes-agent/) | 5 | **闭环学习系统**（冻结快照 Memory + 自主 Skill + FTS5 跨会话搜索 + Nudge）/ 369K Python / 14 渠道 / 6 执行环境 |
 | [Gemini CLI](./docs/tools/gemini-cli/) | 7 | 41 命令 / 23 工具 / 策略引擎（Qwen Code 上游） |
 | [OpenCode](./docs/tools/opencode/) | 9 | 18 工具 / 7 代理 / 18 Hook / Session Fork / 多客户端 |
-| [Qwen Code](./docs/tools/qwen-code/) | 8 | 41 命令 / 16 工具 / Arena / CoreToolScheduler / 多 Provider |
+| [Qwen Code](./docs/tools/qwen-code/) | 8 | 57 命令（v0.18.0）/ 41 工具 / Arena / Agent Team / CoreToolScheduler / 多 Provider |
 | [Copilot CLI](./docs/tools/copilot-cli/) | 3 | 34 命令 + 67 工具 + 3 代理 |
 | [Codex CLI](./docs/tools/codex-cli/) | 3 | 28 命令 + 三平台沙箱 |
 | [Aider](./docs/tools/aider/) | 3 | 42 命令 / PageRank RepoMap |

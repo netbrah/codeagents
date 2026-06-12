@@ -117,6 +117,16 @@ qwen serve --token=$(openssl rand -hex 32)
 
 strict 路由 = 即使本地开发也不该免认证的高危写操作：memory 写入、文件编辑、tool enable、MCP server 重启、device-flow 认证。401 body 用独立的 `token_required` code（区别于普通 `Unauthorized`），SDK 可以据此提示"重启 daemon 并配置 token"而非笼统报认证失败。
 
+### 直连 shell：opt-in + token + session 绑定三重门（#5031）
+
+`POST /session/:id/shell`（bypass LLM 直接执行命令）比 strict 路由更进一步，三个条件全部满足才生效：
+
+1. **显式 opt-in**：启动时带 `qwen serve --enable-session-shell`，否则端点直接拒绝；
+2. **bearer token 已配置**：只 opt-in 不配 token，策略仍视为关闭（嵌入式 `createServeApp({token: ''})` 按未配置处理）；
+3. **clientId 已绑定目标 session**：调用方必须是该 session 的已知客户端——ACP 走 bridge 在 owned session 绑定上盖章的 clientId。
+
+REST、ACP `_qwen/session/shell`、bridge 执行 sink 三个入口执行同一策略，不存在绕行入口。
+
 ### CORS
 
 - **默认**：任何带 `Origin` 头的请求一律 403（附 `Vary: Origin`）。CLI/SDK 不发 Origin，只有浏览器发——等于默认拒绝一切浏览器跨域。

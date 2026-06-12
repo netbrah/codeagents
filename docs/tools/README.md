@@ -11,7 +11,7 @@
 | [Kimi CLI](./kimi-cli/) | 5 文件 | 概述/28 命令(双注册表)/架构+Wire 协议+18 工具 |
 | [Aider](./aider/) | 5 文件 | 概述/42 命令/架构+PageRank RepoMap+14 编辑格式 |
 | [OpenCode](./opencode/) | 5 文件 | 概述/18 工具+7 代理/多客户端架构+LSP |
-| [Qwen Code](./qwen-code/) | 6 文件 | 概述/41 命令/架构(Gemini CLI 分叉)+16 工具/Arena+扩展系统 |
+| [Qwen Code](./qwen-code/) | 6 文件 | 概述/57 命令(v0.18.0)/架构(Gemini CLI 分叉)+41 工具/Arena+Agent Team+扩展系统 |
 | [Goose](./goose/) | 5 文件 | 概述/16 斜杠命令+15 CLI 命令/MCP 原生架构/11 Platform Extension |
 | [Hermes Agent](./hermes-agent/) | 6 文件 | 概述/架构/**闭环学习系统**/28+ 工具+14 渠道+6 执行环境/EVIDENCE（Nous Research，369K Python） |
 

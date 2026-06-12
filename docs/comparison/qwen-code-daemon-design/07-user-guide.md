@@ -1,6 +1,6 @@
 # Qwen Code daemon (`qwen serve`) 用户使用文档
 
-> Recipe-oriented 用户指南。daemon 功能集已合入 qwen-code main（PR#4490），随 **v0.18.0-preview** 线发布（npm `@qwen-code/qwen-code@preview`）。本文涵盖启动、客户端接入、常用操作、生产部署、故障排查，所有 flag / 路由 / 默认值已对照 main 分支源码（`packages/cli/src/serve/`）核实。
+> Recipe-oriented 用户指南。daemon 功能集已合入 qwen-code main（PR#4490），随 **v0.18.0 正式版**发布（npm `@qwen-code/qwen-code@latest`，2026-06-12）。本文涵盖启动、客户端接入、常用操作、生产部署、故障排查，所有 flag / 路由 / 默认值已对照 main 分支源码（`packages/cli/src/serve/`）核实。
 
 ## TL;DR
 
@@ -70,8 +70,8 @@
 ## 一、快速上手（5 分钟）
 
 ```bash
-# 1) 安装 preview 线（daemon 随 v0.18.0-preview 发布）
-npm install -g @qwen-code/qwen-code@preview
+# 1) 安装（daemon 随 v0.18.0 正式版发布）
+npm install -g @qwen-code/qwen-code@latest
 
 # 2) 启动 daemon（loopback 默认免 token，仅本机可达）
 cd /path/to/your/repo
@@ -277,7 +277,7 @@ daemon 对外提供**两套 northbound transport 共存**，共享同一 bridge 
 
 ### 4.1 web-shell —— 浏览器 client（推荐 web 入口）
 
-`@qwen-code/web-shell`（npm 包，源码 `packages/web-shell`）是 daemon-backed 的浏览器终端/会话 UI，以 **React 组件**形态发布，可嵌入任何 React 应用。能力与 CLI 对齐：session create / load / resume、流式输出与取消、model / approval mode 切换、slash command 补全、permission 审批弹窗、多 tab 共享同一 session。
+`@qwen-code/web-shell`（npm 包，源码 `packages/web-shell`）是 daemon-backed 的浏览器终端/会话 UI，以 **React 组件**形态发布，可嵌入任何 React 应用。能力与 CLI 对齐：session create / load / resume、流式输出与取消、model / approval mode 切换、slash command 补全、permission 审批弹窗、多 tab 共享同一 session、图片上传回显（#4922）、goal / background task 工作流与 task 审批（#4856）、内联 `/settings` 面板（鼠标可达，#4944/#4972）与 context 用量面板（#4958）。
 
 ```tsx
 import { WebShellWithProviders } from '@qwen-code/web-shell';
@@ -866,4 +866,4 @@ ACP client 接不上        → QWEN_SERVE_ACP_HTTP 被设 0？→ 是否带 Acp
 
 ---
 
-> **免责声明**：本文基于 qwen-code main 分支源码（v0.18.0-preview 线，`packages/cli/src/serve/`）整理，截至 **2026-06-12**。daemon 仍处 preview 阶段，HTTP API / flag / 事件 schema 可能在后续版本变化；以运行时 `GET /capabilities` 的 feature tag 协商为最准确的能力检测方式（附录 A）。
+> **免责声明**：本文基于 qwen-code main 分支源码（v0.18.0，`packages/cli/src/serve/`）整理，截至 **2026-06-13**。HTTP API / flag / 事件 schema 可能在后续版本变化；以运行时 `GET /capabilities` 的 feature tag 协商为最准确的能力检测方式（附录 A）。

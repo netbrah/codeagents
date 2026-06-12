@@ -295,7 +295,7 @@ Qwen Code 的遥测**不是单一系统，是四条并行管道**，各有独立
 | `packages/core/src/telemetry/session-tracing.ts` | 层级 Span 树（#3731，975 行） |
 | `packages/core/src/telemetry/session-context.ts` | 全局 session root OTel context（parent fallback / `/clear` 后 correlation） |
 | `packages/core/src/telemetry/detailed-span-attributes.ts` | 敏感 span 属性（opt-in，含 hash 去重 + 60KB 截断） |
-| `packages/core/src/telemetry/metrics.ts` | ~35 metric 定义（含 GenAI semconv 双发 + session.id cardinality 控制） |
+| `packages/core/src/telemetry/metrics.ts` | ~35 metric 定义（含 GenAI semconv 双发 + session.id cardinality 控制）；#4868 新增 runtime 采样 `qwen-code.memory.usage` / `qwen-code.cpu.usage`（60 槽环形缓冲，crash 诊断 dump 附 `recentSamples[]`，OTel 上报可选） |
 | `packages/core/src/telemetry/log-to-span-processor.ts` | log→span 桥（后端只收 trace 时）+ 敏感属性黑名单脱敏 |
 
 > **免责声明**: 初稿基于 2026 Q1，2026-05-22 对照 v0.16.0 复核，**2026-06-03 再次复核补全 2026-05 演进**。Claude Code v2.1.89；Qwen Code 源码 HEAD（含 #4321/#4417/#4390/#4499/#4482/#4565 已合，#4410/#4432 仍 OPEN）。

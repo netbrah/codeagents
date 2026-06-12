@@ -27,10 +27,33 @@
   > **更正**：早前据 `arena`（11×）推断为 Qwen fork 有误——`arena` 实为 protobuf 选项 `cc_enable_arenas`/`ccEnableArenas`（Google Protocol Buffers 生成码），与 Qwen「Arena 多模型」无关；`replace` 千次多为 `String.prototype.replace`。已剔除。
 
 - **Qoder 自有品牌**：`qoder` 747× / `.qoder` 131× / `api.qoder` 11×；配置 `.qoderignore` / `.qoder.json`；上下文文件用 **`AGENTS.md`**（+ `SKILL.md` / `MEMORY.md`）
-- **新增 macOS Seatbelt 沙箱**：6 个 `.sb` profile（`strict`/`restrictive`/`permissive` × `proxied`/`open`，`(deny default)` + 选择性 allow）
-- **Qoder 自有**：浏览器登录 + PAT（`QODER_PERSONAL_ACCESS_TOKEN`）；自营网关 `api.qoder.sh`（全球）/ `api.qoder.com.cn`（国内）；`qoder-plugin` / `qoder-marketplace` / `qoder-enterprise-` / `remote-control`
-- **slash 命令**：`/help` `/mcp` `/mcp-config` `/hook-config` `/plugins` `/usage` `/remote-control` `/token` `/authorize` `/compare` `/metrics` `/otel`
-- **依赖**：`sharp`（图像/多模态）+ ripgrep + Node ≥ 20；两渠道 `@latest` / `@beta`
+- **macOS Seatbelt 沙箱（上游继承，非自研）**：6 个 `.sb` profile（`strict`/`restrictive`/`permissive` × `proxied`/`open`）随包分发于 `bundle/sandbox-macos-*.sb`，与 gemini-cli `packages/cli/src/utils/` 同名文件 **diff 仅 2 处**——`GEMINI_SANDBOX_PROXY_COMMAND`→`QODER_SANDBOX_PROXY_COMMAND`、注释 `--include-directories`→`--add-dir`
+- **Qoder 自有**：浏览器登录 + PAT（`QODER_PERSONAL_ACCESS_TOKEN`）；自营网关 `api.qoder.sh`（全球）/ `api.qoder.com.cn`（国内）；`qoder-plugin` / `qoder-marketplace` / `qoder-enterprise-` / `remote-control`；credit 计费（`debug-credit-warning` 命令模拟 credit 耗尽告警）
+- **依赖**：`sharp`（图像/多模态）+ ripgrep + Node ≥ 20；两渠道 `@latest` / `@beta`；`bundle/node_modules/` 残留 **`@google/gemini-cli-devtools`**（基座旁证）
+- **字符串混淆**：大量字面量经 `_$d("Base64…")` 解码函数包裹，命令描述/工具 wire 名多数不可静态读取——以下清单为**可提取下界**
+
+### v1.0.18 深度提取（2026-06-12）
+
+**TUI slash 命令**（三种证据强度）：
+
+- 明文 `name:"…",description:"…"` 注册：`/about` `/agents` `/corgi`（gemini 彩蛋）`/diff` `/feedback` `/help` `/hooks` `/login` `/marketplace`（`market`，add/list/remove/update）`/new` `/permissions` `/plugins`（`plugin`，install/uninstall/enable/disable/update/validate）`/privacy` `/quit`（`exit`）`/reload`（`refresh`，重载 MCP）`/rewind`（`checkpoint`）`/skills` `/status` `/theme` `skill-fork`；`/goal` 子命令 pause/resume/hold/status/clear；`/voice off`；debug 三件套 `debug-credit-warning` / `debug-privacy` / `debug-update`
+- `name:"…"` 字符串命中（描述混淆）：`/mcp` `/mcp-config` `/model` `/memory` `/init` `/export` `/editor` `/docs` `/context` `/add-dir` `/copy` `/resume` `/tools` `/settings` `/usage` `/vim` `/statusline` `/setup-github` `/security-review` `/review` `/quest` `/voice` `/goal` `/remote-control`
+- help 文本 `"/xxx"` 字符串：`/usage` `/token` `/authorize` `/compare` `/metrics` `/otel` `/hook-config` `/mcp-config` `/remote-control`
+
+**工具类导出表**（esbuild re-export 明文，21 个）：`ReadFileTool` `WriteFileTool` `EditTool` `GlobTool` `RipGrepTool`（无独立 GrepTool/LSTool）`ShellTool` `WebFetchTool` `WebSearchTool` **`ImageSearchTool`**（gemini-cli 上游 0 命中，Qoder 新增）`AskUserTool` `ActivateSkillTool` `WriteTodosTool` `McpAuthTool` `TaskTool` `MemoryTool` + **Tracker 族 ×6**（`TrackerCreateTaskTool` / `TrackerUpdateTaskTool` / `TrackerGetTaskTool` / `TrackerListTasksTool` / `TrackerAddDependencyTool` / `TrackerVisualizeTool`，gemini-cli 上游已有）+ `DiscoveredMCPTool`
+
+**CLI 子命令**（commander `("name").description(` 模式，30+）：`agent` `commit` `config`（get/set/unset/list）`doctor` `feedback` `hook` `install` `link` `list` `login` `mcp`（add/add-json/get/remove）`migrate` `mp`（marketplace）`plugin` `remote-control` `reset-project-choices` `rollback` `skill`（link/external）`status` `uninstall` `update`（`--to <version>`）`validate`
+
+**启动参数**（commander `option()`，60+，节选 Claude Code 命名系）：`--permission-mode <mode>` `--output-style <style>` `--add-dir <dir>` `--settings <json>` `--setting-sources` `--strict-mcp-config` `--agents <json>` `--append-system-prompt` `--fork-session` `--session-id` `--allowed-tools` / `--disallowed-tools`；Qoder 特有：`--reasoning-effort <level>` `--context-window <size>` `--teleport <id>` `--remote [task]` `--remote-session <id>` `--attachment <file>` `--plugin-dir <dir>` `--list-sessions` `--delete-session <index>`
+
+**Claude Code 兼容链**：
+
+- `--with-claude-config`（v0.x Go 时代参数）在 v1.0 bundle 中 **0 命中，已移除**；取代者为 **`qoder migrate --from-claude`** 一次性迁移子命令（`("migrate").description(…).option("--from-claude",…)` 明文）
+- marketplace 预置 **`claude-plugins-official`** 源 + 识别 **`.claude-plugin`** 目录格式
+- hooks 事件全套采用 **Claude Code 命名**：`PreToolUse` 24× / `PostToolUse` 38× / `PostToolUseFailure` 17× / `UserPromptSubmit` 25× / `SessionStart` 55× / `SessionEnd` 16× / `PreCompact` 12× / `SubagentStop` 17×；gemini-cli 上游自有命名 `BeforeTool` / `AfterTool` / `BeforeAgent` / `AfterAgent` 在 bundle 中**全部为 0**（上游用 `hooks migrate` 做 Claude→Gemini 转换，源码 `packages/cli/src/commands/hooks/migrate.ts`；Qoder 反向直接原生采用 Claude 命名）
+- 上下文用量 UI 把 memory 文件内部标记为 `claudeMd` 类型
+
+**其他特性字符串**：`subagent` 98× / `voice` 110×（gemini-cli 上游有 voice 能力）/ `rewind` 34× / `teleport` 12× / `planMode` 23× + `plan_mode` 17× / `outputStyle` 41× / `statusline` 6× / `quest`（词边界）11× / ACP 101×
 
 **结论**：Qoder CLI v1.0 与 Qwen Code 是 **Gemini CLI 的两个兄弟 fork**（均阿里系），但 **Qoder 直接 fork 自 Gemini CLI，未经过 Qwen Code**。完整对比见 [Qwen Code vs Qoder CLI](../../comparison/qwen-code-vs-qoder-cli.md)。
 
