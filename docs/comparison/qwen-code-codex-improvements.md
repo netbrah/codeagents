@@ -1,8 +1,8 @@
 # Qwen Code 改进建议——对标 Codex CLI
 
-> 基于 Codex CLI (openai/codex) 完整 Rust 源码（80+ crate，**909,950 行**）与 Qwen Code 源码（**631,020 行 TS**）的系统对比，识别 **29 项**可借鉴的能力（其中 **1 项已实现**——item-13 Hook 系统）。Codex CLI 是唯一采用 Rust 原生构建 + 沙箱默认启用的主流 CLI Code Agent。
+> 基于 Codex CLI (openai/codex) 完整 Rust 源码（97 crate，**992,581 行** `codex-rs/**/*.rs`）与 Qwen Code 源码（**1,292,728 行** `packages/**/*.ts(x)`，daemon/web-shell/desktop 合入 main 后激增）的系统对比，识别 **30 项**可借鉴的能力（其中 **1 项已实现**——item-13 Hook 系统）。Codex CLI 是唯一采用 Rust 原生构建 + 沙箱默认启用的主流 CLI Code Agent。
 >
-> **最后核对日期**：2026-05-24（两侧源码均已 `git pull` 刷新，新增 item-29，refresh item-1/8/9/25 状态）
+> **最后核对日期**：2026-06-13（两侧源码均已 `git pull` 刷新；对照 release notes v0.134.0 → v0.139.0 stable + 0.140.0-alpha；新增 item-30 Plugin 系统补录，refresh item-1/3/4/8/9/12/16/23/27/28/29 状态）
 >
 > **相关报告**：
 > - [Claude Code 改进建议报告（256 项）](./qwen-code-improvement-report.md)——行业领先者对比
@@ -42,7 +42,8 @@
 | [26](#item-26) | Sticky Environment 会话级环境变量选择 | **P2** | `app-server/` v2 thread state | ~500 行（PR#18897）|
 | [27](#item-27) | Permission Profiles 统一权限档位 | **P2** | `core/` + `app-server/` + `tui/` + `mcp/` + `exec-server/` | ~1,500 行（6 PR）|
 | [28](#item-28) | `excludeTurns` 分页加载 Thread | **P3** | `app-server/` v2 thread_fork/resume | ~420 行（PR#19014）|
-| [29](#item-29) | External Agent Config + Session 迁移导入 🆕 | **P2** | `external-agent-migration/` + `external-agent-sessions/` | ~3,607 行 |
+| [29](#item-29) | External Agent Config + Session 迁移导入 | **P2** | `external-agent-migration/` + `external-agent-sessions/` | ~3,607 行 |
+| [30](#item-30) | Plugin 系统 + Marketplace 🆕 | **P2** | `core-plugins/` + `plugin/` | 23,565 行 |
 
 ---
 
@@ -68,6 +69,8 @@
 **实现成本**：~1 周（Linux Landlock），参考 Claude Code 改进报告 [stability#30](./qwen-code-improvement-report-p2-stability.md#item-30)。
 
 **2026-05-24 状态更新**：Codex 2026-05 新增 `codex-rs/bwrap/` 独立 crate（45 行 wrapper + build.rs，引入 PR `26f355b67b`）—— **Linux Bubblewrap 二进制现 bundled 进发行**，开箱即用，用户不需要预装 `bwrap`。这降低了 Linux 沙箱的部署门槛，Qwen Code 若做 Bubblewrap 集成，应同样考虑 bundled 路径。
+
+**2026-06-13 状态更新**：Windows 沙箱前进一步——v0.136.0 新增 `codex sandbox setup --elevated` 管理员预配路径（alpha，#24831）+ Windows 沙箱实现的 requirements 声明（#23766）；沙箱内**强制 proxy-only 联网**更一致（#27035，与 item-7 网络代理联动）；macOS/Linux 发行随包 bundled patched zsh helper（#23756/#24171）。
 
 ---
 
@@ -111,6 +114,8 @@
 
 **实现成本**：~3 天
 
+**2026-06-13 状态更新**：Feature flag 进入**云端管控**阶段——新 crate `cloud-config/`（2,376 行，由 `cloud-requirements` 重构而来）支持企业下发 **cloud-managed config bundles**（含 feature flags + requirements + EDU workspace，v0.137.0 #24617~#24622）；`/new` `/clear` `/fork` 等 thread reset 不再丢失云端管控的 flags（#25177）。企业管理面同时获得 monthly credit limits 展示（#24812）。Qwen Code 若做企业版，flag 注册表应预留"远端 source"一层。
+
 ---
 
 <a id="item-4"></a>
@@ -129,6 +134,8 @@
 **Qwen Code 修改方向**：参考 OpenCode 的 [Snapshot 系统](./qwen-code-opencode-improvements.md#item-11) + Codex 的 rollout 模式。
 
 **实现成本**：~1 周
+
+**2026-06-13 状态更新**：会话生命周期管理继续完善——**`/archive` + `codex archive/unarchive` 会话归档**（归档后防 resume/fork，可恢复，v0.136.0 #25027/#25021）；`resume --last` 先查 state DB 大幅提速大历史恢复（#26462）；**本地会话历史全文搜索**（大小写不敏感 + 结果预览，v0.134.0 #23519/#23921）。注：Qwen Code 在 fork（`/branch`/`/fork`，PR#3539）与 resume 搜索（PR#3880）上已达成 parity，差距收窄到 archive 与 turn 级 fork。
 
 ---
 
@@ -203,6 +210,8 @@
 
 **2026-05-24 状态更新**：Codex 2026-05 新增 `codex-rs/app-server-transport/`（9,150 行，PR `51bfb5f3b1`）—— 把 transport 层抽到独立 crate，含 websocket + stdio + auth guard + connection management；同时新增 `codex-rs/app-server-daemon/`（3,015 行，PR `1752f374a8`）为远端 SSH Codex 实例提供 app-server lifecycle 管理（`codex daemon start/stop/status`）。Qwen Code 借鉴 IDE 协议时可参考这套 transport 分层 + remote lifecycle 设计。
 
+**2026-06-13 状态更新**：控制面继续扩张——`codex app-server --stdio` 启动模式（#24940）、账户 token usage 查询（#25344）、auth v2 Personal Access Token（#25731）；**remote-control 走 app-server v2 RPC**：配对发起 + controller grants 列举/撤销（v0.137.0 #25675/#25785）、websocket 用短时 server token 取代 ChatGPT access token（#24141）、desired state 持久化（#27445）。这套"远程控制配对 + 授权可审计可撤销"的安全模型，可对照 Qwen Code daemon 的 bearer token 体系（参见 [daemon 安全](./qwen-code-daemon-design/05-permission-auth.md)——pair token / per-client 撤销正在 backlog）。
+
 **实现成本**：~3 周
 
 ---
@@ -224,6 +233,8 @@
 **实现成本**：~2 周，参考 Claude Code 改进报告 [engine#14](./qwen-code-improvement-report-p0-p1-engine.md#item-14)。
 
 **2026-05-24 状态更新**：Codex 2026-05 新增 `codex-rs/agent-graph-store/`（454 行，PR `782191547c`）—— 存储与查询 thread-spawn 的父子拓扑关系，为多 agent 协作提供结构化存储边界。Qwen Code 做多 agent 编排时可参考这种"先建图存关系再 spawn"的模式，便于事后追踪和调试。
+
+**2026-06-13 状态更新**：multi-agent v2 进入资源治理阶段——agent **residency LRU**（限制驻留 agent 数，#26632）、并发额度按"活跃执行"而非 spawn 数计量（#26969）、`close_agent` 改名 `interrupt_agent` 语义更准确（#26994）、resume 时不自动复活 v2 后代 agent（#26997）、runtime 选择随 thread 保持 + spawned agent 的 follow-up/metadata 默认值清理（v0.137.0）。Qwen Code 的 Agent Team（实验中）做并发治理时可借鉴 LRU + 活跃执行计量。
 
 ---
 
@@ -262,6 +273,8 @@
 **Codex CLI 的解决方案**：`secrets/`（~682 行）——通用密钥管理：OS 密钥环后端 + Global/Environment（基于 cwd）双作用域 + 安全路径哈希 + list/get/set/delete 操作。
 
 **实现成本**：~2 天（可复用现有 `KeychainTokenStorage` 基础设施）
+
+**2026-06-13 状态更新**：0.140.0-alpha 三连 PR 把 secrets 升级为 **CLI auth 的存储底座**——secret auth 存储配置（#27504）→ auth 专用加密 namespace（#27535）→ **CLI auth 凭据改用加密本地 secrets 存储**（#27539）。即从"可选的密钥管理工具"变成"认证链路的默认基础设施"，无 OS 密钥环的环境（容器/CI）也有加密落盘路径。Qwen Code 的 Qwen OAuth creds 目前明文 JSON 落盘（`~/.qwen/oauth_creds.json`，仅 `0o600` 权限保护，源码: `packages/core/src/qwen/sharedTokenManager.ts#L634`；MCP token 已有 keychain/hybrid 存储但 OAuth 链路未复用），此项优先级建议上调。
 
 ---
 
@@ -397,6 +410,8 @@
 
 **Codex CLI 的解决方案**：`code-mode/`（2,746 行）——统一 exec + wait 工具接口，运行时约束（yield 时间、输出 token 上限），嵌套工具检测防止循环。
 
+**2026-06-13 状态更新**：Code Mode 从"轻量沙箱"升级为**主要执行范式之一**——拆出 `code-mode-protocol/`（1,452 行）+ `code-mode-host/` 独立 crate（协议与宿主分层）；code mode 内可调用 hosted web/image 工具、**独立 web search 可并行执行 + 从嵌套 JS 工具调用发起**（v0.137.0 #25176/#25702/#25890、v0.139.0 #26719）。底层 V8 随 `rusty_v8` 149.2.0 更新。其定位已接近 Cloudflare "Code Mode"（用 JS 执行环境替代逐次工具调用），与 Qwen Code 的 Workflow 工具（脚本编排多 agent）属相邻方向，可互为参照。
+
 ---
 
 <a id="item-24"></a>
@@ -500,6 +515,8 @@ TurnStartParams {
 **意义**：审批体验从"二元 ask/allow/deny" → "档位化 YOLO/Edit/Readonly 三档可切"。
 **改进收益**：信任度渐进——用户可以从 readonly 开始，看到 agent 表现良好后升档到 editAllowed，高信任场景开 yolo。
 
+**2026-06-13 状态更新**：Permission Profiles **已全面产品化**——v0.134.0 用八连 PR（#23708~#24110）把 `--profile` 升级为 CLI/TUI/沙箱流程的**主选择器**（旧式 profile 配置直接拒绝 + 迁移指引）；v0.135.0 `/permissions` 识别并展示命名 profile（#21559）；v0.139.0 新增 `-P` 短参数 alias（#27054）。该项从"6 PR 协同的新机制"进入"默认交互路径"，Qwen Code 对标价值进一步上升。
+
 ---
 
 <a id="item-28"></a>
@@ -535,7 +552,7 @@ thread/turns/list { page: 0, size: 50 }  ← UI 按需翻页
 
 <a id="item-29"></a>
 
-### 29. External Agent Config + Session 迁移导入 🆕（P2）
+### 29. External Agent Config + Session 迁移导入（P2）
 
 **问题**：用户已经在 Claude Desktop / Cursor / 其他 AI 工具上配了一堆 MCP server / hooks / custom commands / subagents，迁到 Qwen Code 要全手动重配；旧工具的会话历史也带不过来。社区里"迁移友好度"是 AI agent 工具增长的重要变量。
 
@@ -576,6 +593,39 @@ Codex config + rollout/sessions（带 import ledger 追踪来源）
 
 **改进收益**：Claude Code / Cursor / Aider 用户切换 Qwen Code 的摩擦从"花 30 分钟重配"降到"5 秒导入 +  几分钟核对"。
 
+**2026-06-13 状态更新**：本窗口持续打磨——session 导入提速（#26637）、source-specific import copy 恢复（#27703）、`AGENTS.md` 从所有 bound environment 加载（#27696）。
+
+---
+
+<a id="item-30"></a>
+
+### 30. Plugin 系统 + Marketplace 🆕（P2）
+
+**问题**：Qwen Code 的 extensions 系统有三格式兼容（Claude / Gemini / Qwen 转换器）和 `/extensions explore` 市场，但**分发与运营形态薄**：没有 bundle 归档分发（插件 = git repo / 本地目录）、没有 marketplace 多源管理（用户不能 add/remove 市场源）、没有 cached remote catalog（每次浏览都要现拉网络）、没有插件详情面（看不到插件带的 prompts / MCP servers / 模板）、没有分享 URL。生态运营基建落后于 Claude Code 与 Codex。
+
+**Codex 的解决方案**：`core-plugins/`（**22,721 行**）+ `plugin/`（844 行）——完整的插件分发运营体系：
+
+- **CLI 全家桶**：`codex plugin add / remove / list / marketplace ...`，全部支持 `--json` 机器可读输出（#26631/#26417/#25330）
+- **Marketplace 多源**：用户可注册多个市场源；`marketplace list --json` 暴露每个插件的来源（#27009）
+- **Cached remote catalog**：插件列表先回本地缓存、后台刷新（#26932），curated cache 自动清理过期项（#26934）
+- **Plugin bundle 归档**：插件打包上传/安装（#23983）
+- **插件详情面**：暴露 default prompts、remote MCP servers、app templates（#25887/#26453/#26317）
+- **Remote plugin share URL**：一个 URL 分享插件（#27890）
+- **启动性能**：TUI 关键路径只加载 hook metadata，复用 discovery 结果（#26469/#26272）
+
+> **补录说明**：`core-plugins` 于 **2026-03-25** 引入（`9dbe098349`），早于上次审计窗口，但 2026-05-24 审计只扫描了"新增 crate 增量"而漏判了它；本窗口该方向被密集打磨（0.137–0.140 每个版本都有 plugin PR），故补录为独立 item。
+
+**Qwen Code 现状**：extensions 三格式转换器 + `/extensions explore/install/manage` + `qwen extensions new` 脚手架；无 bundle、无市场源管理、无缓存目录、无 share URL、无 `--json`。
+
+**Qwen Code 修改方向**：
+1. `qwen extensions` 子命令支持 `--json` 输出（CI / 脚本自动化）
+2. marketplace 多源：`qwen extensions marketplace add <url>`，源信息进 settings
+3. cached catalog：`~/.qwen/extensions-catalog.json` 先回缓存后台刷新
+4. extension bundle：`qwen extensions pack` 打包归档分发（不依赖 git clone）
+5. 详情面：`/extensions` 详情页展示扩展携带的 commands / MCP servers / skills
+
+**实现成本**：~2 周
+
 ---
 
 ## 二、竞品对比矩阵
@@ -583,19 +633,20 @@ Codex config + rollout/sessions（带 import ledger 追踪来源）
 | 能力 | Codex CLI | Claude Code | Gemini CLI | Qwen Code |
 |------|----------|-------------|-----------|-----------|
 | **技术栈** | Rust 原生 | TypeScript/Rust | TypeScript | TypeScript |
-| **代码规模** | 909,950 行 | ~512,000 行 | ~550,000 行 | 631,020 行 |
+| **代码规模** | 992,581 行（.rs） | ~512,000 行 | ~550,000 行 | 1,292,728 行（packages .ts/.tsx，含 daemon/web-shell/desktop） |
 | **默认沙箱** | ✅ 3 平台原生 | 可选 | 可选 | 可选（Docker/Podman/Seatbelt） |
 | **网络隔离** | ✅ 默认阻断 | 可选 | 无 | ❌ |
-| **Feature Flag** | 52 运行时 | 22 编译时 | 无 | ❌ |
-| **IDE 协议** | 90+ JSON-RPC | WebSocket Bridge | VS Code Companion | VS Code Companion |
-| **会话 Fork** | ✅ | ✅ | ✅ | ❌ |
+| **Feature Flag** | 52 运行时 + 云端管控（cloud-config） | 22 编译时 | 无 | ❌ |
+| **IDE 协议** | 90+ JSON-RPC | WebSocket Bridge | VS Code Companion | daemon REST+SSE / ACP HTTP+WS（29 method parity） |
+| **会话 Fork** | ✅（+ /archive 归档） | ✅ | ✅ | ✅（/branch /fork，v0.18） |
 | **Cloud 执行** | ✅ best-of-N | Kairos | 无 | ❌ |
-| **MCP 双向** | ✅ 客户端+服务器 | 客户端 | 客户端 | 客户端 |
+| **MCP 双向** | ✅ 客户端+服务器 | 客户端 | 客户端 | ✅ 客户端+服务器（qwen-serve-bridge） |
 | **语音** | ✅ WebRTC | ✅ 内置 | 无 | ❌ |
-| **多 Agent** | ✅ V2 并行 | Coordinator/Swarm | 无 | Arena（竞赛） |
+| **多 Agent** | ✅ V2 并行（residency LRU） | Coordinator/Swarm | 无 | Arena（竞赛）+ Agent Team（实验） |
 | **Apply Patch** | ✅ unified diff | Edit 逐文件 | Edit | Edit |
-| **密钥管理** | ✅ OS 密钥环 | 无 | 无 | ❌ |
-| **Ghost Commit** | ✅ | 检查点 | 无 | ❌ |
+| **密钥管理** | ✅ OS 密钥环 + 加密本地（0.140α） | 无 | 无 | ❌（MCP token 有 keychain，OAuth 明文） |
+| **Ghost Commit** | ✅ | 检查点 | 无 | /rewind 跨会话文件快照（#4897） |
+| **插件市场** | ✅ 多源 + bundle + share URL | ✅ 官方市场 | 扩展 | 扩展市场（explore） |
 
 ## 三、实施路线图
 
@@ -621,6 +672,56 @@ Codex config + rollout/sessions（带 import ledger 追踪来源）
 | **多格式扩展** | Claude + Gemini + Qwen 三格式兼容 |
 
 ## 五、更新日志
+
+### 2026-06-13（Codex 上游 `git pull` + release notes 对照 · 补录 1 项 + 11 项 refinement）
+
+**Codex 源码扫描**：`2026-05-22 → 2026-06-12` 间 **616 commits**，HEAD `56c97e3b5c`。Codex `codex-rs/**/*.rs` LOC **909,950 → 992,581**（+82,631，+9.1%），crate 数 → **97**。本次同时对照 **release notes v0.134.0 → v0.139.0（stable）+ 0.140.0-alpha 线**逐版核对（此前仅源码扫描）。
+
+**Qwen Code 侧口径说明**：daemon / web-shell / desktop / SDK 合入 main 后，`packages/**/*.ts(x)` 从 631,020 → **1,292,728 行**——增长主要来自新包并入，非同口径可比。
+
+**新增 6 个 crate**（移除 2 个：`cloud-requirements`→重构为 `cloud-config`、`debug-client`）：
+
+| Crate | 行数 | 关系 |
+|---|---|---|
+| `cloud-config` | 2,376 | item-3 refinement（云端管控 config bundles + credit limits）|
+| `code-mode-protocol` + `code-mode-host` | 1,452 + 19 | item-23 refinement（协议/宿主分层）|
+| `prompts` | 1,848 | 内部重构（系统提示集中化：agents/apply_patch/compact/goals/permissions）|
+| `codex-home` | 265 | 内部重构 |
+| `context-fragments` | 253 | 内部重构 |
+
+**补录 1 项 item**（[item-30](#item-30) Plugin 系统 + Marketplace）——`core-plugins`（22,721 行）2026-03-25 已引入，上次审计只扫"新增 crate 增量"而漏判；本窗口 0.137~0.140 每版都有 plugin PR（marketplace 多源 `--json` / cached catalog / bundle 归档 / share URL），故补录。
+
+#### Item refinement（11 项刷新）
+
+| Item | 刷新内容 |
+|---|---|
+| [item-1](#item-1) | Windows `codex sandbox setup --elevated`（alpha，#24831）；沙箱内强制 proxy-only 联网（#27035）；bundled patched zsh |
+| [item-3](#item-3) | `cloud-config` crate：企业 cloud-managed config bundles + monthly credit limits + EDU（v0.137.0）|
+| [item-4](#item-4) | `/archive` 会话归档（v0.136.0）；`resume --last` 走 state DB；本地会话历史全文搜索（v0.134.0）|
+| [item-8](#item-8) | `app-server --stdio`；账户 token usage；auth v2 PAT；remote-control 配对/grant 撤销走 v2 RPC + 短时 server token |
+| [item-9](#item-9) | residency LRU；并发按活跃执行计量；`close_agent`→`interrupt_agent`；resume 不复活 v2 后代 |
+| [item-12](#item-12) | **0.140α：CLI auth 改用加密本地 secrets**（#27504/#27535/#27539）——从可选工具升级为认证底座 |
+| [item-16](#item-16) | auto review 跨 config/delegation 保持（#26230）|
+| [item-23](#item-23) | code-mode-protocol/host 分层；code mode 内 hosted web/image 工具 + 独立 web search 并行/嵌套调用 |
+| [item-27](#item-27) | **产品化完成**：`--profile` 成为主选择器（v0.134.0 八连 PR）+ `/permissions` 显示命名 profile + `-P` alias |
+| [item-28](#item-28) | app-server resume 可带首页 turns（#23534）——excludeTurns 模式产品化 |
+| [item-29](#item-29) | session 导入提速（#26637）；AGENTS.md 从所有 bound environment 加载（#27696）|
+
+#### 上次排除的 4 个 feature 复查
+
+review-story / next-prompt suggestion / usage attribution / prompt hooks——616 commits 内按名称 grep **零命中，仍未 merge 到 main**，继续不计入。
+
+#### 两侧趋同（不单列 item）
+
+| Codex 侧 | Qwen Code 对应 |
+|---|---|
+| `ext/goal` 4,418 行 + `/goal edit` 工作流（0.138 修 idle auto-turn / 终态停续）| `/goal`（"keep working until the condition is met"）+ MAX_GOAL_ITERATIONS（#5000）|
+| `ext/memories` 2,565 行（外部工具输出排除出 memories，#26821）| 托管自动记忆（`/remember` `/forget` `/dream`）|
+| `/app` 把 CLI thread 移交 Codex Desktop（macOS/Windows，0.138）| 官方桌面 app（#3778，Electron + ACP）|
+| 本地会话历史全文搜索（0.134）| `/resume` free-text 搜索（PR#3880）|
+| `.codex/skills/babysit-pr`（仓库内 dogfood skill，PR 自动盯梢）| —（属 skill 用法非产品能力，不计 item）|
+
+---
 
 ### 2026-05-24（Codex 上游 `git pull` · 新增 1 项 + 4 项 refinement）
 
@@ -722,4 +823,4 @@ Codex config + rollout/sessions（带 import ledger 追踪来源）
 
 ---
 
-*分析基于 Codex CLI (openai/codex, Apache-2.0, 80+ Rust crate, **910K 行**) 和 Qwen Code 源码 (**631K 行**)。最后核对：2026-05-24。审计标准：仅算 merge 到 `origin/main` 的代码，PR/branch 上未合 feature 不算 Codex 已发布能力。*
+*分析基于 Codex CLI (openai/codex, Apache-2.0, 97 Rust crate, **992,581 行** `codex-rs/**/*.rs`) 和 Qwen Code 源码 (**1,292,728 行** `packages/**/*.ts(x)`)。最后核对：2026-06-13（源码 + release notes v0.134.0~v0.139.0 双对照）。审计标准：仅算 merge 到 `origin/main` 的代码，PR/branch 上未合 feature 不算 Codex 已发布能力。*
