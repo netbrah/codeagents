@@ -5,7 +5,7 @@
 | Agent | 目录 | 文件数 | 内容 |
 |------|------|--------|------|
 | [Claude Code](./claude-code/) | 9 文件 | 概述/79 命令/架构(反编译)/工具/Skill+13 插件/设置+安全监控/会话+MCP |
-| [Copilot CLI](./copilot-cli/) | 5 文件 | 概述/34 命令+67 工具/架构(SEA 反编译)+57 CLI 参数 |
+| [Copilot CLI](./copilot-cli/) | 5 文件 | 概述/61 命令(v1.0.61)+67 工具+7 代理/架构+65 CLI 参数+64 feature flags |
 | [Codex CLI](./codex-cli/) | 5 文件 | 概述/28 命令+52 flags/架构(Rust 二进制)+review+cloud |
 | [Gemini CLI](./gemini-cli/) | 7 文件 | 概述/39 命令/架构+7 策略路由/23 工具+5 代理/策略引擎 |
 | [Kimi CLI](./kimi-cli/) | 5 文件 | 概述/28 命令(双注册表)/架构+Wire 协议+18 工具 |

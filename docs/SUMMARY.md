@@ -9,7 +9,7 @@
 | Agent | 一句话 | 适合谁 |
 |------|--------|--------|
 | **Claude Code** | Anthropic 官方终端代理，安全最严格（28 条阻止规则），插件生态最丰富（14 个官方插件） | 需要企业级安全和深度推理的团队 |
-| **Copilot CLI** | GitHub 原生集成，读取所有主流指令文件（CLAUDE.md/GEMINI.md/AGENTS.md），67 个内置工具 | GitHub 重度用户和企业团队 |
+| **Copilot CLI** | GitHub 原生集成，读取所有主流指令文件（CLAUDE.md/GEMINI.md/AGENTS.md），61 命令 + 7 内置代理（含跨会话记忆固化）| GitHub 重度用户和企业团队 |
 | **Codex CLI** | OpenAI 官方，三平台 OS 级沙箱（Seatbelt/Bubblewrap/Windows Tokens），Rust 核心 | 安全敏感场景和 OpenAI 生态用户 |
 | **Aider** | Git 原生老牌工具，14 种编辑格式，PageRank 仓库地图，99% 一人开发 | Git 重度用户和喜欢细粒度控制的开发者 |
 | **Gemini CLI** | Google 官方，TOML 策略引擎，四阶段压缩算法 | Google Cloud 用户和大团队 |

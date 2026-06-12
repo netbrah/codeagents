@@ -271,7 +271,7 @@
 - **Qwen Code** 57 命令（v0.18.0，含 5 个条件启用）+ 7 bundled skills（`/review` `/loop` `/batch` `/simplify` `/stuck` `/new-app` `/qc-helper`），含 `/branch`（session 分支）、`/fork`（后台代理派生）、`/tasks`（background tasks 调度）、`/goal` `/plan` `/recap` `/cd` `/compress-fast` + 托管记忆三件套（`/remember` `/forget` `/dream`）+ Arena / 语言 / 洞察 / 扩展独有命令
 - **Aider** ~42 命令，文件/上下文管理和模式切换最细粒度
 - **Gemini CLI / Qwen Code / Kimi CLI** 命令体系接近（Gemini CLI 分叉谱系）
-- **Copilot CLI** 34 命令 + 67 工具 + 3 内置代理，GitHub 生态深度集成
+- **Copilot CLI** 61 命令（v1.0.61）+ 67 工具 + 7 内置代理（rubber-duck 批判 / research 深研 / rem-agent 跨会话记忆固化），GitHub 生态深度集成；64 个 feature flags 六档灰度，VOICE 已 on、SANDBOX/COMPUTER_USE 灰度中
 - **Codex CLI** 28 交互命令（官方文档验证）+ 15 CLI 子命令 + Rust 原生沙箱
 - **OpenCode** 使用 Ctrl+K 命令面板 + 23 个 TUI 斜杠命令
 - **Goose** 16 个交互式斜杠命令 + 15 个 CLI 命令（clap derive），MCP 原生架构

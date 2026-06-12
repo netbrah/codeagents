@@ -546,3 +546,62 @@ _playwright_lazy_start, _validation_agent_dependencies, _vision, etc.
 ### Infinite Sessions / Compaction
 Configurable: infiniteSessions.enabled, backgroundCompactionThreshold, bufferExhaustionThreshold
 Compaction preserves: context, changes, key references, next steps, checkpoint titles (2-6 words)
+
+---
+
+## ⚠️ v1.0.61 复核（2026-06-13）：npm 包直接可运行，命令/代理/flag 全量重提取
+
+**方法**：`npm pack @github/copilot@1.0.61`（2026-06-09 发布，npm 版本号已与二进制统一为 1.0.x）→ 解包 406MB → `node index.js help commands` / `--help` 等**权威 help 输出** + `app.js`（12MB bundle）字符串分析 + 包内**明文文件**（`changelog.json` / `definitions/*.agent.yaml` / `builtin-skills/`）。主程序可直接 `node index.js` 运行（Node SQLite experimental 警告），不再依赖 SEA 反编译。
+
+### 交互命令：61 个（`help commands` 全量，v1.0.11 基线为 34）
+
+- Agent Environment（5）：`/init` `/agent` `/skills` `/mcp` `/plugin`
+- Agents/Subagents（5）：`/model` `/delegate`（送 GitHub 云端开 PR）`/fleet`（**并行 subagent 编队模式**）`/autopilot` `/tasks`
+- Code（6）：`/ide` `/diff` `/pr` `/review` `/lsp` `/terminal-setup`
+- Permissions（5）：`/allow-all` `/add-dir` `/list-dirs` `/cwd` `/reset-allowed-tools`
+- Session（10）：`/resume` `/rename` `/context` `/usage` `/session` `/compact` `/share`（md/HTML/gist）`/remote` `/copy` `/rewind`
+- Help（13）：`/help` `/changelog`（可 AI 摘要）`/feedback` `/theme` `/statusline`（`/footer`）`/update` `/version` `/experimental` `/memory` `/clear` `/instructions` `/streamer-mode`
+- Other（17）：`/ask`（旁问）`/chronicle`（会话史检索/洞察）`/env` `/exit` `/keep-alive` `/login` `/logout` `/new` `/plan` `/research`（深度研究）`/restart` `/search` `/settings` `/sidekicks` `/undo` `/user` `/voice`
+- flag 门控未列入：`/security-review` `/worktree`（`/move`）`/every` `/after`（定时）`/subconscious` `/rubber-duck` `/goal` 等
+
+### CLI 子命令 8 个 + help 主题 8 个
+
+`completion` `help` `init` `login` `mcp` `plugin` `update` `version`；help 主题含 **`providers`（Custom Model Providers，BYOK）**与 **`billing`**（AI credit）。CLI 参数 **65 个**（v1.0.11 基线 57）。
+
+### Feature flags：64 个（含 rollout 状态，app.js 明文 map）
+
+| 状态 | 代表 flag |
+|---|---|
+| on | `VOICE`（语音）、`RUBBER_DUCK_AGENT`、`SESSION_INDEXING`、`REMOTE_JSON_RPC`、`CLOUD_SESSION_STORE`、`ON_DEMAND_INSTRUCTIONS` |
+| experimental | `TOOL_SEARCH`（延迟加载工具）、`EXTENSIONS`、`MULTI_TURN_AGENTS`、`AUTOPILOT_OBJECTIVES`、`ASK_USER_ELICITATION`、`MCP_TASKS`、`CLI_CLOUD_SESSIONS` |
+| staff-or-experimental | **`SANDBOX`（shell 命令沙箱）**、`BACKGROUND_SESSIONS`、`EVERY_AND_AFTER`、`MCP_REGISTRY_INSTALL`、`PROMPT_FRAME`、GitHub TUI tabs/theme |
+| staff / team | **`COMPUTER_USE`**、**`COPILOT_SUBCONSCIOUS`**、`TUIKIT_COMMAND`、`WEBSOCKET_RESPONSES`、`REMOTE_KICKSTART`、`DIAGNOSE` |
+| off | `FORGE_AGENT_ENABLED`、`TGREP`、`FOCUSED_TOOLS`、`TOOL_SEARCH_ANTHROPIC/OPENAI` 等 |
+
+### 内置代理：7 个（数组明文）+ 8 份 YAML 定义
+
+`["explore","task","code-review","rubber-duck","research","rem-agent","general-purpose"]`；`definitions/` 含明文 `*.agent.yaml`（另有 `security-review.agent.yaml` 与 `sidekick/{github-context,subconscious-agent}.yaml`）。
+
+- **`rem-agent` = 跨会话记忆固化代理**（YAML 原文）："Memory consolidation agent. Reads the per-session trajectory… updates the **dynamic context board**（add/prune）so future sessions on this repository benefit. Launched in the background from the `/subconscious run` slash command."——工具仅 `context_board`
+- 特殊 MCP server 名单（数组明文）：`["github-mcp-server","playwright","bluebird","computer-use"]`
+
+### 包结构新增（vs v0.0.403）
+
+| 内容 | 说明 |
+|---|---|
+| `builtin-skills/customize-cloud-agent/` | 内置技能（1.0.17 起）|
+| `copilot-sdk/` + `sdk/` | SDK 正式随包（session RPC、canvas、extension）|
+| `voice-engine.worker.js` / `voice-server.js` / `pvrecorder/` / `foundry-local-sdk/` | **语音听写**——经 Foundry Local 本地转写（`/voice`，flag 已 on）|
+| `tree-sitter*.wasm` ×18 + `queries/` + `tgrep/` | AST 基建（TGREP flag 尚 off）|
+| `changelog.json` | 256 个版本条目；1.0.12→1.0.61 窗口 new/added/changed/removed 共 **131 条** |
+| `schemas/`（api/session-events）、`mxc-bin`、`preloads/` | API schema 与杂项 |
+
+### 工具面变化（字符串证据）
+
+`str_replace_editor` 工具族（create/view/str_replace/edit/insert 子命令）、`plan` `think` `report_intent` `context_board` `list_agents` `read_agent` `task_agent`（MCP Tasks 后台代理）等新名出现；v1.0.11 的 67+ 工具统计未重做全量（核心 + 浏览器 + GitHub MCP 子集框架未变）。
+
+### changelog 窗口要点（1.0.12 → 1.0.61，131 条）
+
+模型：Claude Fable 5（1.0.61）/ Opus 4.7、4.8 / `auto` 自动选模（1.0.32）/ 上下文档位 200K vs 1M 端到端强制（1.0.52）/ max+none effort；会话：`/fork`（1.0.45）、`--name`/`--resume=<name>`（1.0.35）、`/session delete/id`、`/rewind` 时间线选择器（1.0.13）+ 快照 diff 统计（1.0.60）、`/chronicle` 全量开放（1.0.40）+ search/cost-tips；远程：`--remote`/`/remote`（1.0.25）、`--connect`（1.0.32）、Remote JSON RPC 默认开（1.0.58）、Mission Control 共享状态（1.0.60）；hooks：postToolUseFailure、PermissionRequest、notification、userPromptSubmitted 直答 bypass LLM（1.0.44）、preMcpToolCall、HTTP hook、进度流式（1.0.55）、`CLAUDE_PROJECT_DIR`/`CLAUDE_PLUGIN_ROOT` 环境变量（Claude 插件兼容）；MCP：OAuth device-code + client_credentials、registry 安装 + `/mcp search`、`.github/mcp.json` 自动加载（1.0.61）、MCP sampling、MCP Tasks；安全：`permissions.disableBypassPermissionsMode`、weekly 用量预警；平台：Alpine musl（1.0.49）、LSP server config bash/powershell/cwd（1.0.60）。
+
+> 提取时间：2026-06-13。注：`copilot-agent-runtime` 为闭源私仓，以上全部来自 npm 包静态/运行时提取与包内明文。

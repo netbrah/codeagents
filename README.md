@@ -70,7 +70,7 @@
 | [Gemini CLI](./docs/tools/gemini-cli/) | 7 | 41 命令 / 23 工具 / 策略引擎（Qwen Code 上游） |
 | [OpenCode](./docs/tools/opencode/) | 9 | 18 工具 / 7 代理 / 18 Hook / Session Fork / 多客户端 |
 | [Qwen Code](./docs/tools/qwen-code/) | 8 | 57 命令（v0.18.0）/ 41 工具 / Arena / Agent Team / CoreToolScheduler / 多 Provider |
-| [Copilot CLI](./docs/tools/copilot-cli/) | 3 | 34 命令 + 67 工具 + 3 代理 |
+| [Copilot CLI](./docs/tools/copilot-cli/) | 3 | 61 命令（v1.0.61）+ 67 工具 + 7 代理（含 rem-agent 记忆固化）|
 | [Codex CLI](./docs/tools/codex-cli/) | 3 | 28 命令 + 三平台沙箱 |
 | [Aider](./docs/tools/aider/) | 3 | 42 命令 / PageRank RepoMap |
 | [Goose](./docs/tools/goose/) | 4 | MCP 原生架构 / 11 Platform Extension |
