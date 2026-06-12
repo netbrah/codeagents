@@ -1,6 +1,6 @@
 # AI 编程 Code Agent 对比
 
-> 基于源码分析和二进制反编译的 19 款 AI 编程 Code Agent 全面对比 + 6 款 Agent Framework 对比 | 378 文件 | 108,000+ 行 | 152 篇 Deep-Dive | 12 个 EVIDENCE.md | 4 家月度进展分析 + 战略全景
+> 基于源码分析和二进制反编译的 19 款 AI 编程 Code Agent 全面对比 + 6 款 Agent Framework 对比 | 382 文件 | 107,000+ 行 | 152 篇 Deep-Dive | 12 个 EVIDENCE.md | 4 家月度进展分析 + 战略全景
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -24,7 +24,7 @@
 | 场景 | 推荐 | 理由 |
 |------|------|------|
 | **日常编码** | Claude Code 或 Aider | 最强推理 / 最好 Git 集成 |
-| **免费使用** | Qwen Code 或 Gemini CLI | 1000 次/天免费 OAuth / Google 账号 |
+| **免费使用** | Gemini CLI | Google 账号 OAuth 1000 次/天（Qwen OAuth 免费层 2026-04-15 已停） |
 | **多模型切换** | OpenCode、Goose 或 Qwen Code | 100+ models.dev / 58+ 提供商 / Arena |
 | **VS Code 用户** | Cline 或 Continue | IDE 原生集成 / PR Checks |
 | **中文开发者** | Qwen Code 或 Kimi CLI | 6 语言 UI / 中文模型 |

@@ -4,449 +4,335 @@
 
 ## TL;DR
 
-**三层权限模型**（Wave 1-4 已完整落地）：
-- **Layer 1 传输层** —— Bearer token（PR#3889 ✅）+ `--require-auth` mutation gate（PR#4236 ✅, Wave 4 启动）+ daemon-stamped `X-Qwen-Client-Id` 头（PR#4231 ✅）
-- **Layer 2 应用层** —— 复用 PR#3723 `evaluatePermissionFlow()` + session-scoped permission route（PR#4232 ✅）+ bounded record（同 sessionId/requestId 只能投一次）+ `parsePermissionOutcome()` 共享 helper
-- **Layer 3 审计层** —— audit hooks（SHA-256-hashed paths + `originatorClientId` stamping）+ typed-error 设计哲学（cross-PR `errorKind` / `TrustGateError` / `BridgeTimeoutError` 复用）
+daemon（`qwen serve`）的安全模型分三层：
 
-**默认安全策略**：0.0.0.0 binding + 无 token = 拒绝启动；`--require-auth` 启用后所有 mutation 路由（PR#4249/4250/4280/4255 等）强制 401 if 无 bearer + clientId。**OAuth device-flow**（PR#4255 ✅ Wave 4 PR 21 史上最难合 20h39m / +4828 / 35 文件 / 4 reviewer voices）—— RFC 8628 + BrandedSecret 4-way redaction + 0o600 file mode + 6 leak-path coverage tests + build-time grep 防 client browser-spawn。
+1. **传输层** —— Bearer token 认证（timing-safe 比较、统一 401）、Host 白名单防 DNS rebinding、CORS 默认拒绝浏览器、可选三档限流。loopback 开发默认免 token；**绑定 `0.0.0.0` 而不配 token 时 daemon 直接拒绝启动**。
+2. **应用层** —— 复用整个 CLI 统一的 permission flow（`evaluatePermissionFlow()`）：工具默认权限 → PermissionManager 规则 → 调用方模式覆盖。daemon 是同一决策逻辑的又一个接入面，不引入第二套权限语义。
+3. **多 client 协调层** —— `PermissionMediator` 把"谁可以批准这次工具调用"做成 4 种可配置策略（first-responder / designated / consensus / local-only），并维护 512 条 in-memory 审计环。
 
-**Wave 5+ 候选**：chiga0 finding 3 `PermissionMediator` 抽象（4 policy strategies）—— PR 22b/3 之后从 first-responder / nonInteractive ControlDispatcher / channels BridgeClient 三处独立实现统一为 1 个 mediator。
+OAuth 登录由 daemon 代办 RFC 8628 device-flow：浏览器开在 client 侧，`device_code` 等机密用 `BrandedSecret` 包裹（任何序列化路径都输出 `[redacted]`），凭据以 `0o600` 权限落盘 daemon host。
 
----
-
-## 一、三层权限模型
-
-```
-┌──────────────────────────────────────────────────────────────────┐
-│ Layer 1：传输层 Bearer Token + clientId stamping + mutation gate    │
-│ ├─ daemon 启动: QWEN_SERVER_TOKEN env / --token flag (PR#3889 ✅)  │
-│ ├─ AuthMiddleware: SHA-256 + crypto.timingSafeEqual                │
-│ ├─ 401 uniform across missing / bad-scheme / wrong                 │
-│ ├─ X-Qwen-Client-Id: client_<randomUUID> (PR#4231 ✅)              │
-│ │   ↳ daemon 端 stamping，122 bits entropy，缺失 401                 │
-│ └─ --require-auth flag (PR#4236 ✅ Wave 4 启动)                     │
-│     ↳ CONDITIONAL_SERVE_FEATURES 4-cell behavior matrix            │
-└──────────────────────────────────────────────────────────────────┘
-                       ↓
-┌──────────────────────────────────────────────────────────────────┐
-│ Layer 2：应用层 Permission Flow（PR#3723 + PR#4232 ✅）              │
-│ ├─ L3: Tool 内置默认权限                                            │
-│ ├─ L4: PermissionManager 规则覆盖（allowlist/deny）                 │
-│ ├─ L5: 调用方覆盖（YOLO / AUTO_EDIT / PLAN / daemon-http）           │
-│ ├─ session-scoped permission route (PR#4232 ✅)                     │
-│ │   ↳ POST /session/:id/permission/:requestId                      │
-│ │   ↳ bounded record（同 sessionId 同 requestId 只能投一次）          │
-│ │   ↳ parsePermissionOutcome() 共享 helper                          │
-│ └─ finalPermission: allow / deny / ask                              │
-└──────────────────────────────────────────────────────────────────┘
-                       ↓
-┌──────────────────────────────────────────────────────────────────┐
-│ Layer 3：审计层（Wave 4 PR 17 FS boundary 强约束 PR#4282 ✅）         │
-│ ├─ originatorClientId stamping (每次 mutation 必须带)               │
-│ ├─ SHA-256-hashed paths（audit log 不存 raw path）                  │
-│ └─ typed-error 设计哲学（errorKind / TrustGateError 跨 PR 复用）       │
-└──────────────────────────────────────────────────────────────────┘
-                       ↓
-                tool 执行 / 拒绝 / 弹审批
-```
-
-### Mode B 认证默认值
-
-2026-05-15 后 roadmap 先只推进 Mode B（`qwen serve`）。Mode A（`qwen --serve`）保留为 parking lot，不再作为近期 Stage 1.5 主线。
-
-| 维度 | Mode B（`qwen serve`）|
-|---|---|
-| 默认 auth | loopback 可无 token；非 loopback 必须 bearer token |
-| 默认 listen | `127.0.0.1`（需显式 `--hostname 0.0.0.0` 才暴露远端）|
-| CORS / Origin | 默认拒绝 browser Origin；Stage 2/后续 named `--allow-origin` |
-| 关键场景 | 服务器 / 容器 / 远端机器 / TUI、channels、web、IDE client 统一 runtime |
-
-本章下面的机制均按 Mode B 描述；未来若 Mode A 重新评估，应复用相同 permission / auth contract，而不是引入第二套权限语义。
+**多租户立场：1 daemon = 1 tenant。** 租户隔离靠 OS 进程边界；同一 daemon 内的 N 个 session 共享信任域，**不是**安全边界。
 
 ---
 
-## 二、Layer 1：传输层 Bearer Token（Stage 1 ✅ 实现）
+## 一、三层权限模型总览
 
-### 启动配置
+```
+client 请求
+   ↓
+┌────────────────────────────────────────────────────────────┐
+│ Layer 1 传输层                                               │
+│   Bearer token（SHA-256 + timingSafeEqual，统一 401）         │
+│   Host 白名单（防 DNS rebinding）· CORS 默认拒绝 Origin        │
+│   mutation gate · clientId 归因 · 限流（可选）                 │
+└────────────────────────────────────────────────────────────┘
+   ↓
+┌────────────────────────────────────────────────────────────┐
+│ Layer 2 应用层 permission flow                               │
+│   L3 工具默认权限 → L4 PermissionManager 规则                  │
+│   → L5 调用方覆盖（YOLO / AUTO_EDIT / PLAN）                   │
+│   → finalPermission: allow / deny / ask                      │
+└────────────────────────────────────────────────────────────┘
+   ↓ ask 时
+┌────────────────────────────────────────────────────────────┐
+│ Layer 3 多 client 协调（PermissionMediator）                  │
+│   permission_request 经 SSE 广播 → client HTTP 投票           │
+│   策略：first-responder / designated / consensus / local-only │
+│   512 条 audit ring（审计面与 wire 面分离）                     │
+└────────────────────────────────────────────────────────────┘
+   ↓
+ tool 执行 / 拒绝 / 取消
+```
+
+各机制的源码位置与出处（均已在 qwen-code main）：
+
+| 机制 | 源码 | 来源 PR |
+|---|---|---|
+| Bearer token + Host 白名单 + CORS 默认拒绝 | `packages/cli/src/serve/auth.ts` | #3889 |
+| clientId 归因 + 事件 stamping | `packages/cli/src/serve/acpHttp/connectionRegistry.ts` | #4231 |
+| `--require-auth` mutation gate | `packages/cli/src/serve/auth.ts` | #4236 |
+| `--allow-origin` CORS 白名单 | `packages/cli/src/serve/auth.ts` | #4527 |
+| `--rate-limit` 三档令牌桶 | `packages/cli/src/serve/rateLimit.ts` | #4861 |
+| 统一 permission flow | `packages/core/src/core/permissionFlow.ts` | #3723 |
+| session-scoped 投票路由 | `packages/cli/src/serve/server.ts` | #4232 |
+| PermissionMediator 4 策略 + audit ring | `packages/acp-bridge/src/permissionMediator.ts`、`packages/cli/src/serve/permissionAudit.ts` | #4335 |
+| `permission_resolved` 带 `voterClientId` | `packages/acp-bridge/src/permissionMediator.ts` | #4539 |
+| OAuth device-flow + BrandedSecret | `packages/cli/src/serve/auth/deviceFlow.ts` | #4255 |
+| 文件边界（symlink / 原子写 / content-hash） | `packages/cli/src/serve/fs/` | #4250 / #4280 |
+
+---
+
+## 二、传输层
+
+### Token 来源与默认策略
 
 ```bash
-# 方式 A：环境变量（推荐 production / scripting）
+# 方式 A：环境变量（推荐 production —— /proc/<pid>/environ 仅 owner 可读）
 QWEN_SERVER_TOKEN=$(openssl rand -hex 32) qwen serve
 
-# 方式 B：CLI flag（推荐手动 / 测试）
+# 方式 B：CLI flag（手动 / 测试；优先级高于环境变量）
 qwen serve --token=$(openssl rand -hex 32)
 ```
 
-Mode B 默认：未设 token 时 daemon 启动时随机生成一次性 token + 写入 `~/.qwen/serve/token`（0600 权限）；SDK / CLI 默认从该路径读取。
+- 优先级：`--token` > `QWEN_SERVER_TOKEN`；两个来源都会 trim（防 `$(cat file)` 带尾换行导致永远 401）。
+- `--token` 会在 stderr 提示：flag 值对本机任意用户经 `/proc/<pid>/cmdline` 可见，非临时用途应改用环境变量。
+- loopback 绑定（`127.0.0.1` / `localhost` / `::1` / `[::1]`）默认不启用 bearer，stderr 会提示如何开启。
 
-### 关键安全特性（PR#3889 commit `ad0e6ec06`）
+### 三条 boot 拒绝规则（源码: packages/cli/src/serve/runQwenServe.ts）
+
+| 组合 | 行为 |
+|---|---|
+| 非 loopback 绑定（如 `--hostname 0.0.0.0`）+ 无 token | **拒绝启动** |
+| `--require-auth` + 无 token | **拒绝启动** |
+| `--allow-origin '*'` + 无 token | **拒绝启动** |
+
+设计依据：对比 OpenCode（无 token 也启动、仅打 "unsecured" 警告），Qwen 选择 fail-loud——daemon 的服务对象包含 IM bot / web / 远端 IDE，一旦暴露非 loopback 接口，风险不止于本机开发者；与其允许"开发时没配 token 直接带上线"，不如让错误配置根本起不来。`--allow-origin '*'` 同理：无 token 时任意网页（恶意站点、广告 iframe）都能跨域驱动 daemon，必须先有 bearer 作为安全边界。
+
+### 认证中间件关键特性（源码: packages/cli/src/serve/auth.ts）
 
 | 特性 | 实现 |
 |---|---|
-| **timing-safe compare** | SHA-256 hash + `crypto.timingSafeEqual`——防 side-channel timing attack |
-| **401 uniform** | "missing header" / "bad scheme" / "wrong token" 三种情况返回**完全一致**——防 side-channel 探测 |
-| **0.0.0.0 + 无 token = 拒绝启动** | `--hostname 0.0.0.0` 必须配 `--token` 或 `QWEN_SERVER_TOKEN`，否则 boot refuses |
-| **Host allowlist** | loopback 绑定时 Host 白名单（防 DNS rebinding）：`localhost:port` / `127.0.0.1:port` / `[::1]:port` / `host.docker.internal:port` |
-| **IPv6 loopback** | `LOOPBACK_BINDS` 含 `::1` / `[::1]` |
-| **CORS** | 默认拒绝所有 browser Origin |
+| timing-safe 比较 | token 先 SHA-256 再 `crypto.timingSafeEqual`，防时序侧信道 |
+| 统一 401 | 缺 header / scheme 错 / token 错三种情况返回完全一致的 `{"error":"Unauthorized"}`，不给探测者区分信息 |
+| Host 白名单 | loopback 绑定时校验 Host 头（`localhost` / `127.0.0.1` / `[::1]` / `host.docker.internal` 加端口），防 DNS rebinding |
+| `--require-auth` | bearer 对**所有**路由强制，包括 loopback 下的 `/health`；`/capabilities` 公示 `require_auth` feature |
 
-### 0.0.0.0 + 无 token 拒绝启动设计依据
+### clientId：归因，不是认证
 
-OpenCode 无 token 也启动（仅警告 "unsecured"）；Qwen 选择**直接拒绝启动**——理由：
-- Qwen 默认服务对象包含 IM 用户（不只是开发者本地用），暴露公网风险更高
-- 强制安全 default 是对用户负责（避免"开发时不开 token 直接走勿勿上线"）
+- ACP 连接注册时由 daemon 生成 clientId（`crypto.randomUUID()`），client 不能自挑。
+- REST 调用方通过 `X-Qwen-Client-Id` 头自带 clientId；语法校验（≤128 字符、`[A-Za-z0-9._:-]+`），不合法返回 400 `invalid_client_id`；workspace 级 mutation 路由还会校验该 id 在 `knownClientIds()` 注册表内。
+- daemon 把**校验后的** clientId stamping 到 fan-out 事件的 `originatorClientId` 字段——事件里的身份由 daemon 写入，不信任 client 在 payload 里自报。
+- **威胁模型定位（源码注释原文意涵）**：clientId 是 best-effort attribution，不是 authentication——**bearer token 才是认证边界**。clientId 防的是多 SDK 善意共存时的串号，不防恶意伪造。
 
-### `X-Qwen-Client-Id` 头：daemon-stamped clientId（PR#4231 ✅ Wave 2 PR 7）
+### mutation gate（`--require-auth` 与 strict 路由）
 
-```
-client → daemon:  POST /session  →
-daemon → client:  201 Created
-                  Set-Cookie / response body: { clientId: "client_<randomUUID>", ... }
+写路由共享一个 gate 中间件（`createMutationGate`），行为矩阵：
 
-subsequent:
-client → daemon:  POST /session/:id/prompt
-                  Authorization: Bearer <token>
-                  X-Qwen-Client-Id: client_<randomUUID>   ← 缺失或不匹配 → 401
-```
-
-| 维度 | 设计 |
-|---|---|
-| **生成方** | daemon（`crypto.randomUUID()`），client 不允许自挑 |
-| **熵** | 122 bits（randomUUID v4 standard）—— 防 brute-force 枚举 |
-| **前缀** | `client_` —— log / audit 行可以前缀 grep 识别 |
-| **作用域** | per-daemon-process；daemon restart → 新 clientId set；client 看到 401 → 重新走 `POST /session` 拿 |
-| **强制路径** | 所有 mutation routes（PR#4236 启动 mutation gate 之后）+ permission vote |
-| **审计** | audit log 用 `originatorClientId` field 标 mutation 触发方 |
-
-### `--require-auth` mutation gate（PR#4236 ✅ Wave 4 启动 PR 15）
-
-```bash
-# Wave 4 起，写路由默认走 mutation gate
-qwen serve --require-auth   # 所有 mutation 路由 401 if 无 bearer + clientId
-```
-
-**CONDITIONAL_SERVE_FEATURES 4-cell behavior matrix**：
-
-| | `gate=on` | `gate=off` |
+| daemon 配置 | 路由属性 | 结果 |
 |---|---|---|
-| **`auth=present`**（bearer + clientId 都有）| ✅ mutation 路由开放；capability `auth_device_flow` 不暴露（已 auth） | ✅ 兼容 PR#3889 行为 |
-| **`auth=absent`** | 🚫 mutation 路由 401；capability `auth_device_flow` 暴露（让 client 走 device flow 拿 token）| ⚠️ legacy 模式（不推荐 production）|
+| `--require-auth` 或已配 token | 任意 | 透传（全局 bearer 中间件已拦截未认证请求） |
+| 无 token（loopback 开发默认） | 普通 mutation | 开放（保持本地开发体验） |
+| 无 token（loopback 开发默认） | **strict** 路由 | 401 + `code: "token_required"` |
 
-`/capabilities` 根据 4-cell 状态决定是否暴露 capability tag —— client 看到 `auth_device_flow` 时知道走 PR#4255 device flow，看不到时知道 already authed。
+strict 路由 = 即使本地开发也不该免认证的高危写操作：memory 写入、文件编辑、tool enable、MCP server 重启、device-flow 认证。401 body 用独立的 `token_required` code（区别于普通 `Unauthorized`），SDK 可以据此提示"重启 daemon 并配置 token"而非笼统报认证失败。
+
+### CORS
+
+- **默认**：任何带 `Origin` 头的请求一律 403（附 `Vary: Origin`）。CLI/SDK 不发 Origin，只有浏览器发——等于默认拒绝一切浏览器跨域。
+- `--allow-origin <origin>`：白名单逐项严格校验，必须等于 `new URL(x).origin` 的规范形（无尾斜杠、无路径、无 userinfo、无 query），否则 boot 报错并指出坏在哪一项。**不做自动归一化**——静默改写模糊输入不如显式让运维改配置。
+- 永不下发 `Access-Control-Allow-Credentials`；`*` 通配必须配 token（见 boot 拒绝规则）。
+
+### 限流（`--rate-limit`）
+
+默认关闭，开启后按令牌桶三档（窗口默认 60s，均可单独覆盖）：
+
+| 档位 | 默认额度 | 覆盖 |
+|---|---|---|
+| prompt | 10/min | `--rate-limit-prompt` |
+| mutation（其余非 GET/HEAD） | 30/min | `--rate-limit-mutation` |
+| read（GET/HEAD） | 120/min | `--rate-limit-read` |
+
+- 限流 key：非 loopback = `ip[:clientId]`；loopback = `cid:<clientId>`（无 clientId 则共享 `anonymous` 桶）。
+- 豁免：`/health`、heartbeat、SSE 流、`/acp`。
+- 命中日志采样输出（每 100 次一条），防止限流本身刷爆日志。
 
 ---
 
-## 三、Layer 2：应用层 Permission Flow（复用 PR#3723）
+## 三、应用层 permission flow
 
-### 决策
+### 一份决策逻辑，所有执行路径共用
 
-**复用 PR#3723 共享 L3→L4 permission flow + daemon 加为第 4 种 execution mode**。
+`evaluatePermissionFlow()`（源码: packages/core/src/core/permissionFlow.ts）实现 L3→L4 决策：
 
-```typescript
-type ExecutionMode = 'interactive' | 'non-interactive' | 'acp' | 'daemon-http'
-```
+- **L3**：工具自身的默认权限（`invocation.getDefaultPermission()`）
+- **L4**：PermissionManager 规则覆盖（allowlist / deny / 强制 ask）
+- **L5**：调用方模式覆盖（YOLO / AUTO_EDIT / PLAN），由各调用方处理（部分模式需要先拿到 confirmation 类型）
 
-PR#3723（已合并 +461/-95）把 Interactive / Non-Interactive / ACP 三模式的 L3→L4 决策合一为 `evaluatePermissionFlow()`。daemon 是第 4 种 mode，复用同一份决策逻辑——bug 修一处全 mode 受益。
+CLI 交互模式、non-interactive、ACP stdio、daemon HTTP 四条执行路径共用这同一份函数——daemon 经由 ACP session bridge 接入，而非另写一套。一致性意义：权限判定的 bug 修一处，全部入口同时受益；不存在"某个入口绕过了规则"的审计盲区。
 
-### `daemon-http` mode 关键差异
+### daemon HTTP 与 stdio ACP 的差异
 
-ACP mode 是 stdio 单 client 同步等待；`daemon-http` mode 是多 client + HTTP 异步：
-
-| 维度 | ACP mode | daemon-http mode |
+| 维度 | ACP stdio | daemon HTTP |
 |---|---|---|
-| client 数 | 1 | N（同 session 多 subscriber）|
-| `ask` 决策传递 | 直接 stdio 双向 RPC | SSE 推 `permission_request` + HTTP `POST /permission/:requestId` 应答 |
-| 应答 | client 阻塞等待 → response | 任意 client first-responder wins |
-| 超时 | client 端处理 | 60s 默认 deny |
+| client 数 | 1 | N（同 session 多订阅者） |
+| `ask` 的传递 | stdio 双向 RPC，client 阻塞应答 | SSE 推 `permission_request`，client 经 HTTP 投票应答 |
+| 应答仲裁 | 无需仲裁 | PermissionMediator 按策略仲裁（见下节） |
+| 超时 | client 端处理 | daemon 端计时，**默认 5 分钟**，超时按 `cancelled`（reason `timeout`）解决——工具不执行 |
 
----
-
-## 四、Permission Cache 与 Multi-Session
-
-### Stage 1 (commit `6a170ef8`) 现状
-
-- **Permission decisions cache 是 per-`qwen --acp` child（= per-workspace）**
-- 同 workspace N session 各自维护 PermissionManager（每个 ACP `Session` 实例内）
-- `workspace` / `global` scope decisions 文件 **per-workspace 共享**——同 daemon N session 并发写时需 in-memory mutex（per-file lock）
-- first-responder vote 路由按 sessionId 隔离——A session 的 `permission_request` 走 daemon 内部 EventBus，并通过 SSE 只 fan-out 到订阅 A session 的 client，不会泄漏到 B session 的订阅者
-
-### Stage 2e native in-process（可选演进）
-
-跨 workspace 共享时需 key 加 workspace 维度（`(workspace, sessionId, toolName, resource) → decision`）；同 daemon 内多 workspace 隔离仍由应用层保证。
-
-### Persistence scope（per-tool decisions）
+### 决策持久化 scope 与并发写
 
 | Scope | 存储 | 生命周期 |
 |---|---|---|
-| `session` | 内存（per-Session）| daemon 退出即失效 |
-| `workspace` | `~/.qwen/workspaces/<wsId>/permissions.json` | 启动时加载，per-daemon 共享 |
-| `global` | `~/.qwen/permissions.json` | 启动时加载，daemon process 全局 |
+| `session` | 内存（per-session） | session 结束即失效 |
+| `workspace` | workspace 级配置文件 | 启动加载，daemon 内同 workspace 共享 |
+| `global` | 用户级配置文件 | 启动加载，daemon 进程全局 |
+
+> **并发写提示**：同 workspace 的 N 个 session 共享 `workspace` / `global` scope 的 decisions 文件，并发保存规则时需 per-file 串行化（in-memory 锁），否则后写覆盖先写（lost update）。`session` scope 各自私有，不冲突。跨 daemon 进程的协调不在 daemon 职责内，由编排层处理。
 
 ---
 
-## 五、Permission Vote 流（PR#3889 + PR#4232 ✅ 完整）
+## 四、多 client 投票与 PermissionMediator
 
-### 完整流程（Wave 2 PR 8 PR#4232 ✅ 落地后）
-
-```
-1. agent 内代码: PermissionManager.evaluate('Bash', {cmd: 'npm test'})
-2. flow 走到 L4 = 'ask' → 推送 permission_request event 到 daemon 内部 EventBus
-3. daemon broadcasts 'permission_request' SSE event 到 session 所有 subscriber
-4. HTTP request 挂起（pending in `pendingPermissions` Map per sessionId）
-5. 任意 client `POST /session/:sessionId/permission/:requestId` 应答（first-responder）
-   ↑ Wave 2 PR#4232 之前是 global `POST /permission/:requestId`
-   ↑ Wave 2 PR#4232 之后 session-scoped → cross-session 串号攻击被关闭
-6. parsePermissionOutcome() 共享 helper 解析 body → outcome
-7. bounded record 检查：同 (sessionId, requestId) 已 resolved → 返回 409 + 推 'permission_already_resolved'
-8. 否则 PermissionManager 解锁 HTTP request → 继续 tool 执行
-9. SSE 推 `permission_resolved` 让其他 client 知道结果（含 winning clientId, outcome）
-10. cancelSession / shutdown 解锁 outstanding requests as `cancelled`（per ACP spec）
-```
-
-### bounded record 设计（PR#4232 关键 invariant）
-
-```ts
-// pseudocode
-const resolved = new Map<`${sessionId}:${requestId}`, PermissionOutcome>()
-
-POST /session/:sessionId/permission/:requestId {
-  const key = `${sessionId}:${requestId}` as const
-  if (resolved.has(key)) {
-    sse.emit('permission_already_resolved', { sessionId, requestId, outcome: resolved.get(key) })
-    return 409 // 不返回 outcome，防 client 误以为自己投赢
-  }
-  const outcome = parsePermissionOutcome(req.body)
-  resolved.set(key, outcome)
-  // ...
-}
-```
-
-为什么是 **bounded**（不是 idempotent）：第二个 voter 必须明确收到"你输了"而非误以为自己投赢。`permission_already_resolved` event 把第一个 winning vote 的 outcome 推给所有 subscriber，让 UI 显式标记"已被 X client 应答"。
-
-### `parsePermissionOutcome()` 共享 helper（PR#4232）
-
-```ts
-// 同一份解析逻辑用于 HTTP route / channels client / nonInteractive ControlDispatcher
-type PermissionOutcome =
-  | { kind: 'allow' }
-  | { kind: 'allow_once' }
-  | { kind: 'allow_with_scope'; scope: 'session' | 'workspace' | 'global' }
-  | { kind: 'deny' }
-  | { kind: 'cancel' }
-
-export function parsePermissionOutcome(body: unknown): PermissionOutcome { ... }
-```
-
-共享 helper 是 [§06 §三 Wave 5 PR 24 `PermissionMediator`](./06-roadmap.md) 抽象的前置 —— 现在 3 处独立解析，未来统一进 mediator。
-
-### 6 种 Permission Policy（Stage 2a permission_request schema 预留）
-
-> chiga0 [PR#3889 audit](https://github.com/QwenLM/qwen-code/pull/3889) 指出 first-responder 缺 authorization model 风险：daemon 升级为 1:N 广播后没有 client identity 区分，**bot client 可在 human 看到前自动 approve**。即使 Stage 1 只实现 first-responder，schema 应预留 policy 字段。
-
-```jsonc
-// SSE event: permission_request
-{
-  "type": "permission_request",
-  "requestId": "r1",
-  "tool": "Bash",
-  "args": { "cmd": "npm test" },
-  "policy": "first-responder",     // Stage 2a schema 预留
-  "designatedClientIds": null,      // policy='designated' 时填
-  "quorumRequired": null            // policy='quorum' 时填
-}
-```
-
-### Stage 1.5b/P1 finding 3 — `PermissionMediator` interface lift
-
-> chiga0 [comment 4427773706](https://github.com/QwenLM/qwen-code/pull/3889#issuecomment-4427773706) finding 3：当前 daemon 的 first-responder + `nonInteractive/ControlDispatcher` + `channels/BridgeClient` 是同一概念的 3 个独立实现。Stage 1.5b/P1 抽 `PermissionMediator` interface + 4 种 strategy policy，让 daemon HTTP/SSE、channels、stream-json 等路径共享同一 mediator：
-
-```ts
-interface PermissionMediator {
-  request(req: PermissionRequest, policy?: PermissionPolicy): Promise<PermissionOutcome>;
-}
-type PermissionPolicy =
-  | { kind: 'first-responder' }              // Stage 1 默认
-  | { kind: 'designated'; clientId: string } // 多用户场景：指定 client 才能批
-  | { kind: 'consensus'; minVotes: number }  // quorum 模式
-  | { kind: 'local-only' };                  // 当前 TUI behavior（local-jsx，不出 wire）
-```
-
-详 [§06 §三 1.5-prereq](./06-roadmap.md#15-prereq--mode-b-event-contract--bridge-primitives) 与 cross-module refactor findings。
-
----
-
-## 六、Multi-Tenant 关键约束
-
-> ✅ **1 daemon = 1 workspace 模式下天然 OS 进程级隔离**：跨 tenant = 跨 daemon process，无需应用层 tenant 抽象。
-
-### 隔离形态
-
-[§02 §2](./02-architectural-decisions.md#2-状态进程模型核心决策) 1 daemon = 1 workspace × N session 模式下：
-
-- **跨 tenant 部署 = 多 daemon process**：1 daemon = 1 tenant × 1 workspace，OS 进程级真隔离
-- **systemd `MemoryMax=` / cgroup / docker `--memory` 直接 = per-tenant quota**——不需要 daemon 内部抽象
-- **同 daemon N session 共 OS 权限**（同 `qwen --acp` child，共 user UID + fs 视图；MCP children 当前随 session config 创建但仍在同 UID/workspace 信任域内）——天然 1 tenant 内 N session 共信任域
-
-### 同 daemon N session 边界（注意）
-
-⚠️ 同 daemon N session 共享 OS 权限——即同 tenant 内 N session 共信任域。**不可让多 tenant 共一个 daemon**：
-
-- 1 daemon 启动时绑定 1 tenant 的 1 workspace（启动 cwd + 启动用户）
-- 多 tenant 必须各自独立 daemon process（orchestrator 在创建 daemon 时绑 daemon → tenant）
-
-详 [§06 §5.2 Multi-tenancy](./06-roadmap.md#52-multi-tenancy--oidc--quota--audit)。
-
-### 并发写 race condition
-
-- **Stage 1**：同 workspace N session 并发写 `workspace` / `global` scope decisions / settings 时需 in-memory mutex（per-file lock）防 lost update。`session` scope 仍 per-session 私有不冲突
-- **多 daemon 并发写**：由 orchestrator 层处理（SQLite `permission_decisions` 表 + WAL）；跨 daemon process 不共享 in-memory state，需 orchestrator 协调
-
----
-
-## 七、PR#3726 Monitor permission namespace（已合并）
-
-PR#3726（已合并）为 `Monitor` 工具加了独立 permission namespace：
+### 投票流程
 
 ```
-Monitor(*)         # 所有 monitor 调用允许
-Monitor(npm test)  # 仅 npm test 允许
+1. 工具调用走到 finalPermission = 'ask'
+2. mediator 登记 pending，audit 记 permission.requested，
+   SSE 向该 session 所有订阅者广播 permission_request
+3. 任一 client 投票：POST /session/:id/permission/:requestId
+   body: { outcome: "selected", optionId } 或 { outcome: "cancelled" }
+4. mediator 按策略仲裁 → 解决后 SSE 广播 permission_resolved
+   （带 voterClientId = 投出决定票的 client）
+5. 工具继续执行 / 取消；超时（默认 5 分钟）按 cancelled 解决
 ```
 
-daemon 模式下完全兼容——`evaluatePermissionFlow()` 已识别此 namespace；用户在远端 client 应答 permission_request 时填写规则会保存到 daemon 进程 settings。
+投票路由是 session-scoped 的（`POST /session/:id/permission/:requestId`），requestId 只在所属 session 内有效——A session 的请求不会被 B session 的订阅者看到或应答，关闭 cross-session 串号面。另保留全局 `POST /permission/:requestId` 作为兼容路由。
 
----
+### 4 种仲裁策略
 
-## 八、OAuth device-flow + BrandedSecret（PR#4255 ✅ Wave 4 PR 21 / 史上最难合）
+通过 settings `policy.permissionStrategy`（合法值集合从 capability registry 派生，经 `GET /capabilities` 的 `permission_mediation.modes` 公示）配置：
 
-> PR#4255 ✅ MERGED 2026-05-18 —— 20h39m / +4828 / 35 文件 / **135 reviews** / 4 reviewer voices —— Wave plan 第一名所有维度最高纪录。
-
-### RFC 8628 device-flow（仅 daemon host）
-
-```
-1. client → daemon:    POST /workspace/auth/device-flow
-   daemon → provider:  POST oauth/device/code (provider 端点)
-   daemon → client:    { user_code: "ABCD-EFGH", verification_uri, interval, expires_in }
-2. client UI 显示 user_code + verification_uri 让用户在浏览器手动登录
-   ↑ 浏览器在 client 端开（IDE / TUI / web），不是 daemon 端
-3. client → daemon:    POST /workspace/auth/device-flow/poll （every `interval` seconds）
-   daemon → provider:  POST oauth/token (grant_type=device_code)
-   daemon → client:    { status: 'authorized' | 'pending' | 'expired' | 'denied' }
-4. 成功后 daemon host 持久化 token 到 ~/.qwen/auth/<provider>.json（0o600）
-```
-
-| 维度 | 设计 |
-|---|---|
-| **浏览器开在哪** | client host（远端 IDE / TUI / web），**不是 daemon host**——因为 daemon 经常在容器 / SSH server 上无 GUI |
-| **token 落地** | daemon host `~/.qwen/auth/`（runtime locality —— 跟 provider call 同一台机器，[§04 §五](./04-deployment-and-client.md)）|
-| **build-time grep** | CI 跑 `grep` 防 client-side 代码 `child_process.exec('open ...')` / `spawn('xdg-open')`—— 早期 dev 实现误把浏览器开在 daemon 上 |
-
-### BrandedSecret 4-way redaction（PR#4255 核心 invariant）
-
-```ts
-declare const __brand: unique symbol
-export type BrandedSecret<TName extends string> = string & { readonly [__brand]: TName }
-
-// 4-way redaction：序列化路径全堵
-class _Secret<T extends string> implements BrandedSecret<T> {
-  toString() { return '[REDACTED]' }              // 1
-  [Symbol.for('nodejs.util.inspect.custom')]() { return '[REDACTED]' }  // 2
-  toJSON() { return '[REDACTED]' }                // 3
-  valueOf() { return '[REDACTED]' }               // 4 + 5（template-literal coercion）
-  // 只能通过显式 .unwrap() 拿原值，调用点会出现在 grep / audit 里
-  unwrap(): string { return this.#raw }
-}
-```
-
-| 序列化路径 | redaction |
-|---|---|
-| `console.log(secret)` | `[REDACTED]`（toString / inspect.custom）|
-| `JSON.stringify({ token: secret })` | `{ "token": "[REDACTED]" }`（toJSON）|
-| `\`Bearer ${secret}\`` | `Bearer [REDACTED]`（valueOf 触发 template-literal coercion）|
-| `process.env.X = secret` | `[REDACTED]`（env 赋值 → string coercion → valueOf）|
-
-**6 leak-path coverage tests**（PR#4255 reviewer 卡 review 反复确认）：
-1. logger.info(`token=${secret}`) → assert 输出含 `[REDACTED]` 不含 raw
-2. `JSON.stringify(authState)` → 不含 raw
-3. `util.inspect(authState)` → 不含 raw
-4. Error message thrown 含 `[REDACTED]`
-5. SSE event `{ data: { token: secret } }` 序列化后 → `[REDACTED]`
-6. Express response body 序列化 → `[REDACTED]`
-
-### 0o600 file mode（umask-respecting）
-
-```ts
-// ~/.qwen/auth/<provider>.json 写入时强制 mode 0o600
-await fs.writeFile(path, JSON.stringify({ token: secret.unwrap() }), {
-  mode: 0o600,
-  flag: 'w',
-})
-// 不依赖 umask —— 即使 user 的 umask 是 022，文件依然是 -rw-------
-```
-
----
-
-## 九、typed-error 设计哲学（cross-PR 复用模式）
-
-> daemon 内部用富类型 `Error` 子类保留 stack / cause / metadata；HTTP wire 序列化降级到 7-value `errorKind` enum（[§03 §八 closed `errorKind` taxonomy](./03-http-api.md#八closed-errorkind-7-value-taxonomypr4251-)）。这是从 PR#4251 立 `errorKind` 起跨 PR 反复复用的模式：
-
-| PR | typed error | 用途 |
+| 策略 | 语义 | 适用场景 |
 |---|---|---|
-| **PR#4251** ✅ | `errorKind` 7-value taxonomy | HTTP wire 错误降级 enum |
-| **PR#4247** ✅ | preflight / env diagnostics | 返 actionable error detail（含 errorKind）|
-| **PR#4255** ✅ | OAuth `AuthError` 子类 | wire 上 `errorKind: 'auth_env_error'` |
-| **PR#4282** ✅ | `TrustGateError`（FS boundary 越界） | wire 上 `errorKind: 'missing_file'` —— path 经 SHA-256 hash 后入 audit log |
-| **PR#4295** ✅ Wave 5 22a | `BridgeTimeoutError` / `BridgeChannelClosedError` / `MissingCliEntryError` | daemon 内 bridge primitives —— typed error 解耦 child runtime, 为 Stage 2 native in-process 开 seam |
+| `first-responder`（默认） | 任一 client 先投先得 | 单人多端，自己的哪个端先看到先批 |
+| `designated` | 仅指定 client 的投票有效，他人 403（`designated_mismatch`） | 人机混合：bot 只读旁观，human 独占审批权 |
+| `consensus` | N-of-M 法定票：quorum 默认 `floor(M/2)+1`，`policy.consensusQuorum` 可覆盖（上限封顶至 M）；voter 集合在请求发出时快照 | 多人协作，敏感操作需多数同意 |
+| `local-only` | 只接受 loopback 投票，远端投票 403（`remote_not_allowed`） | 远端只读旁观，审批权留在 daemon 本机 |
 
-### audit hook 输出格式
+策略实现细节中的几个安全不变式：
 
-```jsonc
-// daemon audit log entry（PR#4282 FS boundary 强约束之后）
-{
-  "ts": "2026-05-18T12:00:00.000Z",
-  "originatorClientId": "client_<uuid>",     // PR#4231 stamping
-  "sessionId": "sess_<uuid>",
-  "tool": "Write",
-  "pathSha256": "abcd...",                   // PR#4282 path 不存 raw
-  "outcome": "deny",                          // parsePermissionOutcome 解析结果
-  "errorKind": "missing_file"                 // 7-value taxonomy
-}
-```
+- **loopback 判定看内核，不看 header**：`local-only` 依据 `req.socket.remoteAddress`（`127.0.0.0/8`、`::1`、IPv4-mapped 形式）判定，**绝不**读 `X-Forwarded-For` 等可伪造头；无法识别的地址形态按非 loopback 处理（fail-closed）。
+- **consensus 空 voter 集合**：请求发出时若没有任何合格 voter，该请求只能等超时解决；daemon 会在 stderr 留 breadcrumb，运维不用从"5 分钟沉默"反推原因。
+- **配置了本 build 未实现的策略** → 投票返回 501 `permission_policy_not_implemented`（而非 500），SDK 可提示"daemon 版本低于配置预期"。策略枚举是为扩展预留的封闭集合，新增策略走同一 501 升级路径。
+- **取消是跨策略逃生门（有意为之）**：`{outcome:"cancelled"}` 在策略分发**之前**路由——`local-only` 下的远端 client、consensus 下不在 voter 集合内的 client，都可以取消（但不能批准）。这是 agent 侧 abort 路径；源码注释明确写明该"绕过"是契约，防止后人误当 bug 修掉。配套防御：取消经内部 sentinel 表达，若 agent 声明的选项集合撞上 sentinel 字面量则直接 500（防止真实选项伪装成取消）。
 
-audit log 不存 raw path —— 即使 log forwarding 到第三方 SIEM，也不泄漏文件名 / 路径结构。
+### bounded record：迟到 / 重复投票
+
+mediator 维护一个**有界 FIFO**（512 条）的已解决记录：
+
+- 上界防止长寿 daemon 的 resolved 记录无界增长（每条仅 requestId / sessionId / outcome，512 条 < 100KB）。
+- 对已解决的 requestId 再投票：HTTP 返回 404（**有意不区分**"requestId 从未存在"与"已被别人解决"，不给枚举者反馈）；同时 SSE 重放 `permission_already_resolved`——第二个 voter 必须明确得知"已被解决、结果是什么"，而不是误以为自己投赢。UI 据此标记"已被 client X 应答"。
+- `permission_resolved` 事件的 `voterClientId` 是"谁投出决定票"的规范字段（事件级 `originatorClientId` 在此事件上是同值兼容别名）；超时 / session 关闭 / 匿名 loopback voter 解决时两者都省略。
+- 伪造选项防御：投票的 `optionId` 必须在 agent 当初提供的选项集合内——例如 prompt 按策略隐藏了"Always Allow"时，client 伪造 `ProceedAlways` 会得到 400 `invalid_option_id`（requestId 存在但选项不合法，语义与 404 区分）。
+
+### Audit ring：审计面与 wire 面分离
+
+`permissionAudit.ts` 维护 512 条 in-memory FIFO 审计环，记录五类事件：`permission.requested` / `voted` / `forbidden` / `resolved` / `timeout`（含 voter 快照、被拒原因、超时计时细节等 wire 上没有的取证粒度）。
+
+两条设计边界：
+
+- **audit 记录不上 SSE**——审计是 operator 的取证工具，与推给 client 的 wire 事件刻意分离；wire 上 `agent-cancelled` 与 `voter-cancelled` 折叠为同一形状，审计里保留区分。
+- 当前不提供查询路由；环挂在 bridge 闭包内，为未来 `GET /workspace/permission/audit` 预留。
+- 文件边界的访问审计（`fs.access` / `fs.denied` 事件）对路径做 SHA-256 截断哈希存 `pathHash`，不存原始路径——日志转发到第三方 SIEM 也不泄漏目录结构。
 
 ---
 
-## 十、生产部署 best practice — runtime locality + egress 策略
+## 五、OAuth device-flow 与 secret 处理
 
-> 来源：chiga0 [Issue #3803 comment 4458840712](https://github.com/QwenLM/qwen-code/issues/3803#issuecomment-4458840712)。Mode B daemon 是 **runtime owner**——所有 MCP / skill / shell / LSP / tool execution / provider auth / file access 在 daemon host 上 evaluate（详 [§04 §五 Runtime locality / environment contract](./04-deployment-and-client.md#五runtime-locality--environment-contract)）。
+daemon 常运行在容器 / SSH 服务器上，没有 GUI——所以 OAuth 由 daemon 代办 RFC 8628 device-flow，浏览器开在 client 侧：
+
+```
+1. client → daemon:  POST /workspace/auth/device-flow
+   daemon → IdP:     请求 device_code
+   daemon → client:  { user_code, verification_uri, intervalMs, expiresAt }
+2. 用户在 client 侧浏览器打开 verification_uri，输入 user_code 登录
+3. client 轮询 daemon（间隔默认 5s，daemon 侧夹紧上限）
+   daemon → IdP:     grant_type=device_code 换 token
+4. 成功后凭据持久化在 daemon host（0o600）
+```
+
+防回归与边界控制：
+
+- **浏览器必须开在 client 侧**：测试断言 daemon 侧代码不含 `xdg-open` 等 spawn-browser 调用，防止回归成"在无 GUI 的 daemon 上弹浏览器"。
+- 并发 device-flow 有上限，超出返回 409 `too_many_active_flows`；IdP 侧故障映射 502（与 daemon 自身 5xx 区分）。
+- 查询 flow 状态时，非发起 client 看到的 verification 字段被脱敏——同样是 clientId 归因（防善意串号），bearer 才是认证边界。
+
+### BrandedSecret：让机密无法被序列化
+
+`device_code`、PKCE verifier 等机密在 daemon 内存中以 `BrandedSecret` 包裹（源码: packages/cli/src/serve/auth/deviceFlow.ts），目标是**任何**序列化 / 拼接路径都只能得到 `[redacted]`：
+
+| 误用路径 | 实际输出 |
+|---|---|
+| `JSON.stringify({ s: secret })` | `{"s":"[redacted]"}` |
+| `String(secret)` | `[redacted]` |
+| `'x=' + secret` | `x=[redacted]` |
+| `` `s=${secret}` `` | `s=[redacted]` |
+
+实现上的关键决策：**frozen plain object + 模块级 WeakMap，而不是 `new String(value)` wrapper**。早期草案用 String wrapper 覆写 `toString`/`toJSON`，但 `+` 拼接与模板字符串走 `Symbol.toPrimitive → valueOf` 路径，会绕过覆写直接泄漏原值（实测踩过的坑）。现行实现把 `toString` / `toJSON` / `Symbol.toPrimitive` 全部钉死为 `[redacted]`，原值只存 WeakMap，唯一取出路径是 `unsafeRevealSecret(secret)`——`unsafe` 前缀让所有取值调用点天然可 grep、可 lint allowlist、难以误用。
+
+### 凭据落盘：0o600 + 原子替换
+
+凭据写盘走"先以 `0o600` 建临时文件、再原子 rename"两步（源码: packages/core/src/qwen/qwenOAuth2.ts）——不是"先写后 chmod"：后者在写入与收权之间存在文件以宽权限暴露的窗口；临时文件创建即 `0o600`，不受 umask 影响，rename 原子替换后任何时刻都不存在宽权限副本。
+
+### 文件边界（daemon 文件路由通用）
+
+| 机制 | 行为 |
+|---|---|
+| workspace 根限定 | 所有 daemon 文件路由的路径解析限定在 workspace 根内 |
+| symlink 防逃逸 | 路径逐段做 symlink 规范化，逃逸 workspace → `symlink_escape` 错误（400）；symlink 环 / 超深由 SYMLOOP_MAX 上限拒绝 |
+| 原子写 + mode 保留 | tmp+rename 原子替换，且保留目标文件原 mode——已是 `0o600` 的 secret 文件被编辑后仍是 `0o600`；新文件默认 `0o600` 而非跟随 umask |
+| content-hash 前置 | 写请求带 `expectedHash`（`sha256:<64hex>`），与磁盘现状不符则拒绝——防多 client 并发编辑的 lost update 与 TOCTOU |
+
+---
+
+## 六、多租户边界与生产 best practice
+
+### 1 daemon = 1 tenant
+
+- 租户隔离的单元是 **OS 进程**：1 daemon 绑定 1 tenant 的 1 workspace（启动 cwd + 启动用户）。systemd `MemoryMax=` / cgroup / docker `--memory` 直接就是 per-tenant 配额，daemon 内部不需要租户抽象。
+- **同 daemon 内的 N 个 session 共享信任域**：同一 UID、同一文件系统视图、同一进程环境。session 之间的事件按 sessionId 隔离 fan-out，但这是产品语义，**不是安全边界**。
+- 推论：**绝不可让多个租户共用一个 daemon**。多租户 = 编排层起多个 daemon 进程，每个进程注入各自租户的凭据与配额。
+
+部署形态详见 [04 — Deployment & Client](./04-deployment-and-client.md)；编排层方向见 [06 — Roadmap](./06-roadmap.md)。
 
 ### 网络 egress 策略
 
-- **默认 deny-by-default + explicit allowlist**：daemon host/pod 只允许 configured providers / MCP servers / skills 实际所需的 network surface
-- **不需要 daemon 开放公网**：根据 provider 端点 / MCP HTTP/SSE endpoints / skill 调用的外部 API 列 allowlist
-- **诊断**：通过 Stage 1.5c 的 `GET /workspace/preflight` route 暴露 daemon-side egress 检测结果让 client 渲染 actionable error
+- daemon host/pod 出站按 **deny-by-default + 显式 allowlist**：只放行配置的 provider 端点、MCP HTTP/SSE 端点、skills 实际调用的外部 API。
+- daemon 不需要入站公网；远端 client 经反向代理或私网访问。
+- 出站被挡时 `GET /workspace/preflight` / `GET /workspace/env` 返回结构化诊断（`errorKind: "blocked_egress"`），client 能渲染可操作的修复提示。
 
-### 凭据 / Secrets 在 daemon host
+### 凭据在 daemon host
 
 | 类型 | 位置 |
 |---|---|
-| Provider OAuth tokens | daemon host `~/.qwen/auth/*` |
-| API keys / env vars | daemon process env (从 secret manager / k8s secret 注入) |
-| MCP server credentials | MCP config 中引用或 daemon host env |
-| SSH agent / kubeconfig | daemon host 本地（client 端的不会自动传过来）|
+| Provider OAuth token | daemon host（device-flow 落盘，`0o600`） |
+| API key / env | daemon 进程环境（从 secret manager / k8s secret 注入） |
+| MCP server 凭据 | MCP 配置引用或 daemon host env |
+| SSH agent / kubeconfig | daemon host 本地 |
 
-**关键**：client 端的 credentials 不会自动可用——必须 daemon host 自己持有。多 tenant 场景下，1 daemon = 1 tenant 时 credentials per-daemon process 隔离最干净。
+**关键**：client 侧的凭据不会自动传到 daemon——所有工具执行、provider 调用都在 daemon host 上求值（runtime locality，详见 [04 — Deployment & Client](./04-deployment-and-client.md)），凭据必须 daemon host 自己持有。1 daemon = 1 tenant 时凭据天然 per-进程隔离。
 
 ### 部署 checklist
 
-- [ ] daemon host 安装 MCP server 所需 runtime（`node` / `uv` / `python` / docker / cloud CLIs）
-- [ ] daemon host env vars / secrets / kubeconfig 等已 provision
-- [ ] Skills 目录（`~/.qwen/skills` / `<workspace>/.qwen/skills`）已同步到 daemon filesystem
-- [ ] daemon host/pod 网络策略允许 configured providers + MCP HTTP/SSE endpoints
-- [ ] Stage 1.5c 后通过 `GET /workspace/preflight` + `GET /workspace/env` 暴露诊断给 client
-- [ ] `GET /workspace/mcp` / `GET /workspace/skills` 返回 actionable error detail（不只是布尔状态）
+- [ ] token 经 `QWEN_SERVER_TOKEN` 注入（不要用 `--token` 上生产）
+- [ ] 非 loopback 暴露时确认 bearer 已启用；考虑加 `--require-auth` 与 `--rate-limit`
+- [ ] 浏览器接入才配 `--allow-origin`，列具体 origin，避免 `*`
+- [ ] daemon host 装齐 MCP / skills 所需 runtime（node / uv / python / docker / cloud CLI）
+- [ ] 凭据、kubeconfig 等已在 daemon host provision
+- [ ] 出站网络策略只放行 provider + MCP 端点
+- [ ] 用 `GET /workspace/preflight` 验证环境，错误详情含 `errorKind` 可程序化处理
 
 ---
+
+## 七、typed-error 设计哲学
+
+daemon 内部与 wire 上的错误是两套刻意分离的表达：
+
+- **daemon 内部**：富类型 `Error` 子类（保留 stack / cause / metadata），如文件边界的 `FsError`、bridge 的 `BridgeTimeoutError` / `BridgeChannelClosedError`、OAuth 的 `AuthError` 族。
+- **HTTP wire**：降级为**封闭枚举** `errorKind`（`SERVE_ERROR_KINDS`，源码: packages/acp-bridge/src/status.ts——`missing_binary`、`blocked_egress`、`auth_env_error`、`init_timeout`、`protocol_error`、`missing_file`、`parse_error`、`budget_exhausted` 等），加上路由级结构化 `code` 字段（`token_required`、`invalid_client_id`、`permission_forbidden`、`invalid_option_id`…）。
+
+为什么坚持封闭枚举而不是让 client 解析错误文案：
+
+1. **文案会变**——措辞调整、本地化都不该破坏 client 的分支逻辑；regex-match error message 是脆弱契约。
+2. **枚举封闭可穷举**——SDK 能 switch 全集并对未知值有兜底；新增 kind 是显式契约变更。
+3. **信息控制**——wire 上只暴露分类，不泄漏内部路径 / 堆栈；细节进审计（路径还要先哈希）。
+4. **HTTP 状态码承载语义**——403 策略拒绝（你被认证了但策略不让）≠ 404 不存在（或不告诉你）≠ 501 配置超前于实现 ≠ 502 上游故障。每个分类对应明确的 client 应对动作。
+
+HTTP API 错误模型详见 [03 — HTTP API & Protocol](./03-http-api.md)。
+
+---
+
+> **免责声明**：本文基于 qwen-code main 分支源码分析（截至 2026-06-12），随上游演进可能过时；行为细节（默认值、错误码、策略语义）以源码为准。
 
 下一篇：[06 — Roadmap & Ecosystem →](./06-roadmap.md)

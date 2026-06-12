@@ -13,7 +13,7 @@
 | **Codex CLI** | OpenAI 官方，三平台 OS 级沙箱（Seatbelt/Bubblewrap/Windows Tokens），Rust 核心 | 安全敏感场景和 OpenAI 生态用户 |
 | **Aider** | Git 原生老牌工具，14 种编辑格式，PageRank 仓库地图，99% 一人开发 | Git 重度用户和喜欢细粒度控制的开发者 |
 | **Gemini CLI** | Google 官方，TOML 策略引擎，四阶段压缩算法 | Google Cloud 用户和大团队 |
-| **Qwen Code** | Gemini CLI 分叉 + 阿里云生态，提供免费层，Arena 多模型竞争模式 | 中文开发者和成本敏感用户 |
+| **Qwen Code** | Gemini CLI 分叉 + 阿里云生态，开源 + BYOK 任意 provider，Arena 多模型竞争模式 | 中文开发者和需要灵活接入模型的用户 |
 | **Kimi CLI** | 月之暗面出品，零遥测（隐私最佳），双模式交互（TUI + Shell） | 隐私敏感用户和国内开发者 |
 | **Goose** | Block 出品后捐赠 Linux 基金会，MCP 原生架构，398 个贡献者 | MCP 生态和开源社区 |
 | **OpenCode** | 多客户端（TUI+Web+桌面），37 个 LSP，100+ 模型提供商 | 需要多客户端和 IDE 集成的团队 |
@@ -27,7 +27,7 @@
 
 ├── 企业安全合规 → Claude Code（28 条 BLOCK + 5 层设置 + 沙箱）
 ├── GitHub 深度集成 → Copilot CLI（35 GitHub 工具 + Actions/PR/Issues）
-├── 完全免费 → Qwen Code 或 Gemini CLI（具体额度见 docs/data/agents-metadata.json）
+├── 完全免费 → Gemini CLI（Google 账号 OAuth；Qwen OAuth 免费层 2026-04-15 已停）
 ├── 隐私零遥测 → Kimi CLI（零分析）或 OpenCode（零分析）
 ├── Git 工作流控制 → Aider（/commit /undo /diff /git + 自动提交归因）
 ├── 最大模型灵活性 → Goose（58+ 提供商）或 Aider（100+ via LiteLLM）

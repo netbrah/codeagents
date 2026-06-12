@@ -4,653 +4,455 @@
 
 ## TL;DR
 
-PR#3889 Stage 1 → Wave 1-4 + Wave 2.5 ✅ 完整 (2026-05-13~18, 21 Wave PRs MERGED, Wave plan 进度 22.5/31 ≈ 73%)。**协议层 0 设计成本**——HTTP body 复用 ACP NDJSON 的 zod schema。SDK 客户端可用 `DaemonClient` / `DaemonSessionClient` 替代 `ProcessTransport`。
+`qwen serve` 启动一个绑定单 workspace 的 daemon（默认 `127.0.0.1:4170`），northbound 暴露三套 transport：
 
-**当前实现状态**（截至 2026-05-18）：
-- **HTTP routes** ~40 个（Stage 1 9 个 + Wave 1-4 新增 ~30 个），全部走 capability registry 协商
-- **`/capabilities.features`** ~28 个 capability tag（PR#4191 capability registry 之后 additive registration）
-- **Typed event schema v1**（PR#4217）—— SDK-layer discriminated union + reducer skeleton
-- **Closed `errorKind` 7-value taxonomy**（PR#4251）—— `missing_binary` / `blocked_egress` / `auth_env_error` / `init_timeout` / `protocol_error` / `missing_file` / `parse_error`
-- **三套来源 lockstep 模式**（PR#4214 立 invariant）—— 生产 `SERVE_CAPABILITY_REGISTRY` ↔ unit `EXPECTED_STAGE1_FEATURES` ↔ integration `caps.features` toEqual
+1. **REST + SSE 控制面**（本篇主体）——约 76 个 HTTP 路由 + `GET /session/:id/events` 事件流
+2. **ACP HTTP** `/acp`（#4472）——官方 ACP Streamable HTTP transport
+3. **ACP WebSocket**——同一 `/acp` 路径 upgrade（#4773），与 SSE 共存
 
-**兼容性原则**：所有 Stage 1.5+ route / event / capability 必须 additive。旧 route 不移除，旧 event envelope 不破坏；client 通过 `/capabilities` feature tag 决定是否启用新 UI，不能因为新 daemon 缺某个 Stage 1.5 能力而崩溃。**`v: 1` envelope 不破坏** —— PR#4217 `narrowDaemonEvent` 对未知 type 返 `kind: 'unknown'` 而非报错，让 SDK 向前兼容新 daemon。
+三套 transport 共享同一 bridge / EventBus，业务语义一致；另有 `qwen-serve-bridge`（#4555，`sdk-typescript` 内）把 daemon 包装成 MCP stdio server 供 MCP-native client 使用。
 
----
+关键协议形态：`POST /session/:id/prompt` **非阻塞**——立即返回 `202 {promptId, lastEventId}`，turn 结果经 SSE `turn_complete` / `turn_error` 按 `promptId` 关联（#4585）。全部能力经 `GET /capabilities` 的 feature tag 协商（64 个 tag，其中 9 个条件性 advertise）。
 
-## 一、路由总览
-
-### Stage 1（PR#3889 ✅ MERGED 2026-05-13）
-
-```
-GET    /                                   服务端版本元信息（qwen / daemon / acp 版本号）
-GET    /capabilities                       完整能力清单 + 当前绑定状态
-GET    /health                             浅层健康检查（仅检测 listener，无认证）
-POST   /authenticate                       HTTP-only bearer token 取换 long-lived token
-
-POST   /session                            create / attach session   ← NewSessionRequest
-DELETE /session/:id                        archive / delete
-POST   /session/:id/prompt                 send prompt               ← PromptRequest
-POST   /session/:id/cancel                 cancel current            ← CancelNotification
-POST   /session/:id/model                  set model                 ← SetSessionModelRequest
-POST   /session/:id/mode                   set mode                  ← SetSessionModeRequest
-GET    /session/:id/events                 SSE 事件流
-POST   /permission/:requestId              vote on permission request
-```
-
-### Wave 1 — Protocol foundation（✅ MERGED）
-
-| PR | Route / 能力 | 说明 |
-|---|---|---|
-| **PR#4191** ✅ | capability registry refactor | hard-coded `STAGE1_FEATURES` → plug-in registry，未来 routes additive 注册不需改 capability 数组 |
-| **PR#4205** ✅ | `DaemonSessionClient` skeleton | SDK 侧统一接口（HTTP/SSE 之上 `subscribe()` / `prompt()` / `cancel()`），TUI / IDE / channels 共享 reducer |
-| **PR#4209** ✅ | typed `SessionEvent` / `ControlEvent` schema 草案 | wire envelope `{id, v, type, data, originatorClientId?}` + zod schema lockstep |
-| **PR#4217** ✅ | typed event schema **v1** | `narrowDaemonEvent()` discriminated union；未知 type → `kind: 'unknown'` 向前兼容；reducer skeleton |
-| **PR#4214** ✅ | 三套来源 lockstep 立 invariant | 生产 `SERVE_CAPABILITY_REGISTRY` ↔ unit `EXPECTED_STAGE1_FEATURES` ↔ integration `caps.features` `toEqual` |
-
-### Wave 2 — Session lifecycle（✅ MERGED）
-
-```
-POST   /session                            create / attach session（PR#4201 加 sessionScope override + idempotent attach）
-POST   /session/:id/load                   load existing session（PR#4222 ✅ ACP LoadSessionRequest 直通；prior-state 守卫）
-POST   /session/:id/resume                 resume paused session（PR#4222 ✅）
-
-# clientId daemon 端 stamping（PR#4231）
-X-Qwen-Client-Id: client_<randomUUID>      daemon 启动时 randomUUID；client 不允许伪造；122 bits entropy
-                                           所有 mutation / permission 路由强制带；缺失返 401
-
-# session-scoped permission（PR#4232）
-POST   /session/:id/permission/:requestId  scoped permission vote（与 §05 permission flow 对齐）
-                                           bounded record（同 sessionId 同 requestId 只能投一次）
-                                           解析共享 helper `parsePermissionOutcome()`
-                                           失败 → `permission_already_resolved` event
-```
-
-### Wave 2.5 — Reliability（✅ MERGED）
-
-| PR | Route / 事件 | 说明 |
-|---|---|---|
-| **PR#4235** ✅ | `POST /session/:id/heartbeat` | client-initiated 心跳；daemon 用 `lastSeenAt` 跟踪 client liveness |
-| **PR#4237** ✅ | SSE Last-Event-ID replay + `slow_client_warning` event | ring overflow 前 soft 警告；overflow 后 `client_evicted` 才踢；replay 边界 `bufferedSinceFirstId` 字段 |
-| **PR#4240** ✅ | `DELETE /session/:id` close-delete + session metadata | 显式 close + tombstone（防 attach-after-close 竞态）|
-
-### Wave 3 — Read-only control plane（✅ MERGED）
-
-```
-GET    /workspace                          workspace info（PR#4241 ✅）
-GET    /workspace/sessions                 list sessions（PR#4241 ✅）
-GET    /workspace/mcp                      MCP server 状态（PR#4241 ✅, PR#4271 ✅ 加 push 事件）
-GET    /workspace/skills                   已加载 skill
-GET    /workspace/tasks                    background tasks（4 kinds）
-GET    /workspace/preflight                preflight 诊断（PR#4247 ✅ 关 `errorKind` 7-value taxonomy）
-GET    /workspace/env                      env 诊断（PR#4247 ✅）
-POST   /workspace/mcp/:server/restart      restart MCP server（PR#4251 ✅，readonly-stage 守卫）
-GET    /workspace/mcp/budget               MCP budget（PR#4271 ✅ snapshot + `mcp_budget_warning` push 事件，rate-limited）
-```
-
-### Wave 4 — Auth-gated mutation routes（✅ 7/7 MERGED）
-
-```
-# Wave 4 启动 — mutation gate（PR#4236）
---require-auth flag                        启用后所有 mutation 路由强制 401 if 无 bearer + clientId
-CONDITIONAL_SERVE_FEATURES                 capability registry 增加 4-cell behavior matrix（gate × auth state）
-
-# Memory CRUD（PR#4249 ✅）
-GET    /workspace/memory                   read ~/.qwen/memory
-POST   /workspace/memory                   update memory（mutation gate）
-
-# Agents CRUD（PR#4249 ✅）
-GET    /workspace/agents                   list agents
-POST   /workspace/agents                   add / remove agents
-
-# Approval / tools / init / MCP restart（PR#4250 ✅）
-POST   /session/:id/approval-mode          set approval mode
-POST   /workspace/tools/:name/enable       enable / disable tool
-POST   /workspace/init                     workspace init
-POST   /workspace/mcp/:server/restart      restart MCP server（mutation 版本）
-
-# FS boundary 强约束（PR#4282 ✅ PR 17 ：rebase 风暴后 +6080 改 26 文件 135 reviews 终合）
-sandbox roots / no-escape policy           audit hooks 强制 originatorClientId + SHA-256-hashed paths
-
-# File read（PR#4269 ✅）
-GET    /workspace/file?path=…              read file（prior-read 跟踪）
-
-# File write / edit（PR#4280 ✅ PR 20: +6172 39 文件 +135 reviews）
-POST   /workspace/file                     write file
-POST   /workspace/file/edit                edit file（patch 模型）
-                                           PR#3774 prior-read 守卫 / write-without-read 守 / unicode danger 守
-
-# OAuth device-flow（PR#4255 ✅ PR 21: +4828 35 文件 20h39m 史上最难合）
-POST   /workspace/auth/device-flow         initiate device flow（RFC 8628）
-POST   /workspace/auth/device-flow/poll    poll for token
-                                           BrandedSecret 4-way redaction（serialize / inspect / toString / JSON.stringify）
-                                           0o600 file mode（umask-respecting）
-                                           6 leak-path coverage tests
-                                           build-time grep 防 client browser-spawn
-```
-
-### Post-Wave 4 — Capability backlog 路由（#4514 inventory）
-
-> Wave 4 完整 7/7 MERGED 后，按 [Issue #4514 daemon capability gap inventory](https://github.com/QwenLM/qwen-code/issues/4514) Tier-1 优先级 pull S-sized 路由（template = Wave 4 PR 17 `POST /session/:id/approval-mode`）。
-
-```
-# T1.3 — Manual compaction over HTTP（PR#4516 🔧 OPEN）
-POST   /session/:id/compress               server 端总 force=true 匹配 TUI /compress（body 不收 force）
-                                           走 qwen/control/session/compress ACP extMethod → GeminiClient.tryCompressChat(force=true)
-                                           返 {sessionId, originalTokenCount, newTokenCount, compressionStatus, durationMs}
-                                           compressionStatus = core CompressionStatus enum 字符串名
-                                           SSE session_compacted 仅在 compressionStatus !== 'NOOP' 时发
-                                             — NOOP=below-threshold history 未动，发会假涨 reducer sessionCompactedCount
-                                           两层 concurrency guard：
-                                             CompactionInFlightError → 409 compaction_in_flight
-                                             PromptInFlightError    → 409 prompt_in_flight（防 daemon 调和 agent
-                                                                       sendMessageStream 内置 pre-send tryCompress race）
-                                           non-strict mutation gate（与 /prompt parity）
-                                           180s timeout（SESSION_COMPRESS_TIMEOUT_MS）
-                                           AbortSignal propagation deferred follow-up
-
-# T1.4 — Per-session metadata KV bag（PR#4516 🔧 OPEN）
-POST   /session/:id/_meta                  daemon 端 KV 包，for IM / channel adapter（chat_id, sender_id, thread_id）
-                                           Body: { meta: Record<string, JSONValue>, merge?: boolean }
-                                           merge:true 下 null value 设 key 为 null（per-key DELETE deferred）
-                                           validation: key regex ^[a-zA-Z][a-zA-Z0-9_.-]{0,63}$ → 400 invalid_meta_key
-                                                       reserved 'qwen.' 前缀 → 400 reserved_meta_key
-                                                       serialized 8 KB 上限 → 413 meta_too_large
-                                           SSE session_meta_changed 每次写发，载 FULL new bag（不是 diff）
-                                             — 不管 Last-Event-ID gap subscribers 总收敛
-GET    /session/:id/_meta                  daemon-side only — NO ACP roundtrip
-                                           SessionEntry 上 in-memory map；close/kill 时随 byId.delete(sessionId) 自动驱逐
-                                           v1 NOT injected into LLM prompt（auto-inject deferred until pilot validates format）
-                                           Capability tag 发后 GET /session/:id/context 的 state.meta always present 即便 {}
-                                             — 避免 old-daemon-vs-empty-bag 歧义
-                                           NOT persisted across daemon restart in v1（load/resume 恢复 session meta: {} 起手）
-                                           Capability tags: session_compress / session_meta
-
-# T2.9 — Prompt absolute deadline + SSE writer idle timeout（PR#4530 🔧 OPEN, target main 直接合）
---prompt-deadline-ms <n>                   env QWEN_SERVE_PROMPT_DEADLINE_MS
-                                           server-side wallclock cap on POST /session/:id/prompt
-                                           expiry → daemon abort AbortController + return 504
-                                                    errorKind: prompt_deadline_exceeded
-                                           per-prompt body deadlineMs 可 SHORTEN below cap
-                                                            但不能 EXTEND（operator stays upper bound）
-                                           实现 Promise.race(bridge.sendPrompt, deadlinePromise) ——
-                                                deadline 独立 reject race，不依赖 bridge cooperation
-                                                （buggy agent 忽略 AbortSignal 时 504 仍按时落地）
-                                           orphaned bridge promise tail .catch(() => undefined)
-                                                防 unhandledRejection
-                                           上限 MAX_TIMEOUT_MS = 2_147_483_647 (2^31-1 ms, ~24.8 天)
-                                                boot 校验防 Node setTimeout overflow
-                                           关 httpAcpBridge.ts 长存 FIXME(stage-2) "buggy agent
-                                                holding FIFO open indefinitely"
-
---writer-idle-timeout-ms <n>               env QWEN_SERVE_WRITER_IDLE_TIMEOUT_MS
-                                           per-SSE-connection idle deadline
-                                           n ms 内无 write flush 成功（heartbeat 或真事件都算）
-                                                → daemon emit terminal client_evicted 帧
-                                                  reason: writer_idle_timeout + close
-                                           推荐 ≥30000ms for production
-                                                <15000ms 不是 no-op —— 会 evict 健康连接
-                                                       第一个 heartbeat refresh lastWriteAt 前 idle timer 已 fire
-                                           实现直接 res.write 不走 writeChain ——
-                                                chain 可能 stuck on the very drain we're trying to detect
-                                           trackWriterIdle boolean 防 chatty stream 每 write stamp timestamp
-                                                数百到数千 writes per session 性能
-                                           关 SSE handler "Stage 2 may add" gap
-
-# Conditional capability tags（仅当对应 flag set 时 advertise）
-prompt_absolute_deadline                   advertise 后 SDK 可发 body.deadlineMs
-                                           老 daemon 静默 drop 匹配 v=1 additive rule
-writer_idle_timeout                        advertise 后 SDK 可 expect client_evicted{reason:'writer_idle_timeout'}
-
-# Closed errorKind taxonomy 扩 2 个 → 11 / 10（详 §八）
-+ prompt_deadline_exceeded                 504 from POST /session/:id/prompt
-+ writer_idle_timeout                      data field on client_evicted
-
-# Context-usage 路由（PR#4573 ✅ MERGED 2026-05-28 09:59, ytahdn web-shell 用）
-GET    /session/:id/context-usage          返 session token 使用分布 — ServeSessionContextUsageStatus
-                                           完整链路：
-                                             SDK   `DaemonSessionContextUsageStatus` 类型 + `sessionContextUsage()` method
-                                             bridge `getSessionContextUsageStatus()` 接口 + `SERVE_STATUS_EXT_METHODS.sessionContextUsage`
-                                             CLI   route + `acpAgent.buildSessionContextUsageStatus()` 实现
-                                           Capability tag: session_context_usage: {since: 'v1'}
-                                           动机：web-shell ContextUsageMessage 组件渲染 token usage breakdown
-                                                —— TUI 已有同视图，daemon client 之前无对应 wire 路径
-
-# Server-side shell `!` 前缀执行（PR#4576 ✅ MERGED 2026-05-28 06:06, doudouOUC）
-POST   /session/:id/shell                  daemon 端 shell 命令直接执行 bypass LLM
-                                           bridge `executeShellCommand` 用 `ShellExecutionService`
-                                           streaming output via `shell_output` SSE 事件
-                                           ACP `sessionShellHistory` extMethod 注入 command+result 到 LLM history
-                                             —— 匹配 CLI 的 `addShellCommandToGeminiHistory` 格式
-                                           SDK `shellCommand()` on `DaemonClient` / `DaemonSessionClient`
-                                           新类型 `DaemonShellCommandResult`
-                                           web-shell `!` 前缀 handler 走此路由
-
-# Session tasks snapshot（PR#4578 ✅ MERGED 2026-05-28 06:47, doudouOUC）
-GET    /session/:id/tasks                  只读 background task snapshot
-                                           backed by ACP status extMethod `qwen/status/session/tasks`
-                                           bridge status path bypass prompt FIFO ——
-                                             web-shell 在 prompt streaming 中可查 task 不排队等
-                                           whitelist task serialization
-                                           web-shell `/tasks` 本地处理走此路由
-
-# followup_suggestion SSE 事件（PR#4507 ✅ MERGED 2026-05-27 13:19, doudouOUC）
-SSE event followup_suggestion              ACP child 在 every clean assistant turn 后 push
-                                           server-generated ghost-text suggestion
-                                             ("what you might want to ask next")
-                                           镜像 in-process CLI `AppContainer.tsx` 集成
-                                           webui `<InputForm followupState={...}>` prop 接入
-                                           让 webui (+ future TUI/IDE daemon adapter) 无需 direct LLM access
-                                             即可渲染 followup suggestion
-
-# 📐 重大架构变化：non-blocking POST /prompt 返 202（PR#4585 ✅ MERGED 2026-05-28 08:29, chiga0, 关 #4582）
-POST   /session/:id/prompt                 现非阻塞 立刻返 202 Accepted with {promptId, lastEventId}
-                                           prompt 完成通过 SSE 事件异步交付：
-                                             turn_complete  by promptId correlated 成功
-                                             turn_error     by promptId correlated 失败
-                                           从 daemon design §03 原 blocking model 演化
-                                           解决 long-running prompts 阻塞 connection 问题
-                                           client side 不再需要 await HTTP response 完成
-                                           ⚠️ wire 协议变化：旧 blocking client 会 reject 202（如果 await success body）
-                                             SDK 已更新 await turn_complete by promptId
-
-# 2026-05-29 ~ 06-04 新增 route（doudouOUC / chiga0）
-POST   /session/:id/btw                     side question（"by the way"）—— 不打断主 prompt 流的旁路提问
-                                           PR#4610 ✅ + PR#4666 修跨 session 泄漏/超时/input cap/permission requestId cardinality
-POST   /session/:id/language                runtime 语言切换（chiga0 PR#4705 🚧 OPEN）
-POST   /workspace/mcp/servers              runtime MCP server add/remove（T2.8 关 #4514；doudouOUC PR#4552 ✅）
-                                           之前要 daemon restart，现可热增删 MCP server
-POST   /workspace/reload                   统一 settings 热重载（不重启 daemon，单次调用刷所有 idle session）
-                                           （doudouOUC PR#4965 ✅ MERGED 2026-06-11）—— `diffSettingsKeys` 只刷真变了的；
-                                           发 `settings_reloaded` 事件；**取代更窄的 `POST /workspace/reload-env`（已移除）**
-
-# 🚦 per-tier HTTP rate limiting（T3.4 关 #4514；doudouOUC PR#4861 ✅ MERGED 2026-06-08）
---rate-limit  flag                         opt-in token bucket 连续滴漏补充，默认 off 保向后兼容
-                                           三档：prompt 10/min · mutation 30/min · read（更高）
-
-GET    /workspace/sessions?cursor=...      cursor-based 分页 session list（chiga0 PR#4902 ✅）
-
-# 🔌 ACP / REST parity 落地（chiga0 PR#4827 ✅ MERGED 2026-06-11，关 #4736，依赖 #4563 DaemonWorkspaceService）
-POST   /acp  {_qwen/...}                    **29 个 `_qwen/*` dispatch method 达成完整 ACP/REST parity**：
-                                             session extensions 6（recap/btw/shell/detach/context_usage/...）
-                                             + workspace memory + file operations + auth device-flow + agents CRUD
-                                           ACP-native client（Zed/Goose/IDE）现可做 REST 能做的全部；tracking #4782
-
-# 🌐 ACP WebSocket transport（chiga0 PR#4773 ✅ MERGED 2026-06-11，RFD Streamable HTTP phase 2，依赖 #4827）
-WS     /acp                                ACP WebSocket transport，与 SSE **共存**（不替换）
-                                           新 transport-agnostic 接口 `transportStream.ts` + `wsStream.ts` adapter
-                                           —— daemon 现有第 3 套 northbound transport：REST+SSE / ACP HTTP(SSE) / ACP WebSocket
-
-# ✅ daemon 功能集已合入 main（PR#4490 MERGED 2026-06-11，+148639/-16017 487 files，随 v0.18.0-preview 发布）
-#                                          以上全部 route + ACP HTTP transport + MCP pool + permission mediator
-#                                          + web-shell + SDK 正式进主干；daemon_mode_b_main 继续作 integration 分支周期反向 merge
-
-# 🔌 ACP / REST parity（chiga0 PR#4736 wave1 + PR#4737 wave2，🚧 OPEN，依赖 #4563）
-POST   /acp  {_qwen/...}                    给 /acp dispatch 加 ~25 个 _qwen/* extension method，
-                                           让 ACP-native client（Zed/Goose/IDE）能做 REST 能做的全部：
-                                             wave1 (20)：session extensions 7（recap/compress/meta/context-usage/...）
-                                                       + workspace memory + file operations + auth device-flow
-                                             wave2 (5)：agents CRUD
-                                           动机：之前这些只能走 bespoke REST，ACP client 够不着 → 补齐 dual transport 对偶
-```
-
-### Wave 5 — Architecture extraction（部分 MERGED）
-
-| PR | 阶段 | 状态 | 说明 |
-|---|---|---|---|
-| **PR#4295** | PR 22a zero-coupling lift | ✅ MERGED | `BridgeTimeoutError` / `BridgeChannelClosedError` / `MissingCliEntryError` typed errors 提取（零业务耦合） |
-| **PR#4298** | PR 22b/1 pure-type lift | ✅ MERGED | bridge primitive type 提取（与运行时实现分离） |
-| **PR#4304** | PR 22b/2 design slice: lift BridgeOptions + DaemonStatusProvider seam | ✅ MERGED | 6 design decisions baked in；为 Stage 2 native in-process 开 seam；机械 bulk lift 留 PR 22b/3 |
-| PR 22b/3 | mechanical bulk lift（BridgeClient + factory closure + 5064-LOC test move） | ⏳ 待开 | 凝结 PR 22b/2 契约后纯机械 IDE-driven `git mv`，零设计决定 |
-
-### Stage 2 — 远期（候选）
-
-```
-WS     /session/:id                         WebSocket bidi 升级（与 SSE 并存，候选）
-GET    /health?deep=1                       深度健康检查（含 ACP child liveness + EventBus 状态）
-POST   /ext/:method                         ACP extMethod 桥接（给 vendor zero-fork 扩展）
-POST   /workspace/pty                       open PTY（Upgrade: websocket）
-GET    /workspace/lsp                       LSP 状态
-```
-
-> `POST /session/:id/_meta` 在 PR#4516 已落地为 Post-Wave 4 capability backlog 路由（详上 T1.4 段）；不再是 Stage 2 候选。
-
-### `:id` 校验语义
-
-- `sessionId` 必须存在于 `QwenAgent.sessions: Map` 内；不匹配 `404 session_not_found`
-- daemon 启动时绑定单 workspace（cwd 启动参数）；多 workspace 部署 = 多 daemon process 各占独立 port
-- 保留 sessionId 在 URL 是 fail-fast 防御（防 client 拿错 daemon URL）
-
-> **PR#3889 现状**：commit `6a170ef8` 实现的是 `/workspace/:id/*` multi-workspace 路由（要求 client 提供 cwd path 作 `:id`）；[PR#4113](https://github.com/QwenLM/qwen-code/pull/4113) 简化为 `/workspace/*` 单 workspace 路由（client 不再传 cwd，daemon 启动时已绑定）+ 新增 `CapabilitiesEnvelope.workspaceCwd` 字段让 client pre-flight check + cross-workspace `POST /session` 返回 `400 workspace_mismatch`。
+> 本篇路由清单逐条对照 qwen-code main 源码（`packages/cli/src/serve/`）核实，截至 2026-06-12。
 
 ---
 
-## 二、ACP wire 兼容性 — 4 层矩阵
+## 一、通用约定
 
-> **术语**：**wire** = 两端点之间通过协议实际传输的字节流（"over the wire" = "通过协议传"）。本系列指 daemon ↔ client 之间通过 HTTP+SSE/WebSocket 传的 ACP NDJSON 协议。与 **schema**（zod 类型定义 / IDL）区分——schema 是契约，wire 是按 schema 编码后**实际字节**。常见用法：
-> - **"wire 字节级一致"** = 不同 transport（HTTP SSE / future WebSocket facade）下序列化结果 bit-for-bit 相同（client 单一代码路径）
-> - **"不出 wire"** = 仅在 daemon 内处理，不通过 HTTP 协议暴露给 client（详 [§04 §二 TUI / client 边界](./04-deployment-and-client.md)）
-> - **"wire 协议锁定"** = HTTP routes + SSE event schema + zod schema 不再扩展（Stage 2 后）
-> - **"新 wire route"** = 新增 HTTP 路由（Stage 1.5c daemon-side state CRUD）
-> - **"ACP wire 版本"** = ACP NDJSON 协议本身的版本号（与 SDK 版本 / daemon envelope 版本区分）
+### 1.1 Base URL 与认证
 
-> 单进程模式（`qwen --acp` stdio NDJSON）与 Daemon 模式（`qwen serve` HTTP）的协议兼容性分析。**结论：Schema 层完全兼容、Wire 层不兼容、SDK 抽象层用户代码 0 改动**。
-
-| 层 | 单进程 | Daemon | 兼容性 |
-|---|---|---|---|
-| **Schema 层**（ACP zod schema）| `PromptRequest` / `NewSessionRequest` 等 | **复用同一组 ACP zod schema**（`@agentclientprotocol/sdk`）| ✅ **100%** |
-| **Wire 层**（传输）| stdio NDJSON | HTTP request/response + SSE/WS 事件流 | ⚠️ 字节级不兼容 |
-| **业务逻辑层**（Session.handleXxx）| `Session.handlePromptRequest()` 直接调用 | **同一函数**（daemon 内 wrapper 把 HTTP body 解为 ACP request 后调同一个函数）| ✅ **100% 同源** |
-| **SDK 抽象层**（Transport）| `ProcessTransport` | `HttpTransport`（Stage 2b）| ✅ 用户代码 0 改动 |
-
-### 关键非兼容点（4 项）+ Adapter 处理
-
-| 不兼容点 | Adapter 责任 |
+| 项 | 约定 |
 |---|---|
-| HTTP body ↔ ACP request | 用 zod schema 校验 + 字段映射 |
-| SSE event ↔ ACP notification | wrapper 把 `SessionNotification` → SSE `data:` 帧 |
-| `permission_request` 同步→异步 | `pendingRequests Map<id, resolver>` + 60s 超时 + 60s 默认 deny |
-| Client capabilities（`read_text_file` 等）| client 需注册 callback URL，agent 发 SSE 调 client，client 调 callback HTTP |
+| Base URL | `http://<host>:<port>`，默认 `127.0.0.1:4170`（`--port` / `--host`） |
+| 认证头 | `Authorization: Bearer <token>`（scheme 大小写不敏感；token 经 SHA-256 + `timingSafeEqual` 比较） |
+| token 来源 | `--token` 或 `QWEN_SERVER_TOKEN` 环境变量 |
+| 无 token | 仅允许 loopback bind（非 loopback bind 无 token 时 boot 直接拒绝启动） |
+| `--require-auth` | loopback 也强制 bearer；boot 要求已配置 token；`/health` 同样收进认证之后 |
+| body 上限 | `express.json({limit: '10mb'})` |
 
-### 复用 ACP zod schema 的工程价值
+源码: `packages/cli/src/serve/auth.ts`、`runQwenServe.ts`。
+
+### 1.2 浏览器与网络边界
+
+- **默认拒绝浏览器**：任何带 `Origin` 头的请求返回 `403`（CLI/SDK client 不发 Origin，只有浏览器发）。`--allow-origin <pattern>` 开白名单（精确 origin 或 `*`；`*` 必须配 token）。
+- **Host allowlist**：校验 `Host` 头防 DNS rebinding；loopback 来源判定只读 `req.socket.remoteAddress`，不信任 `X-Forwarded-For`。
+
+### 1.3 `X-Qwen-Client-Id`
+
+client 身份头，daemon 在事件 envelope 上 stamping 为 `originatorClientId`（让其他订阅者知道"是谁干的"）：
+
+- 格式：≤128 字符 token，正则校验；非法 → `400 invalid_client_id`
+- session 级 mutation 路由解析后透传；**workspace 级 mutation 路由额外校验该 id 必须在 `bridge.knownClientIds()` 注册集合内**，防伪造他人身份（#4231）
+
+### 1.4 mutation gate 两档（`--require-auth` 门禁）
+
+写路由统一走 mutation gate 中间件，分两档：
+
+| 档 | 适用路由 | 行为 |
+|---|---|---|
+| **non-strict** `mutate()` | `/session`、`/session/:id/prompt`、`cancel`、`model`、`recap`、`btw`、`shell` 等会话操作 | 默认 passthrough；`--require-auth` 开启后强制 bearer |
+| **strict** `mutate({strict: true})` | `/workspace/*` 全部写路由、`approval-mode`、`rewind`、`goal/clear`、`tasks/:taskId/cancel`、device-flow 全部 | **即便 loopback 无 token 部署也返回 `401 {code: 'token_required'}`** |
+
+4-cell 行为矩阵：`{token 已配置 | 未配置} × {strict | non-strict}`——token 一旦配置，全局 `bearerAuth` 对所有路由生效，gate 退化为冗余防线。
+
+### 1.5 错误形态与 `errorKind` 封闭分类
+
+三类错误 wire 形态：
+
+1. **请求校验错误**：`400 {error, code}`（如 `invalid_client_id`、`invalid_deadline_ms`、`workspace_mismatch`）
+2. **bridge 域错误**：经 `mapDomainErrorToErrorKind` 映射到 `SERVE_ERROR_KINDS` 封闭 enum，**14 值**（acp-bridge 与 SDK 两端 lockstep，drift-insurance test 锁排序）：
 
 ```ts
-// 现有 ACP request:  PromptRequest / NewSessionRequest / SetSessionModelRequest 等
-// daemon HTTP body 沿用同结构，仅把传输层从 stdio NDJSON 换成 HTTP
-POST /session                  body: NewSessionRequest
-POST /session/:id/prompt       body: PromptRequest
-POST /session/:id/model        body: SetSessionModelRequest
+// 源码: packages/acp-bridge/src/status.ts#L19
+'missing_binary' | 'blocked_egress' | 'auth_env_error' | 'init_timeout'
+| 'protocol_error' | 'missing_file' | 'parse_error' | 'stat_failed'
+| 'budget_exhausted'           // MCP budget enforce 模式拒服务器
+| 'mcp_budget_would_exceed' | 'mcp_server_spawn_failed' | 'invalid_config'  // 运行时 MCP 增删
+| 'prompt_deadline_exceeded' | 'writer_idle_timeout'    // 运行时防护 flag（详 §八）
 ```
 
-**好处**：协议层 0 设计成本（ACP 已经把 session 生命周期、permission 流、cancel、resume、fork 验证过），唯一新增的是传输层桥接。
+3. **File 路由错误**：独立的 `FsErrorKind` 封闭 enum（14 值，详 §五），wire 形态 `{errorKind, error, status, hint?}`
 
----
+设计哲学：daemon 内部用富类型 `Error` 子类保留 stack/cause，序列化到 wire 时降级为封闭 enum + redacted message——SDK 客户端 `switch (err.errorKind)` 而非 message regex。
 
-## 三、SSE 事件流（PR#3889 commit `41aa95094` 已实现）
-
-### SSE event 结构
-
-```
-event: session_update
-id: 42
-data: {"id":42,"v":1,"type":"session_update","data":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"…"}},"originatorClientId":"…"}
-```
-
-每帧带：
-- SSE 标准 `id:` / `event:` 行（EventSource 客户端约定）
-- 完整 JSON envelope（`{id?, v, type, data, originatorClientId?}`）—— raw-fetch 消费者也能拿到
-
-### 事件类型枚举（typed discriminated union, PR#4217）
-
-| 类型 | 来源 PR | 含义 |
-|---|---|---|
-| `session_update` | Stage 1 ✅ | LLM stream / tool call / tool result / usage 等 ACP `SessionNotification` |
-| `permission_request` | Stage 1 ✅ | agent 请审批（与 wire request id 配对）|
-| `permission_resolved` | Stage 1 ✅ | first-responder 已应答 |
-| `permission_already_resolved` | PR#4232 ✅ | vote loser 收到；bounded record（同 sessionId 同 requestId 只能投一次）|
-| `model_switched` | Stage 1 ✅ | model 切换成功 |
-| `model_switch_failed` | Stage 1 ✅ | model 切换失败 |
-| `session_died` | Stage 1 ✅ | daemon 内嵌 `qwen --acp` child 退出 → 该 daemon 全部 session 死亡 |
-| `client_evicted` | Stage 1 ✅ | 该 subscriber queue overflow，被踢 |
-| `slow_client_warning` | PR#4237 ✅ | overflow 前 soft 警告 |
-| `heartbeat_ack` | PR#4235 ✅ | client `POST /session/:id/heartbeat` 之后 daemon ack |
-| `session_closed` | PR#4240 ✅ | `DELETE /session/:id` 之后 broadcast 给其他 subscriber |
-| `mcp_budget_warning` | PR#4271 ✅ | MCP budget snapshot 超阈值；rate-limited，push channel atop snapshot |
-| `mcp_server_state_changed` | PR#4271 ✅ | MCP server restart / 状态变化 |
-| `auth_state_changed` | PR#4255 ✅ | OAuth device-flow 状态变化（pending / authorized / failed）|
-| `unknown` | PR#4217 ✅ | 未知 type fallthrough（向前兼容新 daemon）|
-
-> **typed envelope**：`{id, v, type, data, originatorClientId?}`，`narrowDaemonEvent()` 把 wire JSON narrow 成 discriminated union；SDK 上层 reducer 用 `kind` 字段分发，未知 type 不 throw。
-
-### Last-Event-ID 重连协议
-
-CLI 重连时传 `Last-Event-ID` header：
-1. daemon 用 PR#3739 transcript-first fork resume 重建 session 状态（如 daemon restart 过）
-2. 从 `Last-Event-ID + 1` 拉 missed events
-3. 客户端 UI 无缝续接
-
-**Ring 大小**：default 1000 帧 → 增至 4000（commit `41aa95094`）；Stage 1.5 must-have #6 改为 per-session 可配置（默认 8000）。
-
-### Ring overflow
-
-慢消费 client 队列满 → 发 `client_evicted` event 后从 subscriber set 移除 → daemon 不再积压 memory。Stage 1.5 must-have #7 加 `slow_client_warning` soft 警告。
-
----
-
-## 四、双向 RPC 的不对称（核心难点）
-
-### ACP 协议本质：双向 RPC
-
-stdio NDJSON 模式下，client 和 agent 双方都能发起 request：
-
-```
-Client → Agent: prompt / cancel / setSessionModel ...
-Agent → Client: requestPermission / readTextFile / writeTextFile ...
-```
-
-### stdio 模式：对称
-
-```
-                    bidirectional ACP NDJSON
-       Client                                     Agent
-       writeLine ─────────────────────────────→
-                                                   ← writeLine
-       readLine  ←─────────────────────────────
-                                                   ← readLine
-```
-
-### HTTP 模式：不对称（只 client→daemon）
-
-```
-HTTP request: client → daemon （单向）
-SSE event:    daemon → client （单向）
-HTTP response: daemon → client （同步 client→daemon 的 reply）
-
-但 daemon 没法主动发 HTTP request 到 client！
-```
-
-**实际影响**：
-- ✅ client→agent: 直接 HTTP request
-- ⚠️ agent→client: 改成 SSE event + client callback URL（client 注册自己能接收的 capabilities）
-- ⚠️ `permission_request`: 改成 SSE event + client `POST /permission/:requestId` 应答
-
-### `permission_request` 异步流模式
-
-```
-1. agent 调用 tool → 触发 permission check
-2. PermissionManager → SSE 推 `permission_request` event 到所有订阅 client
-3. HTTP request 挂起（pending）
-4. 任意 client `POST /permission/:requestId` 应答（first-responder）
-5. PermissionManager 收到应答 → 解锁 HTTP request → 继续 tool 执行
-6. SSE 推 `permission_resolved` event 让其他 client 知道结果
-```
-
-详 [§05 Security & Permission](./05-permission-auth.md)。
-
----
-
-## 五、Capability negotiation（PR#4191 capability registry refactor ✅）
-
-### 现状：plug-in registry，不再 hard-coded
-
-PR#4191 ✅ 把 hard-coded `STAGE1_FEATURES` 数组重构为 `SERVE_CAPABILITY_REGISTRY` —— 后续 route additive 注册不需改一处常量，只在 registry 里 `register({ tag, ... })`。
+### 1.6 Capability 协商
 
 ```jsonc
 GET /capabilities
 {
   "v": 1,
+  "protocolVersions": { "current": "v1", "supported": ["v1"] },
+  "qwenCodeVersion": "0.18.0-preview...",
   "mode": "http-bridge",
-  "workspaceCwd": "/home/user/project",                    // PR#4113 ✅
-  "features": [/* ~28 tags, by-Wave 分组见下 */],
-  "protocol_versions": {
-    "acp": "0.14.x",
-    "daemon_envelope": 1
-  },
-  "modelServices": [/* ... */],
-  "auth": { "required": true, "type": "bearer" }           // PR#4236 mutation gate ✅
+  "features": [/* 64 个 tag */],
+  "modelServices": [],
+  "workspaceCwd": "/abs/path",            // client pre-flight，POST /session 可省 cwd
+  "policy": { "permission": "first-responder" },
+  "supportedLanguages": [/* 语言码 */]
 }
 ```
 
-### 实际 capability tags（截至 2026-05-18，~28 个）
-
-**Wave 0 / Stage 1 baseline**（9 个）：
-```
-session_lifecycle          session_prompt             session_cancel
-session_model_switch       session_mode_switch        permission_vote
-sse_events                 last_event_id_replay       capabilities_endpoint
-```
-
-**Wave 1 新增**（PR#4191 / 4205 / 4209 / 4217 / 4214）：
-```
-capability_registry_v1     typed_session_event_v1     typed_control_event_v1
-daemon_session_client_v1   lockstep_invariant_v1
-```
-
-**Wave 2 新增**（PR#4201 / 4222 / 4231 / 4232）：
-```
-session_scope_override     session_load               session_resume
-client_id_stamped          session_scoped_permission  permission_bounded_record
-```
-
-**Wave 2.5 新增**（PR#4235 / 4237 / 4240）：
-```
-session_heartbeat          slow_client_warning        session_close_delete
-```
-
-**Wave 3 新增**（PR#4241 / 4247 / 4251 / 4271）：
-```
-workspace_status_readonly  preflight_diagnostics      env_diagnostics
-mcp_restart_guarded        mcp_budget_push
-```
-
-**Wave 4 新增**（PR#4236 / 4249 / 4250 / 4282 / 4269 / 4280 / 4255）：
-```
-mutation_gate              workspace_memory_crud      workspace_agents_crud
-workspace_tools_crud       workspace_init             session_approval_mode
-fs_boundary_enforced       workspace_file_read        workspace_file_write
-auth_device_flow           branded_secret
-```
-
-> **CONDITIONAL_SERVE_FEATURES**（PR#4236 ✅）：mutation gate 加 4-cell behavior matrix —— `{gate: on|off} × {auth: present|absent}`，registry 根据 4 cell 状态决定是否暴露 capability。例：`auth_device_flow` 仅在 `gate=on + auth=absent` 时返回（让 client 知道走 device flow 拿 token）。
-
-### 三套来源 lockstep（PR#4214 ✅ 立 invariant）
-
-```
-生产 (src/serve/registry.ts):
-  SERVE_CAPABILITY_REGISTRY = registerTag('capability_registry_v1', ...)
-                            + registerTag('session_lifecycle', ...) ...
-
-unit (test/serve/capabilities.test.ts):
-  EXPECTED_STAGE1_FEATURES = ['capability_registry_v1', 'session_lifecycle', ...]
-  expect(SERVE_CAPABILITY_REGISTRY.tags).toEqual(EXPECTED_STAGE1_FEATURES)
-
-integration (test/serve/http.integration.test.ts):
-  const caps = await fetch('/capabilities').then(r => r.json())
-  expect(caps.features).toEqual(EXPECTED_STAGE1_FEATURES)
-```
-
-任何新增 capability 必须三处同步改 —— invariant violation = CI 红，防 SDK 客户端假阳"feature 探测"。
-
-### 客户端协商语义
-
-```ts
-const caps = await daemon.fetchCapabilities()
-if (!caps.features.includes('workspace_memory_crud')) {
-  // gray-out memory CRUD UI；不 throw，优雅降级
-}
-```
-
-远端 client 通过 `GET /capabilities` 协商可用功能集——daemon 不支持的 tag client 优雅降级。
+- **注册表**：`SERVE_CAPABILITY_REGISTRY`（`serve/capabilities.ts`）64 个 tag，每个带 `since: 'v1'`；新增路由 additive 注册，生产/unit/integration 三套来源 lockstep（CI 锁 `toEqual`）。
+- **条件性 tag（9 个）**：仅当对应运行时配置开启时 advertise——`require_auth`、`allow_origin`、`prompt_absolute_deadline`、`writer_idle_timeout`、`mcp_workspace_pool`、`mcp_pool_restart`、`workspace_settings`、`rate_limit`、`workspace_reload`。tag 在场 = 行为已开，client 据此分支而非试错。其余 55 个（如 `session_context_usage`、`non_blocking_prompt`、`auth_device_flow`）无条件 advertise。
+- **`unstable_` 前缀**：`unstable_session_resume` 表示底层 ACP method 仍可能变形，client 不应 pin 其 shape。
+- **多模式 tag**：`permission_mediation` 带 `modes: ['first-responder','designated','consensus','local-only']`（详 [§05 Security & Permission](./05-permission-auth.md)）；`mcp_guardrails` 带 `modes: ['warn','enforce']`。
+- **协商语义**：daemon 不支持的 tag，client 灰掉对应 UI 优雅降级，不 throw。
 
 ---
 
-## 六、Daemon 层 vs Orchestrator 层
+## 二、顶层路由
 
-> **Daemon 层** = PR#3889 已落地的主线 routes（§一 + §三 + §四 + §五）。
-> **Orchestrator 层** = External Reference Architecture（[§06 §5.1](./06-roadmap.md#51-cross-daemon-orchestrator跨-daemon-process--跨机器)）—— 仅跨 daemon process / 跨机器场景需要。**单机部署完全不需要 orchestrator**。
-
-### Orchestrator API（External，仅跨 daemon process 场景）
-
-```
-GET    /coordinator/sessions                       列出所有 active daemon processes
-POST   /coordinator/sessions/:id/route             解析 sessionId → daemonUrl
-GET    /coordinator/aggregate                      跨 daemon "我所有 task" 聚合
-POST   /coordinator/sessions                       create session（orchestrator 路由到 daemon）
-```
-
-SDK 加 `coordinatorUrl` 配置项区分两种部署：
-- 单机部署（单 daemon Mode B）：跳过 orchestrator 直连 daemon URL
-- 跨 daemon process 部署：通过 orchestrator 路由 sessionId → daemonUrl
-
----
-
-## 七、SDK 用户代码 0 改动
-
-```ts
-// 旧（单进程 stdio）
-const q = query({ transport: new ProcessTransport(...) })
-
-// 新（daemon HTTP，Stage 2b 落地后）
-const q = query({ transport: new HttpTransport({
-  baseUrl: 'http://localhost:5096',
-  bearerToken: process.env.QWEN_SERVER_TOKEN,
-}) })
-```
-
-`Transport` 接口不变；业务代码一行不改。
-
----
-
-## 八、Closed `errorKind` taxonomy（PR#4251 起，持续扩 closed enum）
-
-PR#4251 把 daemon HTTP 错误从 ad-hoc string 收敛为 closed enum，让 SDK 客户端可以 `switch (err.errorKind)` 而非靠 message regex。**初版 7 值；后续 PR 持续 mirror 添加到 `SERVE_ERROR_KINDS` (acp-bridge) + `DAEMON_ERROR_KINDS` (SDK) 两端 closed enum 保 drift 一致**。
-
-```ts
-type DaemonErrorKind =
-  // PR#4251 ✅ 初始 7 值（diagnostic status cells / MCP guardrails / FS boundary）
-  | 'missing_binary'        // qwen CLI 找不到（PR#4300 BridgeChannelClosedError / MissingCliEntryError 之前早期变体）
-  | 'blocked_egress'        // 网络出口被防火墙阻断（egress probe 失败）
-  | 'auth_env_error'        // 必要 auth env 缺失 / 无效
-  | 'init_timeout'          // ACP child init 超时
-  | 'protocol_error'        // ACP NDJSON 协议错误（schema 不匹配 / 帧损坏）
-  | 'missing_file'          // 文件读路径不存在 / 越 sandbox 边界
-  | 'parse_error'           // request body parse / zod schema 失败
-  // PR#4247/4271 ✅ 扩展（status cells stat failure / MCP budget refusal）
-  | 'stat_failed'           // `/workspace/preflight` stat() 失败（permission / EACCES）
-  | 'budget_exhausted'      // MCP budget enforce 模式拒服务器（per-server `mcp_server` + workspace-level `mcp_budget` cell）
-  // PR#4530 🔧 OPEN（target main）扩展（T2.9 long-running deployment guards）
-  | 'prompt_deadline_exceeded'  // `POST /session/:id/prompt` 超 `--prompt-deadline-ms` cap，daemon abort + 返 504（独立 Promise.race，不依赖 bridge cooperation）
-  | 'writer_idle_timeout'       // SSE 连接无 write flush 成功超 `--writer-idle-timeout-ms` cap，daemon emit terminal `client_evicted{reason:'writer_idle_timeout'}` + close
-```
-
-**当前状态**（截至 2026-05-26）：`SERVE_ERROR_KINDS` 11 值 / `DAEMON_ERROR_KINDS` 10 值（`stat_failed` 仅 serve 侧 —— 因 SDK 侧只 mirror 用户面 error）。两端各有 drift-insurance test 锁排序。
-
-跨 PR 复用模式：
-- PR#4247 ✅ `/workspace/preflight` + `/workspace/env` 用该枚举返诊断结果
-- PR#4251 ✅ MCP restart 守卫用 `missing_binary` / `protocol_error`
-- PR#4271 ✅ Wave 3 PR 14b 加 `budget_exhausted` —— MCP budget refusal SSE push 事件 + status cell
-- PR#4282 ✅ FS boundary 越界用 `missing_file`
-- PR#4295 ✅ Wave 5 PR 22a `BridgeTimeoutError` / `BridgeChannelClosedError` / `MissingCliEntryError` 在 typed-error 层进一步细化
-- PR#4530 🔧 OPEN T2.9 加 `prompt_deadline_exceeded` / `writer_idle_timeout` —— prompt absolute deadline + SSE writer idle timeout
-
-> typed-error 设计哲学：HTTP wire 仅暴露 closed enum；daemon 内部用富类型 `Error` 子类（`TrustGateError` / `BridgeTimeoutError` 等）保留 stack / cause / metadata，序列化到 wire 时降级到 enum + redacted message。
-
----
-
-## 九、Stage 演进的兼容性
-
-| Stage | 实现方式 | 状态 |
+| 方法与路径 | 用途 | 关键语义 |
 |---|---|---|
-| **Stage 1**（PR#3889 daemon 雏形）| daemon 内 `qwen --acp` child + HTTP↔stdio 桥接 | ✅ MERGED 2026-05-13 |
-| **Wave 1**（protocol foundation）| capability registry / DaemonSessionClient / typed event schema / 三套来源 lockstep | ✅ 4/4 MERGED |
-| **Wave 2**（session lifecycle）| sessionScope override / load / resume / clientId stamping / scoped permission | ✅ 4/4 MERGED |
-| **Wave 2.5**（reliability）| heartbeat / Last-Event-ID replay / slow_client_warning / session metadata + close-delete | ✅ 3/3 MERGED |
-| **Wave 3**（read-only control plane）| status routes / preflight + env diagnostics / MCP guardrails + budget push | ✅ 3/3 MERGED |
-| **Wave 4**（auth-gated mutation）| mutation gate / memory&agents CRUD / approval+tools+init / FS boundary / file r/w / OAuth device-flow | ✅ 7/7 MERGED |
-| **Wave 5**（architecture extraction）| bridge primitives / MCP shared pool / PermissionMediator / output sinks / flag-gated adapters | 🟢 22a + 22b/1 + 22b/2 design ✅ / 22b/3 mechanical 待开 |
-| **Wave 6**（release hardening + v0.16）| docs / metrics / changelog / RC / GA | 🚧 待启动 |
-
-**业务逻辑 100% 同源**——daemon 复用 ACP zod schema 与 `Session.handleXxx`，HTTP 仅是传输层桥接。Wave 5 PR 22 系列剥离桥接 primitives 后，未来 Stage 2 native in-process（直接 import `QwenAgent`，去 `qwen --acp` child）只是另一种 transport，wire 协议不变。
+| `GET /health` | 浅健康检查 | `{status:'ok'}`；loopback 且非 `--require-auth` 时认证前可达 |
+| `GET /health?deep=1` | 深健康检查 | 加 `sessions` / `pendingPermissions` / `rateLimitHits` 计数；探针失败 `503 {status:'degraded'}` |
+| `GET /capabilities` | 能力协商 | 见 §1.6 |
+| `GET /demo` | 内置调试页 | 自包含单页 HTML，无外部依赖 |
+| `/acp` | ACP transport | POST/GET/DELETE + WebSocket upgrade，详 §七 |
 
 ---
+
+## 三、Session 路由
+
+### 3.1 生命周期
+
+| 方法与路径 | 用途 | 关键语义 | 来源 |
+|---|---|---|---|
+| `POST /session` | 创建 / attach | body `cwd` 可省（用 `caps.workspaceCwd`）；跨 workspace → `400 workspace_mismatch`；cwd 长度上限 PATH_MAX | #3889 |
+| `POST /session/:id/load` | 加载历史 session | ACP LoadSessionRequest 直通 | #4222 |
+| `POST /session/:id/resume` | 恢复 session | 底层 `unstable_resumeSession`，tag 带 `unstable_` 前缀 | #4222 |
+| `POST /session/:id/branch` | 从当前 session 分叉 | body `{name?}`；SSE `session_branched` | — |
+| `DELETE /session/:id` | 关闭 + 删除 | tombstone 防 attach-after-close 竞态；SSE `session_closed` 广播 | #4240 |
+| `POST /sessions/delete` | 批量删除 | body `{sessionIds: string[]}` | — |
+| `POST /session/:id/detach` | client 解绑 | 不关 session，只解除本 client 关联 | — |
+| `POST /session/:id/heartbeat` | client 存活心跳 | daemon 跟踪 `lastSeenAt`；rate-limit 豁免 | #4235 |
+
+`:id` 校验：session 必须存在于 daemon 的 session map，否则 `404`。1 daemon = 1 workspace；多 workspace = 多 daemon 进程各占端口。
+
+### 3.2 Prompt、取消与旁路操作
+
+| 方法与路径 | 用途 | 关键语义 | 来源 |
+|---|---|---|---|
+| `POST /session/:id/prompt` | 发起 turn（**非阻塞**） | 立即 `202 {promptId, lastEventId}`；body `prompt` = 非空 content block 数组；可选 `deadlineMs`（仅当 server 配置 `--prompt-deadline-ms` 时生效，只能缩短不能延长）；结果经 SSE `turn_complete` / `turn_error` 按 `promptId` 关联 | #4585 |
+| `POST /session/:id/cancel` | 取消当前 turn | SSE 广播 `prompt_cancelled`（语义为"已请求取消"）；originator 的 SSE 断连同样触发取消 | #3889 |
+| `POST /session/:id/btw` | 旁路提问（side question） | body `{question}`；单轮、无工具，不打断主 prompt 流 | #4610 |
+| `POST /session/:id/shell` | daemon 端直接执行 shell（`!` 前缀） | body `{command}`，bypass LLM；输出走 SSE `user_shell_command` / `user_shell_result`；命令与结果注入 LLM history | #4576 |
+| `POST /session/:id/recap` | "我做到哪了"一句话摘要 | fast model 侧查询；`{sessionId, recap}`，`recap` 可为 `null`（历史过短/瞬时失败，仍 200） | — |
+| `POST /session/:id/tasks/:taskId/cancel` | 取消 background task | strict gate | — |
+| `POST /session/:id/goal/clear` | 清除 session goal | strict gate | — |
+
+**202 协作模式**：client 先拿 `lastEventId` 作为订阅起点再开 SSE，保证 prompt 期间事件不丢帧；旧的 blocking 客户端若 await 成功 body 会把 202 误判为失败，SDK 已改为 await `turn_complete` by `promptId`。
+
+### 3.3 事件订阅与权限投票
+
+| 方法与路径 | 用途 | 关键语义 | 来源 |
+|---|---|---|---|
+| `GET /session/:id/events` | SSE 事件流 | `Last-Event-ID` 重放；`?maxQueued=N`（[16, 2048]，默认 256）；`?snapshot=1` 重放完发 `session_snapshot`；每 session 订阅者上限 64，超出 `429 subscriber_limit_exceeded` + `Retry-After`（4xx 让 EventSource 终止重连，避免放大负载） | #3889 |
+| `POST /session/:id/permission/:requestId` | session 级权限投票 | bounded record：同 sessionId 同 requestId 只能投一次；输者收 `permission_already_resolved` | #4232 |
+| `POST /permission/:requestId` | 顶层权限投票 | 同上，无 session 前缀的早期形态，保留兼容 | #3889 |
+
+权限流为异步 first-responder 模型（agent 发 SSE `permission_request` → 任意 client POST 应答 → `permission_resolved` 广播），多客户端仲裁策略见 [§05 Security & Permission](./05-permission-auth.md)。
+
+### 3.4 配置、元数据与状态查询
+
+| 方法与路径 | 用途 | 关键语义 | 来源 |
+|---|---|---|---|
+| `POST /session/:id/model` | 切换模型 | SSE `model_switched` / `model_switch_failed` | #3889 |
+| `POST /session/:id/approval-mode` | 切审批模式 | strict gate；`{mode, persist?}`，`persist:true` 同时写 workspace settings；SSE `approval_mode_changed` | #4250 |
+| `POST /session/:id/language` | 运行时语言切换 | `{language, syncOutputLanguage?}`，白名单校验（`caps.supportedLanguages`） | #4705 |
+| `PATCH /session/:id/metadata` | 改 session 元数据 | `{displayName}`；SSE `session_metadata_updated` | — |
+| `GET /session/:id/context` | 上下文状态 | — | — |
+| `GET /session/:id/context-usage` | token 使用分布 | `?detail=true` 展开明细；web-shell 渲染用 | #4573 |
+| `GET /session/:id/stats` | session 统计 | — | — |
+| `GET /session/:id/supported-commands` | 可用 slash command | — | — |
+| `GET /session/:id/tasks` | background task 快照 | 走 bridge status 旁路，**不排 prompt FIFO**——prompt streaming 中可查 | #4578 |
+| `GET /session/:id/hooks` | session 级 hooks | — | — |
+
+### 3.5 Rewind
+
+| 方法与路径 | 用途 | 关键语义 |
+|---|---|---|
+| `GET /session/:id/rewind/snapshots` | 列出可回退快照 | — |
+| `POST /session/:id/rewind` | 回退到快照 | strict gate；SSE `session_rewound` |
+
+---
+
+## 四、Workspace 路由
+
+### 4.1 环境、设置、init 与 preflight
+
+| 方法与路径 | 用途 | 关键语义 | 来源 |
+|---|---|---|---|
+| `GET /workspace/env` | env 诊断 | 诊断 cell 用 `errorKind` 封闭分类 | #4247 |
+| `GET /workspace/preflight` | preflight 诊断 | 同上（`stat_failed` 等） | #4247 |
+| `GET /workspace/settings` | 读 settings | — | — |
+| `POST /workspace/settings` | 写单个 settings key | strict gate；`{scope, key, value}`；条件 tag `workspace_settings`；SSE `settings_changed` | — |
+| `POST /workspace/reload` | settings 热重载 | strict gate；diff settings keys 只刷真变化的 idle session，不重启 daemon；SSE `settings_reloaded`；条件 tag `workspace_reload` | #4965 |
+| `POST /workspace/init` | 脚手架 `QWEN.md` | strict gate；`{force?}`，已存在默认 `409 workspace_init_conflict`；**纯机械创建不调 LLM**；SSE `workspace_initialized` | #4250 |
+| `GET /workspace/:id/sessions` | session 列表（分页） | `:id` = URL-encoded 绝对 workspace 路径，与绑定 workspace 不符 → `400 workspace_mismatch`；`?cursor=&size=` cursor 分页，非法 cursor → `400 invalid_cursor` | #4902 |
+
+### 4.2 Tools、skills、extensions、hooks、providers
+
+| 方法与路径 | 用途 | 关键语义 |
+|---|---|---|
+| `GET /workspace/tools` | 工具清单 | — |
+| `POST /workspace/tools/:name/enable` | 启/禁工具 | strict gate；body `{enabled: boolean}`（**没有独立 disable 路由**）；直接写 settings `tools.disabled` 列表，SSE `tool_toggled`；live session 已注册工具不追溯卸载，下次 ACP child 启动生效 |
+| `GET /workspace/skills` | 已加载 skill | — |
+| `GET /workspace/extensions` | extensions 清单 | — |
+| `GET /workspace/hooks` | workspace 级 hooks | — |
+| `GET /workspace/providers` | 模型 provider 清单 | — |
+
+### 4.3 Memory 与 Agents
+
+| 方法与路径 | 用途 | 关键语义 | 来源 |
+|---|---|---|---|
+| `GET /workspace/memory` | 读层级 QWEN.md 状态 | workspace + global（`~/.qwen`）两级 | #4249 |
+| `POST /workspace/memory` | 写 memory | strict gate；`{scope: 'workspace'|'global', ...}` append/replace；SSE `memory_changed` | #4249 |
+| `GET /workspace/agents` | 列 subagent | 包装 `SubagentManager`；built-in / extension agent 只读 | #4249 |
+| `GET /workspace/agents/:agentType` | 读单个 agent 定义 | — | — |
+| `POST /workspace/agents` | 创建 agent | strict gate；SSE `agent_changed` | #4249 |
+| `POST /workspace/agents/:agentType` | 更新 agent | strict gate | — |
+| `DELETE /workspace/agents/:agentType` | 删除 agent | strict gate | — |
+| `POST /workspace/agents/generate` | LLM 生成 agent 定义 | strict gate；tag `workspace_agent_generate` | — |
+
+### 4.4 MCP 管理
+
+| 方法与路径 | 用途 | 关键语义 | 来源 |
+|---|---|---|---|
+| `GET /workspace/mcp` | MCP server 状态快照 | 含 budget 计数；pool 开启时每 server cell 带 `entryCount` / `entrySummary` | #4241 |
+| `GET /workspace/mcp/:server/tools` | 单 server 工具清单 | — | — |
+| `POST /workspace/mcp/servers` | 运行时新增 server | strict gate；同 fingerprint no-op；SSE `mcp_server_added`；server 名校验（字母数字 `_-`、≤256、拒 `__proto__` 等保留名） | #4552 |
+| `DELETE /workspace/mcp/servers/:name` | 运行时移除 server | strict gate；真移除才发 `mcp_server_removed`（`not_present` 幂等跳过不发） | #4552 |
+| `POST /workspace/mcp/:server/restart` | 重启单 server | strict gate；`?entryIndex=N`（或 `*`）选 pool 内条目；budget 预检不通过返回 `200 {restarted:false, skipped:true, reason}`（`budget_would_exceed` / `in_flight` / `disabled`）而非级联拒绝；SSE `mcp_server_restarted` / `mcp_server_restart_refused` | #4251 |
+| `POST /workspace/mcp/:server/enable` `…/disable` `…/authenticate` `…/clear-auth` | 单 server 启停 / OAuth | strict gate；同一 for 循环注册的 4 个动作路由 | — |
+
+MCP budget 防护（`--mcp-client-budget` + `--mcp-budget-mode={warn,enforce,off}`）超阈值经 SSE `mcp_budget_warning` / `mcp_child_refused_batch` 推送。
+
+### 4.5 Auth 与 device-flow
+
+| 方法与路径 | 用途 | 关键语义 | 来源 |
+|---|---|---|---|
+| `GET /workspace/auth/providers` | provider 目录 | 每个带配置步骤描述（protocol / baseUrl / apiKey / models / advancedConfig） | — |
+| `GET /workspace/auth/status` | 认证状态 | `{pendingDeviceFlows[], supportedDeviceFlowProviders[]}` | — |
+| `POST /workspace/auth/provider` | 安装 / 切换 provider | strict gate；默认拒私网 baseUrl（防 SSRF），daemon 未实现安装时 `501` | — |
+| `POST /workspace/auth/device-flow` | 发起 OAuth device flow（RFC 8628） | strict gate；secret 4 路 redaction（serialize / inspect / toString / JSON.stringify），凭证文件 0o600 | #4255 |
+| `GET /workspace/auth/device-flow/:id` | 查询 flow 状态 | strict gate + 仅 initiator 可读验证材料 | — |
+| `DELETE /workspace/auth/device-flow/:id` | 取消 flow | strict gate；`204` 幂等（已终态同样 204） | — |
+
+flow 全程经 SSE 推送：`auth_device_flow_started` / `_throttled` / `_authorized` / `_failed` / `_cancelled`（workspace 级事件，非 session-keyed）。
+
+---
+
+## 五、File 路由（workspace 根限定）
+
+路径不带 `/workspace` 前缀，挂在顶层；全部经 `WorkspaceFileSystem` 安全边界。
+
+| 方法与路径 | 用途 | 关键参数 / 语义 |
+|---|---|---|
+| `GET /file` | 读文本文件 | `?path&line&limit&maxBytes`；`limit` ≤ 2000 行，`maxBytes` ≤ 256 KB |
+| `GET /file/bytes` | 读原始字节窗口 | `?path&offset&maxBytes`（默认窗口 64 KB）；独立 tag `workspace_file_bytes` |
+| `POST /file/write` | 写文件（原子） | `{path, content, mode: 'create'|'replace', expectedHash?, bom?, encoding?, lineEnding?}`；**`replace` 必带 `expectedHash`**（`sha256:<64hex>` content-hash 前置），`create` 撞已存在文件 → `409 file_already_exists`；写入 temp+rename 原子落盘；`201`（created）/ `200`（replaced）返回新 `hash` |
+| `POST /file/edit` | 文本替换编辑 | `{path, oldText, newText, expectedHash}`（必带）；`text_not_found` / `ambiguous_text_match` 拒绝 |
+| `GET /list` | 列目录 | `?path&includeIgnored` |
+| `GET /stat` | 文件元信息 | `?path` |
+| `GET /glob` | glob 匹配 | `?pattern&cwd&maxResults&includeIgnored`（maxResults 默认 5000） |
+
+**安全边界**（#4282 / #4269 / #4280）：
+
+- 路径 realpath 规范化后必须落在 workspace 根内：越界 → `400 path_outside_workspace`；symlink 链逃逸 / 循环 → `400 symlink_escape`
+- 默认遵守 `.gitignore` / `.qwenignore`（`includeIgnored=true` 显式越过）
+- 并发写防护：`expectedHash` 不匹配 → `409 hash_mismatch`（client 先读拿 hash 再写）
+- audit hook 记录 `originatorClientId` + SHA-256 哈希后的路径
+- 写路由 strict gate；读路由跟随全局 bearer
+
+`FsErrorKind` 封闭 enum（独立于 §1.5 的 bridge enum，14 值，每值绑定默认 HTTP status）：`path_outside_workspace`、`symlink_escape`、`path_not_found`、`binary_file`、`file_too_large`、`hash_mismatch`、`file_already_exists`、`text_not_found`、`ambiguous_text_match`、`untrusted_workspace`、`permission_denied`、`io_error`、`internal_error`、`parse_error`。源码: `packages/cli/src/serve/fs/errors.ts`。
+
+---
+
+## 六、SSE 事件目录
+
+### 6.1 帧结构与连接行为
+
+```
+event: session_update
+id: 42
+data: {"id":42,"v":1,"type":"session_update","data":{...},"originatorClientId":"...","_meta":{"serverTimestamp":...}}
+```
+
+- envelope `{id?, v: 1, type, data, originatorClientId?}`；synthetic 帧（如 `state_resync_required`、`replay_complete`）无 `id`，不占 per-session 单调序列
+- 连接建立即发 `retry: 3000`（EventSource 断线 3s 重试）；每 15s 发 `: heartbeat` 注释帧探测死连接
+- 写路径带背压：`res.write` 满则 await `drain`，全部写经 per-connection 串行链
+
+### 6.2 重连与流控协议
+
+| 机制 | 行为 |
+|---|---|
+| `Last-Event-ID` 重放 | 重连带此 header，从 ring buffer 续传 missed events（per-session ring 默认 8000 帧，`--ring-size` 可调） |
+| `replay_complete` | 重放循环结束的哨兵帧（含 `replayedCount`，零重放也发），client 据此撤掉 catch-up 指示 |
+| ring 淘汰 → `state_resync_required` | 请求的 id 已被淘汰时发出；**不断流**——daemon 继续重放幸存帧 + live 帧，但 reducer 应视积累状态为脏，先 `load` 重建再继续应用增量 |
+| `?snapshot=1` | `replay_complete` 后补发 `session_snapshot`（`currentModelId`、`currentApprovalMode`），重连 client 免一次往返即可 seed reducer |
+| `slow_client_warning` | 订阅队列 75% 满时的 soft 警告（队列深度 `?maxQueued=N`，[16, 2048]，默认 256） |
+| `client_evicted` | 队列溢出（或 writer idle 超时，见 §八）后踢出该订阅者并断流，daemon 不再积压内存 |
+| 订阅者上限 | 每 session 64 个，超出新连接 `429` + `Retry-After: 5` |
+
+### 6.3 事件类型清单（43 个）
+
+权威清单 `DAEMON_KNOWN_EVENT_TYPE_VALUES`，源码: `packages/sdk-typescript/src/daemon/events.ts`。
+
+**Turn 流（8）**
+
+| 事件 | 含义 |
+|---|---|
+| `session_update` | ACP `SessionNotification` 直通：LLM chunk / tool call / tool result / usage |
+| `turn_complete` | prompt 成功结束，按 `promptId` 关联，含 `stopReason` |
+| `turn_error` | prompt 失败，按 `promptId` 关联，含 `message` / `code`（deadline 超时即在此带 `prompt_deadline_exceeded`） |
+| `prompt_cancelled` | 取消广播（显式 cancel 或 originator 断连），语义为"已请求取消" |
+| `followup_suggestion` | 每个干净 assistant turn 后 server 端生成的 ghost-text 建议（#4507） |
+| `user_shell_command` / `user_shell_result` | `POST /session/:id/shell` 的命令与流式输出 |
+| `session_snapshot` | `?snapshot=1` 时重放后补发的状态快照 |
+
+**权限（5）**
+
+| 事件 | 含义 |
+|---|---|
+| `permission_request` | agent 请求审批，与 requestId 配对 |
+| `permission_resolved` | first-responder 已应答，广播结果 |
+| `permission_already_resolved` | 投票输者收到（bounded record） |
+| `permission_partial_vote` | 仅 `consensus` 策略下：已收到部分票 |
+| `permission_forbidden` | 投票者被策略拒绝（`designated` 非指定人 / `consensus` 匿名票 / `local-only` 远程票） |
+
+**Session 生命周期与配置（8）**
+
+| 事件 | 含义 |
+|---|---|
+| `model_switched` / `model_switch_failed` | 模型切换结果 |
+| `approval_mode_changed` | 审批模式变更 |
+| `session_metadata_updated` | `PATCH metadata` 之后广播 |
+| `session_closed` | `DELETE /session/:id` 之后广播（`reason: 'client_close'` 等） |
+| `session_died` | ACP child 退出 → 该 daemon 全部 session 死亡 |
+| `session_rewound` / `session_branched` | rewind / branch 完成 |
+
+**流控与传输（5）**
+
+| 事件 | 含义 |
+|---|---|
+| `slow_client_warning` / `client_evicted` | 见 §6.2 |
+| `stream_error` | 流内错误帧 |
+| `state_resync_required` / `replay_complete` | 见 §6.2 |
+
+**Workspace 广播（12）**——经全部活跃 session 的 bus fan-out，informational（读后写仍以 read-after-write 为准）：
+
+| 事件 | 触发 |
+|---|---|
+| `memory_changed` / `agent_changed` | memory / agents 写路由 |
+| `tool_toggled` | tools enable 路由 |
+| `settings_changed` / `settings_reloaded` | settings 写 / `POST /workspace/reload` |
+| `workspace_initialized` | `POST /workspace/init` |
+| `mcp_server_added` / `mcp_server_removed` | 运行时 MCP 增删 |
+| `mcp_server_restarted` / `mcp_server_restart_refused` | MCP 重启 |
+| `mcp_budget_warning` / `mcp_child_refused_batch` | MCP budget 越线（rate-limited push） |
+
+**Auth device-flow（5）**：`auth_device_flow_started` / `_throttled` / `_authorized` / `_failed` / `_cancelled`（workspace 级，session reducer no-op）。
+
+**向前兼容**：SDK `narrowDaemonEvent()` 对未知 `type` 返回 `kind: 'unknown'` 而非 throw——旧 SDK 静默丢弃新 daemon 的新事件，无需协议版本升级。
+
+---
+
+## 七、ACP transport（`/acp`）
+
+REST 之外的标准协议入口，与 REST 共享同一 bridge / EventBus（additive，REST 面不受影响）。`QWEN_SERVE_ACP_HTTP=0` 可整体关闭。
+
+### 7.1 ACP Streamable HTTP
+
+单一 `/acp` 端点上的 wire shape：
+
+| 请求 | 行为 |
+|---|---|
+| `POST {initialize}` | `200` + capabilities JSON + `Acp-Connection-Id` 响应头 |
+| `POST {其他 method}` | `202`；回复经长存 SSE 流异步交付 |
+| `GET` + `Acp-Connection-Id` 头 | connection 级 SSE 流 |
+| `GET` + connection + `Acp-Session-Id` 头 | session 级 SSE 流 |
+| `DELETE` | `202` 拆除 connection |
+
+connection 级 SSE 断开后有 10s 宽限期（重连可续），超时回收 `ownedSessions` 与连接槽位。
+
+### 7.2 ACP WebSocket
+
+同一 `/acp` 路径 HTTP upgrade（#4773）。WS 绕过 Express 中间件栈，因此在 upgrade 握手自行完成三件事：bearer 校验（`Authorization` 头，SHA-256 比较；loopback 无 token 部署放行）、Host 校验（防 DNS rebinding）、消息级 rate-limit（读类 method 计入 read 档；`heartbeat` / `update_metadata` 豁免）。实现为 transport 无关接口 `transportStream.ts` + `wsStream.ts` / `sseStream.ts` 两个 adapter——同一 dispatch 代码服务两种流。SSE 与 WebSocket **共存**，不互相替代。
+
+### 7.3 `_qwen/*` extension namespace 与 REST parity
+
+`/acp` dispatch 处理 9 个标准 ACP method（`authenticate`、`session/new|load|resume|list|close|cancel|prompt|set_config_option`）+ **41 个 `_qwen/*` vendor method**（其中 29 个由 parity 工作 #4827 补齐，使 ACP-native client——Zed / Goose / IDE——能做 REST 能做的全部）：
+
+| 分组 | method（`_qwen/` 前缀省略） |
+|---|---|
+| session 基础 | `session/heartbeat` `session/context` `session/supported_commands` `session/update_metadata` |
+| session 扩展 | `session/recap` `session/btw` `session/shell` `session/detach` `session/context_usage` `session/tasks` `sessions/delete` |
+| workspace 状态 | `workspace/mcp` `workspace/skills` `workspace/providers` `workspace/env` `workspace/preflight` `workspace/tools` `workspace/mcp/tools` |
+| workspace 变更 | `workspace/init` `workspace/set_tool_enabled` `workspace/restart_mcp_server` `workspace/mcp/servers/add` `workspace/mcp/servers/remove` |
+| memory | `workspace/memory` `workspace/memory/write` |
+| file | `file/read` `file/read_bytes` `file/stat` `file/list` `file/glob` `file/write` `file/edit` |
+| auth | `workspace/auth/status` `workspace/auth/device_flow/start` `workspace/auth/device_flow/get` `workspace/auth/device_flow/cancel` |
+| agents | `workspace/agents/list` `workspace/agents/get` `workspace/agents/create` `workspace/agents/update` `workspace/agents/delete` |
+
+### 7.4 MCP stdio 桥（`qwen-serve-bridge`）
+
+`sdk-typescript` 内置 bin（#4555）：把 daemon 的 REST+SSE 面包装成 **MCP stdio server**，MCP-native client（Claude Code、Cursor 等）零改动把整个 qwen daemon 当一个 MCP server 用。源码: `packages/sdk-typescript/src/daemon-mcp/serve-bridge/`。
+
+---
+
+## 八、运行时防护 flag 对 API 行为的影响
+
+| flag / env | 影响 | 对应 capability tag |
+|---|---|---|
+| `--rate-limit`（+ `--rate-limit-prompt/-mutation/-read/-window-ms`） | opt-in 令牌桶（连续滴漏补充），默认 off 保持向后兼容。三档（按 `60s` 窗口默认）：**prompt 10 / mutation 30 / read 120**；按 client id（缺省退 IP）计 bucket；超限 `429` + `Retry-After` + `X-RateLimit-*` 头。豁免：OPTIONS、`/health`、`/demo`、heartbeat、SSE events、`/acp`（WS 消息在 §7.2 内部计费）。limiter 内部错误 fail-open。命中计数暴露在 `/health?deep=1` | `rate_limit`（#4861） |
+| `--prompt-deadline-ms` / `QWEN_SERVE_PROMPT_DEADLINE_MS` | server 端 wallclock 上限。**非阻塞 202 模型下到期不再返回 HTTP 504**——deadline timer abort 进行中的 turn，错误以 SSE `turn_error`（`prompt_deadline_exceeded`）按 promptId 交付。per-request body `deadlineMs` 只能缩短上限；flag 未配置时 body 字段无效。上限 2^31-1 ms（boot 校验防 Node timer 溢出） | `prompt_absolute_deadline` |
+| `--writer-idle-timeout-ms` / `QWEN_SERVE_WRITER_IDLE_TIMEOUT_MS` | 每条 SSE 连接的写空闲上限：n ms 内无成功 flush（heartbeat 或真事件都算）→ 发终结帧 `client_evicted {reason:'writer_idle_timeout'}` 并断流。生产建议 ≥30000ms——低于 15s heartbeat 间隔会在首个心跳前误踢健康连接 | `writer_idle_timeout` |
+| `--allow-origin <pattern>...` | 放行匹配 Origin 的浏览器请求（默认全拒）；`*` 必须配 token；配置的 pattern 列表**不回显**在 capabilities（防 recon 枚举可信 origin） | `allow_origin` |
+| `--require-auth` | 全部路由（含 `/health`）强制 bearer；strict/non-strict gate 区别消失；boot 无 token 拒绝启动 | `require_auth` |
+| `--ring-size` | per-session 事件 ring 容量（默认 8000），影响 `Last-Event-ID` 可重放窗口 | — |
+| `QWEN_SERVE_NO_MCP_POOL=1` | 关闭 workspace 级 MCP 连接池，回退 per-session client；`mcp_workspace_pool` / `mcp_pool_restart` 两个 tag 同步消失 | `mcp_workspace_pool` |
+
+这组 flag 全部走"**条件性 capability tag**"模式：flag 开 → tag 在场 → client 才启用对应行为（如发 `deadlineMs`、预期 `writer_idle_timeout` 踢出），符合 v1 additive 规则。
+
+---
+
+## 九、Wire 兼容性与版本演进
+
+> **术语**：**wire** = 两端点间实际传输的字节流；**schema** = zod 契约。"wire 字节级一致" = 不同 transport 序列化 bit-for-bit 相同；"不出 wire" = 仅 daemon 内处理不暴露给 client（详 [§04 Deployment & Client](./04-deployment-and-client.md)）。
+
+### 9.1 单进程 vs daemon：4 层兼容矩阵
+
+| 层 | 单进程（`qwen --acp` stdio） | Daemon（`qwen serve`） | 兼容性 |
+|---|---|---|---|
+| **Schema 层** | ACP zod schema | **复用同一组 schema**（HTTP body = `PromptRequest` 等同构） | 100% |
+| **Wire 层** | stdio NDJSON | HTTP + SSE / WebSocket | 字节级不兼容 |
+| **业务逻辑层** | `Session.handleXxx()` 直接调用 | **同一函数**（HTTP body 解为 ACP request 后调用） | 100% 同源 |
+| **SDK 抽象层** | `ProcessTransport` | `DaemonClient` / `DaemonSessionClient` | 用户代码 0 改动 |
+
+协议层 0 设计成本：ACP 已验证过 session 生命周期 / permission / cancel / resume，daemon 唯一新增的是传输层桥接。
+
+### 9.2 双向 RPC 的异步化
+
+ACP 本质是双向 RPC（agent 也能向 client 发起 `requestPermission` / `readTextFile`），但 HTTP 只有 client→daemon 一个方向。daemon 把 agent→client 方向全部改写为 **SSE event + client 回投**：
+
+```
+stdio:  agent ──requestPermission──→ client（同步往返）
+HTTP:   agent → SSE permission_request → 任一 client POST /permission/:requestId → 解锁
+```
+
+挂起请求带超时与默认拒绝兜底，详 [§05 Security & Permission](./05-permission-auth.md)。
+
+### 9.3 Additive 演进规则（`v: 1` 不破坏）
+
+- 旧 route 不移除，旧 event envelope 不破坏；新能力一律 additive 注册 + capability tag
+- client 通过 tag 决定启用新 UI，缺 tag 优雅降级，**不能因为 daemon 缺新能力而崩溃**
+- SDK 对未知事件 type 返 `kind: 'unknown'`（§6.3），对未知 capability tag 忽略——双向向前兼容
+- 例外窗口：`unstable_` 前缀 tag（如 `unstable_session_resume`）对应的 shape 仍可能变化
+
+---
+
+> **免责声明**: daemon 功能集随 v0.18.0-preview 线发布，仍处 preview 阶段；`unstable_` 前缀路由 / capability 的 shape 可能变化。本篇路由与事件清单核实自 qwen-code main 分支源码（`packages/cli/src/serve/`、`packages/acp-bridge/src/`、`packages/sdk-typescript/src/daemon/`），截至 2026-06-12，后续版本可能增删。
 
 下一篇：[04 — Deployment & Client →](./04-deployment-and-client.md)
