@@ -18,6 +18,7 @@
 | 模型/认证 | Qwen + 阿里云 Coding Plan 订阅 + 任意 OpenAI·Anthropic 兼容 provider（BYOK，含 DeepSeek 深度适配）| **自营模型网关**（`api.qoder.sh` 全球 / `api.qoder.com.cn` 国内）聚合 Claude/GPT/Gemini/GLM/Kimi/Minimax/DeepSeek；浏览器登录 + PAT |
 | 价格 | **开源软件免费，但模型调用需自付**（Qwen OAuth 免费层 **2026-04-15 已停**）| 闭源商业产品，Qoder 账号统一计费（bundle 含 credit 耗尽告警逻辑）|
 | 招牌 | **daemon Mode B 多端 runtime** + Arena 多模型 + Agent Team/cron/workflow 工具族 + telemetry | **自营网关统一计费** + plugins/marketplace 生态 + **Claude Code 式 CLI/hooks 表面** + 国内/全球双端点 |
+| 被集成 | **开放平台**：HTTP daemon + ACP(stdio/HTTP/WS) + MCP-server 桥 + TS/Python/Java SDK（"别人来集成我"）| headless + ACP stdio + **Qoder 云远程控制闭环**（"我的云来控制我"）|
 
 ## 一、血脉：两个兄弟 fork，互不衍生
 
@@ -446,6 +447,7 @@ Gemini CLI 上游的 hooks 子系统用自有命名（`BeforeTool` / `BeforeAgen
 | 任务管理 | task_create/update/list + cron + monitor 工具族 | Tracker DAG ×6 工具（上游跟进）|
 | 沙箱 | Seatbelt 6 profile（旧矩阵）+ 容器参数 | Seatbelt 6 profile（新矩阵，上游逐字继承）|
 | daemon runtime | ✅ **Mode B 多端** | ❌ 无（远程走云端 `--teleport`/`remote-control`）|
+| **被集成（北向接口）** | ✅ **开放平台**：HTTP daemon + ACP(stdio/HTTP/WS) + **MCP-server 桥** + TS/Python/Java SDK + 可嵌入 web 组件 | ⚠️ **headless + ACP stdio + Qoder 云远程控制**；无开放 daemon / 不能作 MCP server / 无 SDK（详 [§七](#七被集成能力作为服务端--可嵌入对象)）|
 | telemetry | ✅ 深度（OTel 分层 tracing + 5 个 CLI 参数）| 自有遥测端点（`/metrics` Prometheus / `/otel` 为端点，非 slash 命令），深度未知 |
 | 插件生态 | extensions + `.qwen/commands` | plugins + marketplace（对接 Claude 插件市场）|
 | 桌面 app | ✅ 官方（#3778）| Qoder IDE（独立产品线）|
@@ -455,7 +457,9 @@ Gemini CLI 上游的 hooks 子系统用自有命名（`BeforeTool` / `BeforeAgen
 
 ## 十二、一句话总结
 
-**Qwen Code 与 Qoder CLI v1.0 是 Gemini CLI 的两个兄弟 fork，都出自阿里系，但互不衍生，且对齐的对象不同**：Qwen Code 在 Gemini 基座上加 DashScope/ModelScope/Arena/daemon 多端 runtime，把自己做成**开源 BYOK 的 runtime 平台**；Qoder v1.0 在同一基座上套自营网关 + credit 计费 + plugins marketplace，并把 CLI 参数、hooks、插件市场、迁移工具全部**向 Claude Code 的用户表面看齐**，做成闭源商业产品。底座（工具/ContentGenerator/MCP/subagent/沙箱）同源相似；选型看四点——**商业模式**（开源 vs 闭源）、**模型接入**（BYOK 任意 provider vs 自营网关统一计费）、**运行时**（本地 daemon 多端 vs 云端 remote/teleport）、**生态迁移**（从 Gemini/Qwen 系迁移选 Qwen Code，从 Claude Code 迁移 Qoder 接得更顺）。
+**Qwen Code 与 Qoder CLI v1.0 是 Gemini CLI 的两个兄弟 fork，都出自阿里系，但互不衍生，且对齐的对象不同**：Qwen Code 在 Gemini 基座上加 DashScope/ModelScope/Arena/daemon 多端 runtime，把自己做成**开源 BYOK 的 runtime 平台**；Qoder v1.0 在同一基座上套自营网关 + credit 计费 + plugins marketplace，并把 CLI 参数、hooks、插件市场、迁移工具全部**向 Claude Code 的用户表面看齐**，做成闭源商业产品。底座（工具/ContentGenerator/MCP/subagent/沙箱）同源相似；选型看五点——**商业模式**（开源 vs 闭源）、**模型接入**（BYOK 任意 provider vs 自营网关统一计费）、**运行时**（本地 daemon 多端 vs 云端 remote/teleport）、**被集成**（开放平台：daemon+ACP+MCP-server+SDK，"别人来集成我" vs 单进程 + Qoder 云远程控制闭环，"我的云来控制我"）、**生态迁移**（从 Gemini/Qwen 系迁移选 Qwen Code，从 Claude Code 迁移 Qoder 接得更顺）。
+
+> **被集成是两家差距最大的维度**：Qwen Code 暴露开放标准协议 + 三语言 SDK + 可嵌入组件，任意第三方都能把它 attach / 嵌入 / 多端编排；Qoder 无开放 HTTP daemon、不能作 MCP server、无 SDK，远程能力是绑定自家云、由 Qoder web/mobile 一方控制的闭环。要把 Agent 嵌进自研系统 / IDE / 多端选 Qwen，只需 headless 跑批或用 Qoder 官方端远程盯会话则 Qoder 够用。
 
 > **注**：Qwen Code 的 Qwen OAuth 免费层已于 **2026-04-15 终止**（此前 04-13 先从 1000 次/天降到 100 次/天）。现在两者都没有第一方免费额度——但 Qwen Code 仍可 BYOK 接入低价 provider（如 DeepSeek、ModelScope 等）或自部署开源模型。
 
