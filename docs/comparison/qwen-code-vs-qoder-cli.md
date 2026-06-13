@@ -11,7 +11,7 @@
 | | Qwen Code | Qoder CLI v1.0 |
 |---|---|---|
 | 开发方 | 阿里云（Qwen / 通义团队）| 阿里（Qoder，v0.x 内部包 `code.alibaba-inc.com/qoder-core`）|
-| 血脉 | **Gemini CLI fork** | **Gemini CLI fork**（v1.0；v0.x 曾是独立 Go 二进制）|
+| 血脉 | **Gemini CLI fork** | **Gemini CLI fork**（v1.0；基线 ≈ 2026-04 下旬 v0.40.x，见[断代](#fork-时点2026-年-4-月下旬基线--gemini-cli-v040x)；v0.x 曾是独立 Go 二进制）|
 | 与对方关系 | — | **不是 Qwen Code 的 fork**，是 Gemini CLI 的兄弟 fork |
 | 许可 | **Apache-2.0 开源** | **闭源专有**（bundle 内 Apache-2.0/Google LLC 为 Gemini CLI 基座遗留版权）|
 | 分发 | npm JS（TypeScript）| **v1.0 npm JS**（34 MB esbuild bundle；v0.x 为 Go ELF）|
@@ -63,6 +63,21 @@ v0.x 是阿里 Qoder 团队**自研的 Go 实现**，与 Gemini CLI / Qwen Code 
 - **`/corgi` 彩蛋**：Gemini CLI 的招牌 corgi mode 以明文注册保留在 Qoder bundle 中（`name:"corgi",description:"Toggles corgi mode"`）
 - **`@google/gemini-cli-devtools`**：npm 包 `bundle/node_modules/` 下残留 Google 官方 devtools 子包
 - **6 个 macOS Seatbelt profile 逐字继承**：`sandbox-macos-{strict,restrictive,permissive}-{proxied,open}.sb` 与 gemini-cli 仓库同名文件 diff 仅 2 处——`GEMINI_SANDBOX_PROXY_COMMAND`→`QODER_SANDBOX_PROXY_COMMAND`、注释里 `--include-directories`→`--add-dir`
+
+### fork 时点：2026 年 4 月下旬（基线 ≈ gemini-cli v0.40.x）
+
+用"特征断代夹逼"可以进一步定出 fork 时间——在 bundle 中探测有确切上游合入日期的字面量（settings key / 导出名 / 随包文件，均不受 minify 与 `_$d()` 混淆影响）：
+
+| 方向 | 探针 | gemini-cli 合入 | bundle |
+|---|---|---|---:|
+| 下界（存在）| strict 沙箱矩阵（#18876）| 2026-02-12 | ✓ |
+| 下界（存在）| Tracker 工具族 | 2026-03-03 | ✓ |
+| 下界（存在）| **`autoMemory` 设置键**（#25601）| **2026-04-17** | **17×** |
+| 下界（存在）| `/voice` 命令（#24174）| **2026-04-24** | ✓ |
+| 上界（缺失）| **`ignoreLocalEnv` 设置键**（#26445）| **2026-05-04** | **0** |
+| 上界（缺失）| auto-memory inbox 字面量（#26338）| 2026-05-04 | 0 |
+
+`autoMemory`（在）与 `ignoreLocalEnv`（缺）是 settingsSchema 里同类配置键，一存一缺基本排除选择性删除。结合 npm 发布史——Go 版 0.x 发版至 05-18、**1.0.0 于 05-19 上线**——可推断：**fork/最后一次上游同步发生在 04-24 ~ 05-04 之间（确凿区间 04-17 起），基线约为 gemini-cli v0.40.x（04-28/04-30），随后用约 3 周完成品牌化改造上线 v1.0**；期间 Go 版与 JS 版并行维护约一个月，说明换底座是计划内动作。完整探针记录见 [EVIDENCE：fork 时点断代](../tools/qoder-cli/EVIDENCE.md#fork-时点断代2026-06-13)。
 
 > 注：`arena` 字符串（11×）曾被误读为 Qwen「Arena 多模型」痕迹，实为 protobuf 生成码的 `cc_enable_arenas` 选项，不构成 fork 证据。
 

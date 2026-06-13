@@ -12,7 +12,7 @@
 
 Qoder CLI 是阿里巴巴通义灵码系推出的**闭源**终端 AI 编程代理。**v1.0（2026-06）起 fork 自 Gemini CLI**——与同公司的开源 Qwen Code 是 Gemini CLI 血脉的兄弟 fork（互不衍生），共享底座（工具 / subagent / MCP / Seatbelt 沙箱），但 Qoder 套上**自营模型网关 + 账号计费 + plugins 市场 + 企业能力**做成闭源商业产品。
 
-> 历史：v0.x（至 2026-03 v0.1.35）曾是独立的 **Go 语言** 43MB 静态链接二进制（启动 <70ms、Experts 模式、`--with-claude-config` 运行时参数），内部包 `code.alibaba-inc.com/qoder-core/qodercli/`。v1.0 放弃该路线，改 fork Gemini CLI 重写为 34MB JS bundle。
+> 历史：v0.x（Go 线持续发版至 2026-05-18）曾是独立的 **Go 语言** 43MB 静态链接二进制（启动 <70ms、Experts 模式、`--with-claude-config` 运行时参数），内部包 `code.alibaba-inc.com/qoder-core/qodercli/`。v1.0 放弃该路线，改 fork Gemini CLI 重写为 34MB JS bundle——特征断代显示基线取自 **2026-04 下旬的 gemini-cli（≈ v0.40.x）**，约 3 周品牌化后 v1.0.0 于 05-19 上线（断代方法见 [EVIDENCE](./EVIDENCE.md#fork-时点断代2026-06-13)）。
 
 核心特色（v1.0）：
 - **Quest 模式**：规格驱动自主执行——先生成 Spec 文档，用户确认后执行（`/quest` 命令在 v1.0 bundle 中存续）

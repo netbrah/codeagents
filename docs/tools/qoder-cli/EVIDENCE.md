@@ -55,6 +55,36 @@
 
 **其他特性字符串**：`subagent` 98× / `voice` 110×（gemini-cli 上游有 voice 能力）/ `rewind` 34× / `teleport` 12× / `planMode` 23× + `plan_mode` 17× / `outputStyle` 41× / `statusline` 6× / `quest`（词边界）11× / ACP 101×
 
+### fork 时点断代（2026-06-13）
+
+**结论**：v1.0 代码基线取自 **2026-04 下旬的 gemini-cli（≈ v0.40.x，04-28/04-30 发布，或同期 main）**；fork/最后一次上游同步发生在 **04-24 ~ 05-04** 之间（确凿区间 04-17 ~ 05-04），距 v1.0.0 上线（05-19）约 3 周。
+
+**方法**：在 bundle 中探测有确切上游合入日期的字符串。探针只用 minify/混淆后仍原样保留的字面量（settings key、esbuild 导出名、随包文件实物），不用类名与描述文案。
+
+下界探针（存在 → fork 晚于该日）：
+
+| 上游特征 | gemini-cli 合入 | bundle |
+|---|---|---:|
+| strict 沙箱矩阵 + 删除 closed 档（#18876）| 2026-02-12 | 6 个 .sb 逐字在 ✓ |
+| Tracker 工具族（`trackerTools.ts`）| 2026-03-03 | 导出名在 ✓ |
+| `ContextManager` | 2026-03-31 | 7× ✓ |
+| **`autoMemory` 设置键**（#25601）| **2026-04-17** | **17× ✓（最强确凿下界）** |
+| `/voice` 命令（`voiceCommand.ts`，#24174）| **2026-04-24** | `/voice` + `off` 子命令在，voice 110×（高置信下界）|
+
+上界探针（缺失 → fork 早于该日）：
+
+| 上游特征 | gemini-cli 合入 | bundle |
+|---|---|---:|
+| **`ignoreLocalEnv` 设置键**（#26445）| **2026-05-04** | **0（最强上界）** |
+| auto-memory inbox 字面量（`auto-memory-contract` / `extraction.patch` / `memory-patch`，#26338）| 2026-05-04 | 0 |
+| `agentSessionSubagentEnabled`（05-17）/ `tui-tester`（05-18）/ `Local/RemoteSessionInvocation`（05-18/19）| 05 中下旬 | 0（辅助）|
+
+**可信度要点**：`autoMemory`（04-17，存在）与 `ignoreLocalEnv`（05-04，缺失）是 settingsSchema 中同类型配置键，一存一缺基本排除"选择性删除"；且 autoMemory 体系在 bundle 中完整存在，排除"整个 memory 子系统被砍"的误判。`/voice` 下界置信度略低（理论可自研，但 fork 重写背景下概率低），保守表述为"确凿晚于 04-17，很可能晚于 04-24"。
+
+**外部佐证**（npm 发布史）：Go 版 0.x 持续发版至 **05-18**，**1.0.0 于 05-19 上线**——4 月底 fork → 约 3 周品牌化改造（`qoder` 改名 747 处、自营网关/PAT/credit、`_$d()` 混淆、.sb 环境变量改名）→ 上线；期间 Go 版与 JS 版并行维护约一个月，说明换底座是计划内动作。版本夹逼：v0.39.0（04-23）尚无 /voice，v0.41.0（05-05）已有 `ignoreLocalEnv`——**v0.40.0/v0.40.1（04-28/04-30）恰落窗口正中**。
+
+> 注：以上日期为上游 main 合入日；若 Qoder 曾持续 rebase，测得的是"最后一次同步点"而非"首次 fork 点"，但对"代码基线属于哪个时期"答案相同。
+
 **结论**：Qoder CLI v1.0 与 Qwen Code 是 **Gemini CLI 的两个兄弟 fork**（均阿里系），但 **Qoder 直接 fork 自 Gemini CLI，未经过 Qwen Code**。完整对比见 [Qwen Code vs Qoder CLI](../../comparison/qwen-code-vs-qoder-cli.md)。
 
 ---
