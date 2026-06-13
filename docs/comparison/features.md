@@ -275,7 +275,7 @@
 - **Codex CLI** 28 交互命令（官方文档验证）+ 15 CLI 子命令 + Rust 原生沙箱
 - **OpenCode** 使用 Ctrl+K 命令面板 + 23 个 TUI 斜杠命令
 - **Goose** 16 个交互式斜杠命令 + 15 个 CLI 命令（clap derive），MCP 原生架构
-- **Qoder CLI** v1.0 已从 Go 二进制重写为 **Gemini CLI fork**（34MB esbuild bundle；与 Qwen Code 是兄弟 fork，非 Qwen Code fork）；自营模型网关 + Quest 模式 + plugins/marketplace + Claude Code 迁移链（`qoder migrate --from-claude`，v0.x 的 `--with-claude-config` 已移除）；TUI 命令 45+（静态提取下界）。详见 [Qwen Code vs Qoder CLI](./qwen-code-vs-qoder-cli.md)
+- **Qoder CLI** v1.0 已从 Go 二进制重写为 **Gemini CLI fork**（34MB esbuild bundle；与 Qwen Code 是兄弟 fork，非 Qwen Code fork）；自营模型网关 + Quest 模式 + plugins/marketplace + Claude Code 迁移链（`qoder migrate --from-claude`，v0.x 的 `--with-claude-config` 已移除）；TUI 命令解码 `_$d()` 后确认 78 个 `kind:"built-in"` name + 8 bundled skill（与 Qwen 命令重合度高：`/btw` `/compact` `/tasks` `/goal` 及 `loop`/`batch`/`simplify` skill 均存在）。详见 [Qwen Code vs Qoder CLI](./qwen-code-vs-qoder-cli.md)
 
 ### 后台任务与多 Agent 协调
 

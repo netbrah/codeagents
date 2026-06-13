@@ -34,11 +34,11 @@
 
 ### v1.0.18 深度提取（2026-06-12）
 
-**TUI slash 命令**（三种证据强度）：
+**TUI slash 命令**（⚠️ 此处为早前"下界提取"，含假阴性/假阳性，**已被本文档末尾「命令清单：解码 `_$d()` 后的权威重提取」取代**——以那一节为准）：
 
-- 明文 `name:"…",description:"…"` 注册：`/about` `/agents` `/corgi`（gemini 彩蛋）`/diff` `/feedback` `/help` `/hooks` `/login` `/marketplace`（`market`，add/list/remove/update）`/new` `/permissions` `/plugins`（`plugin`，install/uninstall/enable/disable/update/validate）`/privacy` `/quit`（`exit`）`/reload`（`refresh`，重载 MCP）`/rewind`（`checkpoint`）`/skills` `/status` `/theme` `skill-fork`；`/goal` 子命令 pause/resume/hold/status/clear；`/voice off`；debug 三件套 `debug-credit-warning` / `debug-privacy` / `debug-update`
-- `name:"…"` 字符串命中（描述混淆）：`/mcp` `/mcp-config` `/model` `/memory` `/init` `/export` `/editor` `/docs` `/context` `/add-dir` `/copy` `/resume` `/tools` `/settings` `/usage` `/vim` `/statusline` `/setup-github` `/security-review` `/review` `/quest` `/voice` `/goal` `/remote-control`
-- help 文本 `"/xxx"` 字符串：`/usage` `/token` `/authorize` `/compare` `/metrics` `/otel` `/hook-config` `/mcp-config` `/remote-control`
+- 明文 `name:"…",description:"…"` 注册：`/about` `/agents` `/corgi`（gemini 彩蛋）`/diff` `/feedback` `/help` `/hooks` `/login` `/marketplace` `/new` `/permissions` `/plugins` `/privacy` `/quit` `/reload` `/rewind` `/skills` `/status` `/theme` 等
+- `name:"…"` 字符串命中（描述当时未解码）：`/mcp` `/model` `/memory` `/init` `/export` `/editor` `/docs` `/context` `/add-dir` `/copy` `/resume` `/tools` `/settings` `/usage` `/vim` `/statusline` `/setup-github` `/review` `/voice` `/goal` `/remote-control` 等
+- ~~help 文本 `"/xxx"` 字符串~~：`/token` `/authorize` `/compare` `/metrics` `/otel` `/hook-config` 经复核为 **OAuth/Prometheus 端点或内部路由，非 slash 命令**（详末节更正表）
 
 **工具类导出表**（esbuild re-export 明文，21 个）：`ReadFileTool` `WriteFileTool` `EditTool` `GlobTool` `RipGrepTool`（无独立 GrepTool/LSTool）`ShellTool` `WebFetchTool` `WebSearchTool` **`ImageSearchTool`**（gemini-cli 上游 0 命中，Qoder 新增）`AskUserTool` `ActivateSkillTool` `WriteTodosTool` `McpAuthTool` `TaskTool` `MemoryTool` + **Tracker 族 ×6**（`TrackerCreateTaskTool` / `TrackerUpdateTaskTool` / `TrackerGetTaskTool` / `TrackerListTasksTool` / `TrackerAddDependencyTool` / `TrackerVisualizeTool`，gemini-cli 上游已有）+ `DiscoveredMCPTool`
 
@@ -84,6 +84,58 @@
 **外部佐证**（npm 发布史）：Go 版 0.x 持续发版至 **05-18**，**1.0.0 于 05-19 上线**——4 月底 fork → 约 3 周品牌化改造（`qoder` 改名 747 处、自营网关/PAT/credit、`_$d()` 混淆、.sb 环境变量改名）→ 上线；期间 Go 版与 JS 版并行维护约一个月，说明换底座是计划内动作。版本夹逼：v0.39.0（04-23）尚无 /voice，v0.41.0（05-05）已有 `ignoreLocalEnv`——**v0.40.0/v0.40.1（04-28/04-30）恰落窗口正中**。
 
 > 注：以上日期为上游 main 合入日；若 Qoder 曾持续 rebase，测得的是"最后一次同步点"而非"首次 fork 点"，但对"代码基线属于哪个时期"答案相同。
+
+### 命令清单：解码 `_$d()` 后的权威重提取（2026-06-13 复核）
+
+**背景更正**：早前的命令清单是"下界提取"——只抓 `name:"x",description:"明文"` 的对象，因此**漏掉了所有描述被混淆的命令**（假阴性），又把 help/端点文本里的 `"/xxx"` 误当命令（假阳性）。本次解出混淆函数后重做，得到权威清单。
+
+**`_$d()` 反混淆**（bundle 内函数原文）：
+
+```js
+_$d = (s, k="tBpirNfrja2H") => {
+  const b = Buffer.from(s, "base64");
+  for (let i=0; i<b.length; i++) b[i] ^= k.charCodeAt(i % k.length);
+  return b.toString();
+};
+```
+
+即 base64 解码后用固定密钥 `tBpirNfrja2H` 循环异或。命令描述形如 `description:_$d("NTEbSRNu…")`。
+
+**提取法**：锚定 `kind:"built-in"` 反向找最近 `name:"X"`（兼容 `altNames`/模板字符串 ``description:`...` `` 等变体），另抓 `registerBundledSkill({name:"X"})`。
+
+**内置 slash 命令（kind:"built-in"，78 个 name 含子命令；顶层 ≈ 50）**——解码后确认存在的代表项（含别名）：
+
+`/about` `/add-dir` `/agents`(agent) `/branch` `/btw`（"Ask a quick side question without interrupting the main conversation"）`/clear` `/commands` `/compact`(summarize,compress) `/context` `/continue` `/copy` `/corgi` `/diff` `/docs` `/editor` `/export` `/feedback`(bug) `/help` `/hooks` `/init` `/insights`（分析 Qoder 会话生成报告）`/kanban`（看板后端）`/login`(signin) `/logout`(signout) `/marketplace`(market) `/mcp` `/memory` `/model` `/new` `/permissions` `/plan`（Toggle Plan Mode）`/plugins`(plugin) `/privacy` `/profile` `/qr-code`（远程会话扫码）`/quit`(exit) `/release-notes` `/remote-control` `/remote-env`（云端远程环境）`/rename` `/resume` `/review` `/rewind`(checkpoint) `/settings`(config) `/setup-github` `/shortcuts` `/skills` `/statusline` `/tasks`(bg,background，"Show background tasks panel") `/theme` `/tools` `/usage` `/vim` `/voice`；插件子命令 install/uninstall/enable/disable/update/validate；`/goal`（独立注册，子命令 `set|status|clear|pause|resume|take`）
+
+**Bundled skills（`registerBundledSkill`，8 个）**：`batch` `debug` `loop` `mcp-config` `quest` `remember` `security-review` `simplify`
+
+**关键更正**：
+
+| 命令 | 早前结论 | 解码后真相 |
+|---|---|---|
+| `/btw` | ❌ 标"—"（Qwen 独有）| **存在**，描述与 Qwen `/btw` 几乎一字不差 |
+| `/branch` `/rename` `/plan` `/compact` `/tasks` `/settings` `/tools` `/setup-github` `/export` `/goal` | ❌ 标"—"或弱证据 | **均存在**（描述曾被 `_$d()` 混淆而漏判）|
+| `/loop` `/batch` `/simplify` `/remember` | ❌ 标"未见 bundled 命令" | **存在**（bundled skills，与 Qwen 同名）|
+| `/token` `/authorize` `/compare` `/metrics` `/otel` `/hook-config` | ⚠️ 曾误列为命令 | **非命令**：`/token`/`/authorize` 是 OAuth 端点 URL、`/metrics` 是 Prometheus 端点、`/hook-config` 是内部路由（真命令是 `/hooks`）|
+
+**Qwen 有、Qoder 确实没有**（name 计数全 0，确认）：`/recap` `/arena` `/insight`（单数；Qoder 是 `/insights` 会话分析，含义不同）`/language` `/terminal-setup` `/ide` `/lsp` `/trust` `/approval-mode` `/dream` `/forget` `/summary`（但 `/compact` 带 summarize 别名）。
+
+### SubAgent 视图（subagentProgress + /tasks 面板）
+
+Task 工具（subagent，名 `task` / `delegate`）执行时通过 **`subagentProgress`** 事件驱动 TUI：
+
+```
+{ isSubagentProgress:true, agentName, state, recentActivity:[{id,type,content,status}] }
+```
+
+- **状态机**（字符串字面量计数）：`pending`(49) → `queued`(8) → `running`(87) / `in_progress`(23) → `completed`(97) / `error`
+- **`recentActivity`**：实时滚动近期活动，type ∈ `thought`(8) / `action`(7) / `tool_call`(3) / `tool_result`(20)，运行中显示 `{type:"thought",content:"Working...",status:"running"}`
+- **渲染**：树形盒绘字符 `├ └ │ ⎿`（Gemini/Claude 血脉），`elapsed`/`duration` 计时
+- **`/tasks`**（别名 `/bg` `/background`）：`custom_dialog` 组件弹出"background tasks panel"，统一跟踪后台 subagent + shell 命令
+- **`/agents`**（别名 `/agent`）：`createAgentsCommand()` 管理 agent 定义（创建/列表）
+- **无常驻并行面板**：未见 Qwen 的 `LiveAgentPanel`/`InlineParallelAgentsDisplay` 或 Claude `CoordinatorTaskPanel` 等价物（`parallel` 14× 多指并行工具调用，非并行 agent 编队）；subagent 进度以**内联树形 + 后台面板**两态呈现
+
+> 提取时间：2026-06-13。命令/技能名为明文字面量（高可信）；描述经 `_$d()` 解码（确定性，可复现）。
 
 **结论**：Qoder CLI v1.0 与 Qwen Code 是 **Gemini CLI 的两个兄弟 fork**（均阿里系），但 **Qoder 直接 fork 自 Gemini CLI，未经过 Qwen Code**。完整对比见 [Qwen Code vs Qoder CLI](../../comparison/qwen-code-vs-qoder-cli.md)。
 
