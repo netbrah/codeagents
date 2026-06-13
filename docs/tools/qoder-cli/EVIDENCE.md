@@ -137,6 +137,19 @@ Task 工具（subagent，名 `task` / `delegate`）执行时通过 **`subagentPr
 
 > 提取时间：2026-06-13。命令/技能名为明文字面量（高可信）；描述经 `_$d()` 解码（确定性，可复现）。
 
+### 被集成 / 北向接口（2026-06-13）
+
+Qoder 作为"被集成对象"的能力，bundle 实证：
+
+- **ACP**：仅 stdio——`--acp` flag + 配置项 `acpMode`（默认 false）+ `acpAuthenticatedType` + `acp-session`，从 Gemini CLI 继承。**无 HTTP/WS ACP**（对比 Qwen `/acp` HTTP+WS）。
+- **MCP**：**仅客户端**——`qoder mcp` 子命令为 `add` / `add-json` / `get` / `list` / `remove` / `auth`，**无 `serve`**。即 Qoder 不能被当 MCP server 调用（对比 Qwen `qwen-serve-bridge`）。
+- **SDK**：**无公开 SDK 包**。`bundle/` 下唯一 `.d.ts` 是残留的 `@google/gemini-cli-devtools`。
+- **headless**：`-p/--print`（commander `option("-p, --print")`）+ `--output-format` + `--input-format`（含 `stream-json`，27×）+ `--headless`（3×）。
+- **远程控制**（Qoder 自有，解码描述）：`/remote-control`="Start the remote-control daemon"；`--remote-control`="Run as a headless remote-control worker"；`--remote`="Create a cloud remote session and print its access URL"；`--teleport`="Load and attach to a remote session"；`--remote-session`="Cold-load and attach to an existing remote session"；`/remote-env`="Choose the default cloud remote environment"；`/qr-code`="Print a scannable QR for the current remote session"；`/start`="Connect the current session to a remote endpoint"。→ 一套**绑定 Qoder 云、由 web/mobile 端控制**的闭环，非开放第三方 API。
+- **甄别**：bundle 内 `zed` 713× 经核为**内部状态库**（`zedState` 184× / `zedProps` 61× / `zedUserClient` / `zedTranscript`），`zed-acp`/`zedAcp`/`zed editor` 均为 0——**不是 Zed 编辑器集成**（IDE 集成走标准 ACP stdio）。
+
+**结论**：Qoder 被集成面 = headless CLI + 标准 ACP stdio + Qoder 云远程控制；**无开放 HTTP daemon / 无 MCP-server / 无 SDK**。对比见 [Qwen Code vs Qoder CLI §七 被集成能力](../../comparison/qwen-code-vs-qoder-cli.md#七被集成能力作为服务端--可嵌入对象)。
+
 **结论**：Qoder CLI v1.0 与 Qwen Code 是 **Gemini CLI 的两个兄弟 fork**（均阿里系），但 **Qoder 直接 fork 自 Gemini CLI，未经过 Qwen Code**。完整对比见 [Qwen Code vs Qoder CLI](../../comparison/qwen-code-vs-qoder-cli.md)。
 
 ---
