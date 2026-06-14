@@ -120,22 +120,48 @@ _$d = (s, k="tBpirNfrja2H") => {
 
 **Qwen 有、Qoder 确实没有**（name 计数全 0，确认）：`/recap` `/arena` `/insight`（单数；Qoder 是 `/insights` 会话分析，含义不同）`/language` `/terminal-setup` `/ide` `/lsp` `/trust` `/approval-mode` `/dream` `/forget` `/summary`（但 `/compact` 带 summarize 别名）。
 
-### SubAgent 视图（subagentProgress + /tasks 面板）
+### SubAgent 系统（仔细调研，2026-06-14 复核）
 
-Task 工具（subagent，名 `task` / `delegate`）执行时通过 **`subagentProgress`** 事件驱动 TUI：
+**反框架发现**：subagent 体系**不是 Gemini CLI 基座带来的**——上游 gemini-cli 无 `tools/agent/`、无 `subagents/`、无 `subagent_type`/fork/内置 agent 注册表（逐一 grep 确认）。**Qwen 与 Qoder 各自在 Gemini 基座上叠了一套 Claude Code 式 agent 系统**：内置 agent 描述文案在两侧**逐字相同**且是 Claude Code 原文。
+
+**Qoder 内置 agent（`kind:"local"`，解码 8 个）**：
+
+| agent | 描述（解码） |
+|---|---|
+| `general-purpose` | General-purpose agent for researching complex questions… |
+| `Explore` | Fast agent specialized for exploring codebases…（与 Qwen 逐字相同）|
+| `Plan` | Software architect agent for designing implementation plans（Claude 的 Plan agent）|
+| `fork` | **Implicit fork — inherits full conversation context. Not selectable via subagent_type…**（与 Qwen FORK_AGENT 逐字相同）|
+| `SaveMemory` | Writes and reads memory, preferences or facts across ALL future… |
+| `statusline-setup` | Use this agent to configure the user's custom status line… |
+| `skill-fork` | Forked skill execution |
+| `skill-extractor` | Extracts reusable skills from past conversation sessions… |
+
+对比 Qwen 内置 4 个（`general-purpose`/`Explore`(`model:'fast'`)/`statusline-setup`/`fork`）——**Qoder 反而更多**（多 Plan/SaveMemory/skill-extractor）。
+
+**Task 工具（subagent，`task`/`delegate`）参数（解码描述）**：
+- `subagent_type`："The type of specialized agent to use for this task"，默认 `general-purpose`；触发逻辑 `subagent_type ?? (WCe()?void 0:"general-purpose")`——省略且 fork 开启即隐式 fork（**与 Qwen 逐字相同**）
+- `isolation`：`enum["default","worktree"]`，"Use worktree to force execution in an isolated git worktree"
+- `run_in_background`："notified when it completes"
+- `description`："A short (3-5 word) description"
+- 权限按 agent 维度匹配：`Sri(rules, name, subagent_type)`
+
+**多代理协作（teammate）——两家都有，深浅不同**：
+- Qoder：`teammate_mailbox`(4×，渲染 `{from:agentName, text:result, timestamp, state}`)、`teammateName`(6)、`teammate_shutdown_batch`(1)——**仅并行结果聚合**，无生命周期事件、无 broadcast、无 `team_*` 工具、无持久任务板（`createTeam` 1× 实为 protobuf 枚举假阳性）
+- Qwen（对照）：`teammate_message`(35) + 生命周期 `teammate_joined`/`_idle`/`_exited`/`_status`/`_approval` + broadcast + 共享任务板 `~/.qwen/tasks/{team}` + `team_create`/`team_delete`/`task_*` 工具——**完整 Agent Team**
+
+**进度展示（subagentProgress + /tasks 面板）**：
 
 ```
 { isSubagentProgress:true, agentName, state, recentActivity:[{id,type,content,status}] }
 ```
+- 状态机：`pending`(49) → `queued`(8) → `running`(87) / `in_progress`(23) → `completed`(97) / `error`
+- `recentActivity`：type ∈ `thought`/`action`/`tool_call`/`tool_result`，运行中 `{type:"thought",content:"Working...",status:"running"}`
+- 渲染：树形盒绘 `├ └ │ ⎿` + `elapsed`/`duration` 计时
+- `/tasks`（`bg`/`background`）：`custom_dialog` "background tasks panel"，跟踪后台 subagent + shell
+- **无常驻并行面板**：未见 Qwen `LiveAgentPanel`/`InlineParallelAgentsDisplay`；并行 subagent 结果汇入 `teammate_mailbox` 视图
 
-- **状态机**（字符串字面量计数）：`pending`(49) → `queued`(8) → `running`(87) / `in_progress`(23) → `completed`(97) / `error`
-- **`recentActivity`**：实时滚动近期活动，type ∈ `thought`(8) / `action`(7) / `tool_call`(3) / `tool_result`(20)，运行中显示 `{type:"thought",content:"Working...",status:"running"}`
-- **渲染**：树形盒绘字符 `├ └ │ ⎿`（Gemini/Claude 血脉），`elapsed`/`duration` 计时
-- **`/tasks`**（别名 `/bg` `/background`）：`custom_dialog` 组件弹出"background tasks panel"，统一跟踪后台 subagent + shell 命令
-- **`/agents`**（别名 `/agent`）：`createAgentsCommand()` 管理 agent 定义（创建/列表）
-- **无常驻并行面板**：未见 Qwen 的 `LiveAgentPanel`/`InlineParallelAgentsDisplay` 或 Claude `CoordinatorTaskPanel` 等价物（`parallel` 14× 多指并行工具调用，非并行 agent 编队）；subagent 进度以**内联树形 + 后台面板**两态呈现
-
-> 提取时间：2026-06-13。命令/技能名为明文字面量（高可信）；描述经 `_$d()` 解码（确定性，可复现）。
+> **更正记录**：早前（06-13）误判"Qoder 无 fork / 无团队层 / 内置 agent 仅 2 个"。仔细解码后：fork **两家都有**（逐字相同）、teammate **两家都有**（Qoder 仅 mailbox 聚合）、Qoder 内置 agent **8 个**（比 Qwen 多）。提取时间 2026-06-14，描述经 `_$d()` 确定性解码。
 
 ### 被集成 / 北向接口（2026-06-13）
 
