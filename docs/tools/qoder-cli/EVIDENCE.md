@@ -163,6 +163,15 @@ _$d = (s, k="tBpirNfrja2H") => {
 
 > **更正记录**：早前（06-13）误判"Qoder 无 fork / 无团队层 / 内置 agent 仅 2 个"。仔细解码后：fork **两家都有**（逐字相同）、teammate **两家都有**（Qoder 仅 mailbox 聚合）、Qoder 内置 agent **8 个**（比 Qwen 多）。提取时间 2026-06-14，描述经 `_$d()` 确定性解码。
 
+### Dynamic Workflow 与 Computer Use（2026-06-14 核查）
+
+bundle 全量字符串核查，**两项 Qoder 均无**（Qwen 两项皆有）：
+
+- **Dynamic Workflow**：`WorkflowOrchestrator` / `pipeline(` / `phase(` / `orchestrat` / `fan-out` **全 0**；`workflow` 4× 仅为 MIME 类型 `application/vnd.oai.workflows` + 遥测字段 `workflow_name`，非编排工具。（Qwen：`tools/workflow/` + `agents/runtime/WorkflowOrchestrator`，注入 JS 脚本 `phase`/`agent`/`parallel`/`pipeline` 确定性 fan-out，单 run ≤1000 `agent()`）
+- **Computer Use**：`computer_use` / `computer-use` / `ComputerUse` / `computerUse` / `list_apps` / `get_app_state` / `press_key` **全 0**；`screenshot`(1) / `type_text`(1) 命中均在语法高亮词表内，非工具。（Qwen：`tools/computer-use/` 9 工具 `computer_use__*`，`computerUseEnabled` 默认 true + deferred 揭示，首次用安装上游二进制 + macOS 权限探测）
+
+完整对比见 [Qwen Code vs Qoder CLI §5.1](../../comparison/qwen-code-vs-qoder-cli.md#51-dynamic-workflow-与-computer-use-专项)。
+
 ### 被集成 / 北向接口（2026-06-13）
 
 Qoder 作为"被集成对象"的能力，bundle 实证：
