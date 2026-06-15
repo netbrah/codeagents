@@ -172,6 +172,18 @@ bundle 全量字符串核查，**两项 Qoder 均无**（Qwen 两项皆有）：
 
 完整对比见 [Qwen Code vs Qoder CLI §5.1](../../comparison/qwen-code-vs-qoder-cli.md#51-dynamic-workflow-与-computer-use-专项)。
 
+### Follow-up / Prompt Suggestion —— Qoder 支持（2026-06-14 核查）
+
+Qoder **实现了**轮后"建议下一步 prompt"（= Claude Code 的 PromptSuggestion / Qwen 的 `followup_suggestion`），**内部命名与 Qwen 相同**：
+
+- **子系统**：`[PromptSuggestion]` 日志全套——`Failed to generate suggestion` / `Raw suggestion output` / `Rejected suggestion`（经 `Xbn()` 校验拒绝劣质）/ `Accepted suggestion`（模型生成，带 `promptId`/`sessionId`）。
+- **事件**：`{type:"prompt_suggestion", suggestion:string, uuid, sessionId}`，内部归类为 `agent_summary`。
+- **同族 fast-model 辅助生成**：`prompt_suggestion`(6×) + `awareness_nudge`(2×，类 nudge) + `generate_session_title`/`title_generation`（自动会话标题）。
+- **对照**：Qwen `followup_suggestion`(42×)/`prompt_suggestion`(15×)/`PromptSuggestion`(32×)——同名同源（Claude Code）。
+- **甄别**：`suggestions:joi(...)`/`suggestions:[...]` 为**权限建议**（"Allow X?" 的 allow/deny 选项），`follow-up`(1×) 为反馈表单"Email for follow-up"，均非此特性。
+
+**但无 Speculation 预执行**：`speculat`/`speculative`/`ghostText`/`Tab to accept` **全 0**——Qoder 只生成建议，不投机预执行（对比 Qwen PR#2525 含预执行）。即**借了 PromptSuggestion 的"建议半"，未借"预执行半"**。
+
 ### Mid-Turn Queue Drain（中途注入 / steering）—— Qoder 支持（2026-06-14 核查）
 
 Qoder **实现了**中途输入注入（= Claude Code 的 steering / Qwen 的 `drainQueue`），命名为 **steering**：
