@@ -16,6 +16,7 @@
 | **[Codex CLI 对标改进（30 项）](./docs/comparison/qwen-code-codex-improvements.md)** | 沙箱 + Apply Patch + Feature Flag + 网络代理 + Sticky Env + Permission Profiles |
 | **[OpenCode 对标改进（35 项）](./docs/comparison/qwen-code-opencode-improvements.md)** | Provider 系统 + Plugin 插件 + Snapshot 快照 + 可配置截断 + 编辑器上下文协议 |
 | **[Qwen × Qoder 整合能力对照](./docs/comparison/qwen-code-qoder-integration.md)** | 两团队整合参考 · 逐子系统中立对照 + 整合建议（往哪侧收敛 / 合并 / 产品层）|
+| **[Claude Code 能力借鉴对比（Qwen vs Qoder）](./docs/comparison/claude-code-borrowing-qwen-vs-qoder.md)** | 两个 Gemini fork 各借 Claude Code 什么 · Qwen 借引擎深度 / Qoder 借表面兼容 |
 | **[功能对比矩阵](./docs/comparison/features.md)** | 15 Agent × 多维度横向对比 |
 | **[开源 Managed Code Agents 对比](./docs/comparison/managed-agents-landscape.md)** | OpenHands / OpenCode / Goose / Hermes + Qwen daemon 设计——对标 Anthropic Managed Agents |
 | **[一页总结（选型速查）](./docs/SUMMARY.md)** | 给没时间看全部文档的人 |
@@ -89,6 +90,7 @@
 | [Codex CLI 对标改进（30 项）](./docs/comparison/qwen-code-codex-improvements.md) | 沙箱 + Apply Patch + Feature Flag + 网络代理 + Sticky Env + Permission Profiles |
 | [OpenCode 对标改进（35 项）](./docs/comparison/qwen-code-opencode-improvements.md) | Provider 系统 + Plugin + Snapshot + 可配置截断 + 编辑器上下文协议 |
 | [Qwen × Qoder 整合能力对照](./docs/comparison/qwen-code-qoder-integration.md) | 两团队整合参考 · 逐子系统中立对照 + 整合建议 |
+| [Claude Code 能力借鉴对比（Qwen vs Qoder）](./docs/comparison/claude-code-borrowing-qwen-vs-qoder.md) | Qwen 借引擎深度 / Qoder 借表面兼容 · ~50 能力点逐类对比 |
 | [Qwen Code 性能优化 Roadmap](./docs/comparison/qwen-code-perf-roadmap.md) | 按 ROI 排序的可执行优化清单 · P0 本周 3 项 + P1 下周 4 项 + P2/P3 备选 + 度量驱动方法 |
 | [ReadFile 工具 Deep-Dive](./docs/comparison/read-file-tool-deep-dive.md) | 12 项 Claude Code FileReadTool 可借鉴能力 · file_unchanged 去重 + token 上限 + 图像 resize + PDF 多策略 + ENOENT 建议等 |
 | [Claude Code vs Qwen Code 内置工具](./docs/comparison/claude-code-vs-qwen-code-builtin-tools.md) | 39 vs 21 工具横向对比 + 11 类 mapping 表 + ToolSearch 延迟加载策略 + Qwen Skill 反超 + Claude 独有 9 项可借鉴 + ToolSearch 与 prefix cache 冲突分析 |
