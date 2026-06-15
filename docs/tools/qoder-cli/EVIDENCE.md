@@ -172,6 +172,17 @@ bundle 全量字符串核查，**两项 Qoder 均无**（Qwen 两项皆有）：
 
 完整对比见 [Qwen Code vs Qoder CLI §5.1](../../comparison/qwen-code-vs-qoder-cli.md#51-dynamic-workflow-与-computer-use-专项)。
 
+### Mid-Turn Queue Drain（中途注入 / steering）—— Qoder 支持（2026-06-14 核查）
+
+Qoder **实现了**中途输入注入（= Claude Code 的 steering / Qwen 的 `drainQueue`），命名为 **steering**：
+
+- **机制**：`InjectionService`——用户在 agent 运行中提交输入 → `addInjection(input, "user_steering")` 排队（带 `isEnabled()` 开关）；轮次循环用 `getInjectionsAfter(this.startIndex, "user_steering")` 捞取**开始后**排队的注入并消费。
+- **注入格式**：`tmi(A)` 包成 `<user_input>…</user_input>`；`nmi(A)` 生成 `"User steering update:\n<user_input>…"`；`omi(A)` 生成 `"User hints:\n…"`；确认 `promptId:"steering-ack"`。
+- **UI**：React hook 监听 `user_steering` 注入（`injectionListeners`），输入触发 `addInjection(i,"user_steering")` + `{type:"hint",text:i}`。
+- **甄别**：`drain`(5)/`queued`(4) 命中为 Node socket/stream backpressure（`writableNeedDrain`/`kestrel.queued_connections`），`pendingMessage`(3) 为 gRPC 协议 listener，均非用户输入队列——真机制是 `user_steering` 注入。
+
+**结论**：Qoder ✅ 支持中途注入（steering）。与 Qwen `drainQueue`、Claude Code steering **能力等价、命名不同**。早前对标文档误标"未见"，已更正。
+
 ### Tool Search（工具延迟加载）—— Qoder 不支持（2026-06-14 核查）
 
 - **无模型可调用的 search 工具**：`tool_search` / `ToolSearchTool` / `search_tools` / `load_tool` / `discover_tools`（工具名）**全 0**；工具导出表仅 `DiscoveredMCPTool` / `DiscoveredTool` / `ImageSearchTool` / `WebSearchTool`，无延迟加载工具。
