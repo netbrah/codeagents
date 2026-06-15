@@ -4,6 +4,8 @@
 >
 > 证据：本地分析 `@qoder-ai/qodercli` v1.0.18（2026-06-11 npm 最新版）的 34 MB esbuild bundle，与 qwen-code / gemini-cli 源码三方对照（详细提取记录见 [Qoder CLI EVIDENCE](../tools/qoder-cli/EVIDENCE.md)）。
 >
+> **延伸**：本文是对称的双向对比；若只看"Qwen Code 能从 Qoder 借鉴什么"，见 [Qoder CLI 对标改进报告（12 项）](./qwen-code-qoder-improvements.md)。
+>
 > **方法论提示**：Qoder bundle 对字符串字面量做了混淆（`_$d(base64)` = base64 解码后用密钥 `tBpirNfrja2H` 循环异或）。**命令名是明文字面量**（可靠），**描述被 `_$d()` 混淆**。本文命令清单已**解码 `_$d()` 后重做**（锚定 `kind:"built-in"` 提取 + `registerBundledSkill`），是权威清单——早前依赖明文 name+desc 的"下界提取"曾产生假阴性（漏 `/btw` `/compact` `/tasks` 等）与假阳性（把 OAuth/Prometheus 端点 `/token` `/metrics` 误当命令），现已更正。工具/参数侧的 wire 名仍部分混淆，标注下界。详见 [EVIDENCE：命令清单解码重提取](../tools/qoder-cli/EVIDENCE.md#命令清单解码-_d-后的权威重提取2026-06-13复核)。
 
 ## TL;DR
