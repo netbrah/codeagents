@@ -172,6 +172,15 @@ bundle 全量字符串核查，**两项 Qoder 均无**（Qwen 两项皆有）：
 
 完整对比见 [Qwen Code vs Qoder CLI §5.1](../../comparison/qwen-code-vs-qoder-cli.md#51-dynamic-workflow-与-computer-use-专项)。
 
+### Tool Search（工具延迟加载）—— Qoder 不支持（2026-06-14 核查）
+
+- **无模型可调用的 search 工具**：`tool_search` / `ToolSearchTool` / `search_tools` / `load_tool` / `discover_tools`（工具名）**全 0**；工具导出表仅 `DiscoveredMCPTool` / `DiscoveredTool` / `ImageSearchTool` / `WebSearchTool`，无延迟加载工具。
+- **有但不同机制**：`deferred_tools_delta`（1×）渲染 `"Tools now available"` / `"Tools no longer available"`（与 `mcp_instructions_delta` 同类的 transcript delta）+ `deferred_tool_use`（schema 可选字段）。这是**工具可用性变化的推送通知**，非模型主动 query+加载延迟 schema。
+- **血脉**：`deferred_tools_delta` 在 Qwen 源码与 gemini-cli 上游均无 → Qoder 自有；`tool_search` 是 Qwen 自加（上游无）。
+- **影响**：Qoder 工具**全量注册进 system prompt**，无 Qwen `tool_search` 那种把大量 MCP/外部工具 deferred 起来省 token 的能力。
+
+对比见 [Qwen Code vs Qoder CLI §5.2](../../comparison/qwen-code-vs-qoder-cli.md#52-tool-search工具延迟加载)。
+
 ### 被集成 / 北向接口（2026-06-13）
 
 Qoder 作为"被集成对象"的能力，bundle 实证：
