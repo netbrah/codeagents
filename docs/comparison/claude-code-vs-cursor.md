@@ -1,206 +1,206 @@
-# 15. Claude Code vs Cursor：终端代理 vs AI IDE
+# 15. Claude Code vs Cursor: Terminal Agent vs AI IDE
 
-> Claude Code（Anthropic 终端原生代理）vs Cursor（AI 原生 IDE）——两大商业 AI 编程工具的全面对比。一个扎根终端，一个重塑编辑器，代表了 AI 辅助开发的两条路径。
+> Claude Code (Anthropic's terminal-native agent) vs Cursor (AI-native IDE) -- a comprehensive comparison of two major commercial AI coding tools. One is rooted in the terminal; the other reshapes the editor. Together they represent two paths for AI-assisted development.
 
-## 定位对比
+## Positioning Comparison
 
-| 维度 | Claude Code | Cursor |
+| Dimension | Claude Code | Cursor |
 |------|------------|--------|
-| **开发者** | Anthropic | Anysphere |
-| **许可证** | 专有（闭源） | 专有（闭源） |
-| **形态** | 终端 CLI 代理 | VS Code 分叉 IDE |
-| **定价** | API token 按量计费 / Max 订阅 | 订阅制（Free / Pro / Business） |
-| **核心模型** | Claude 系列（锁定） | 多模型（Claude / GPT / Gemini） |
-| **架构** | Rust 原生 CLI | Electron + VS Code 扩展架构 |
-| **实现语言** | Rust | TypeScript |
-| **操作系统** | macOS / Linux（终端） | macOS / Linux / Windows |
-| **上下文窗口** | 100 万 token（Opus 4.6） | 依模型而定，最大 20 万 token |
-| **目标用户** | 终端重度用户、高级开发者 | 全谱系开发者、团队 |
+| **Developer** | Anthropic | Anysphere |
+| **License** | Proprietary (closed source) | Proprietary (closed source) |
+| **Form factor** | Terminal CLI agent | VS Code fork IDE |
+| **Pricing** | API token pay-as-you-go / Max subscription | Subscription (Free / Pro / Business) |
+| **Core models** | Claude series (locked) | Multi-model (Claude / GPT / Gemini) |
+| **Architecture** | Native Rust CLI | Electron + VS Code extension architecture |
+| **Implementation language** | Rust | TypeScript |
+| **Operating systems** | macOS / Linux (terminal) | macOS / Linux / Windows |
+| **Context window** | 1M tokens (Opus 4.6) | Model-dependent, up to 200k tokens |
+| **Target users** | Terminal-heavy users and advanced developers | Full spectrum of developers and teams |
 
 ---
 
-## 1. 交互模式
+## 1. Interaction Model
 
-### Claude Code：终端 CLI
-
-```
-$ claude "重构 auth 模块"
-> 分析项目结构...
-> 读取 src/auth/*.ts（12 个文件）
-> 创建重构计划...
-> 执行文件修改...
-> 运行测试验证...
-✓ 重构完成，已修改 8 个文件
-```
-
-- **REPL 交互**：在终端中与 AI 实时对话，流式输出
-- **管道集成**：可与 `git`、`grep`、`jq` 等 Unix 工具无缝配合
-- **无头模式**：`claude -p` 支持脚本化调用和 CI/CD 集成
-- **SSH 友好**：远程服务器上直接使用，无需 GUI
-
-### Cursor：AI 原生 IDE
+### Claude Code: Terminal CLI
 
 ```
-Cursor 编辑器界面
-├── 代码编辑区（实时内联建议）
-├── Chat 面板（侧边对话）
-├── Composer（多文件编辑代理）
-└── 终端（内置 + AI 辅助）
+$ claude "Refactor the auth module"
+> Analyzing project structure...
+> Reading src/auth/*.ts (12 files)
+> Creating refactor plan...
+> Applying file changes...
+> Running tests for validation...
+✓ Refactor complete, modified 8 files
 ```
 
-- **内联补全**：Tab 键接受 AI 代码建议，体验接近 Copilot
-- **可视化差异**：直接在编辑器中预览 AI 修改，逐块接受/拒绝
-- **Cmd+K 编辑**：选中代码后用自然语言指令修改
-- **GUI 交互**：所有操作可通过鼠标/快捷键完成
+- **REPL interaction**: real-time conversation with AI in the terminal, with streaming output
+- **Pipeline integration**: works seamlessly with Unix tools such as `git`, `grep`, and `jq`
+- **Headless mode**: `claude -p` supports scripted invocation and CI/CD integration
+- **SSH-friendly**: can be used directly on remote servers without a GUI
 
-### 关键差异
+### Cursor: AI-native IDE
 
-| 维度 | Claude Code | Cursor |
+```
+Cursor editor interface
+├── Code editor area (real-time inline suggestions)
+├── Chat panel (side conversation)
+├── Composer (multi-file editing agent)
+└── Terminal (built-in + AI assistance)
+```
+
+- **Inline completion**: press Tab to accept AI code suggestions; experience is close to Copilot
+- **Visual diffs**: preview AI edits directly in the editor and accept/reject chunk by chunk
+- **Cmd+K editing**: select code and modify it with natural-language instructions
+- **GUI interaction**: all operations can be done through mouse/shortcuts
+
+### Key Differences
+
+| Dimension | Claude Code | Cursor |
 |------|------------|--------|
-| 交互方式 | 纯文本终端 | 图形化 IDE |
-| 学习曲线 | 需要终端经验 | VS Code 用户零成本 |
-| 远程开发 | SSH 原生支持 | 需要 Remote SSH 扩展 |
-| 代码预览 | 文本差异输出 | 可视化 diff 面板 |
-| 自动化 | 管道/脚本原生 | 需要额外配置 |
-| 启动速度 | 毫秒级 | 秒级（Electron） |
+| Interaction method | Plain-text terminal | Graphical IDE |
+| Learning curve | Requires terminal experience | Zero-cost adoption for VS Code users |
+| Remote development | Native SSH support | Requires Remote SSH extension |
+| Code preview | Text diff output | Visual diff panel |
+| Automation | Native pipelines/scripts | Requires extra configuration |
+| Startup speed | Milliseconds | Seconds (Electron) |
 
 ---
 
-## 2. 代理能力
+## 2. Agent Capabilities
 
 ### Claude Code
 
 ```
-用户输入
-  → 系统提示 + CLAUDE.md 项目指令
-  → Claude LLM（流式）
-  → 工具调用（Bash / Read / Edit / Write / Grep / Glob）
-  → 权限检查（allow / ask / deny）
-  → 工具执行（可能沙箱）
-  → 结果回传 LLM
-  → 重复直到完成
+User input
+  -> System prompt + CLAUDE.md project instructions
+  -> Claude LLM (streaming)
+  -> Tool calls (Bash / Read / Edit / Write / Grep / Glob)
+  -> Permission check (allow / ask / deny)
+  -> Tool execution (possibly sandboxed)
+  -> Results returned to LLM
+  -> Repeat until complete
 ```
 
-- **Agent 工具**：通过 `Task` 生成子代理，并行处理子任务
-- **计划模式**：先规划再执行，用户可审批每一步
-- **自动记忆**：跨会话学习项目偏好，写入 CLAUDE.md
-- **工具链**：Bash / Read / Edit / Write / Grep / Glob / Agent / WebFetch 等
+- **Agent tool**: spawns subagents through `Task` to process subtasks in parallel
+- **Plan mode**: plan first, then execute; users can approve each step
+- **Automatic memory**: learns project preferences across sessions and writes to CLAUDE.md
+- **Toolchain**: Bash / Read / Edit / Write / Grep / Glob / Agent / WebFetch, etc.
 
 ### Cursor
 
 ```
-用户输入（Chat / Composer / Cmd+K）
-  → 上下文收集（@-引用 + 代码库索引）
-  → LLM 调用（用户选择模型）
-  → 代码生成 / 修改建议
-  → 用户审查（可视化 diff）
-  → 应用修改
+User input (Chat / Composer / Cmd+K)
+  -> Context collection (@-references + codebase index)
+  -> LLM call (model chosen by user)
+  -> Code generation / edit suggestions
+  -> User review (visual diff)
+  -> Apply changes
 ```
 
-- **Composer**：多文件编辑代理，支持跨文件重构
-- **Background Agent**：云端沙箱中自主执行任务（类似 Claude Code 的无头模式）
-- **Bug Finder**：自动扫描代码库发现潜在问题
-- **内联编辑**：Cmd+K 选中代码直接用自然语言修改
+- **Composer**: multi-file editing agent that supports cross-file refactors
+- **Background Agent**: autonomously runs tasks in a cloud sandbox (similar to Claude Code's headless mode)
+- **Bug Finder**: automatically scans the codebase for potential issues
+- **Inline editing**: use natural language to modify selected code directly with Cmd+K
 
-### 关键差异
+### Key Differences
 
-| 维度 | Claude Code | Cursor |
+| Dimension | Claude Code | Cursor |
 |------|------------|--------|
-| 代理自主性 | 高度自主，可连续执行数十步 | Composer 自主，Chat 需确认 |
-| 子代理 | Task 工具生成并行子代理 | Background Agent（云端沙箱） |
-| 工具调用 | 直接调用系统命令 | 通过 IDE API 间接调用 |
-| 文件修改 | 直接写入文件系统 | 编辑器缓冲区，需用户确认 |
-| 测试执行 | Bash 直接运行 | 内置终端运行 |
-| 多任务 | 多个终端窗口 | 多个 Composer 会话 |
+| Agent autonomy | Highly autonomous; can execute dozens of consecutive steps | Composer is autonomous; Chat requires confirmation |
+| Subagents | Parallel subagents spawned by the Task tool | Background Agent (cloud sandbox) |
+| Tool calls | Direct system-command calls | Indirect calls through IDE APIs |
+| File modifications | Writes directly to the filesystem | Editor buffers, requiring user confirmation |
+| Test execution | Runs directly through Bash | Runs in the built-in terminal |
+| Multitasking | Multiple terminal windows | Multiple Composer sessions |
 
 ---
 
-## 3. 上下文管理
+## 3. Context Management
 
 ### Claude Code
 
-- **100 万 token 上下文**：Opus 4.6 支持超长上下文窗口
-- **自动压缩**：上下文接近上限时自动压缩历史对话
-- **CLAUDE.md 层级**：项目根目录 → 子目录 → 用户级，逐级加载
-- **文件读取**：按需读取文件内容，精确控制上下文消耗
-- **`--resume`**：恢复之前的会话上下文
+- **1M-token context**: Opus 4.6 supports an ultra-long context window
+- **Automatic compaction**: automatically compresses conversation history when context nears the limit
+- **CLAUDE.md hierarchy**: project root -> subdirectories -> user level, loaded progressively
+- **File reading**: reads file contents on demand, precisely controlling context usage
+- **`--resume`**: restores previous session context
 
 ```
-上下文来源优先级：
-1. 系统提示（内置）
-2. CLAUDE.md（项目/目录/用户级）
-3. 用户输入
-4. 工具执行结果（文件内容、命令输出）
-5. 自动记忆（跨会话学习）
+Context-source priority:
+1. System prompt (built-in)
+2. CLAUDE.md (project/directory/user level)
+3. User input
+4. Tool execution results (file contents, command output)
+5. Automatic memory (cross-session learning)
 ```
 
 ### Cursor
 
-- **@-引用系统**：`@file`、`@folder`、`@code`、`@web`、`@docs` 精确引用
-- **代码库索引**：自动构建全项目语义索引，支持模糊搜索
-- **.cursorrules**：项目级指令文件，类似 CLAUDE.md
-- **自动上下文**：编辑器自动附加当前文件、选中代码、终端输出
-- **文档索引**：`@docs` 可索引外部文档作为上下文
+- **@-reference system**: precise references such as `@file`, `@folder`, `@code`, `@web`, `@docs`
+- **Codebase index**: automatically builds a semantic index for the whole project and supports fuzzy search
+- **.cursorrules**: project-level instruction file similar to CLAUDE.md
+- **Automatic context**: the editor automatically attaches the current file, selected code, and terminal output
+- **Documentation index**: `@docs` can index external documentation as context
 
 ```
-上下文来源：
-1. 系统提示 + .cursorrules
-2. @-引用（用户显式指定）
-3. 当前文件 / 选中代码
-4. 代码库索引（语义检索）
-5. 终端输出 / lint 错误
+Context sources:
+1. System prompt + .cursorrules
+2. @-references (explicitly specified by the user)
+3. Current file / selected code
+4. Codebase index (semantic retrieval)
+5. Terminal output / lint errors
 ```
 
-### 关键差异
+### Key Differences
 
-| 维度 | Claude Code | Cursor |
+| Dimension | Claude Code | Cursor |
 |------|------------|--------|
-| 上下文窗口 | 100 万 token | 依模型，最大约 20 万 |
-| 上下文获取 | 主动读取（按需） | 被动索引 + @-引用 |
-| 项目理解 | 运行时动态探索 | 预建索引 + 语义搜索 |
-| 压缩策略 | 自动对话压缩 | 截断 / 新会话 |
-| 项目指令 | CLAUDE.md（多级） | .cursorrules |
-| 跨会话记忆 | 自动记忆 + CLAUDE.md | 无持久记忆 |
+| Context window | 1M tokens | Model-dependent, up to about 200k |
+| Context acquisition | Active reading (on demand) | Passive indexing + @-references |
+| Project understanding | Runtime dynamic exploration | Prebuilt index + semantic search |
+| Compaction strategy | Automatic conversation compaction | Truncation / new session |
+| Project instructions | CLAUDE.md (multi-level) | .cursorrules |
+| Cross-session memory | Automatic memory + CLAUDE.md | No persistent memory |
 
 ---
 
-## 4. 模型支持
+## 4. Model Support
 
 ### Claude Code
 
-- **锁定 Claude 系列**：Sonnet 4 / Opus 4.6 / Haiku
-- **模型切换**：会话内 `/model` 命令切换
-- **自动路由**：简单任务用 Haiku，复杂任务用 Opus
-- **第三方接入**：不支持非 Claude 模型
+- **Locked to Claude series**: Sonnet 4 / Opus 4.6 / Haiku
+- **Model switching**: switch within a session using the `/model` command
+- **Automatic routing**: simple tasks use Haiku; complex tasks use Opus
+- **Third-party access**: non-Claude models are not supported
 
 ### Cursor
 
-- **多模型支持**：
-  - Claude 系列（Sonnet / Opus）
-  - GPT 系列（GPT-4o / o1 / o3）
-  - Gemini 系列（2.5 Pro）
-  - 自定义模型（通过 API key）
-- **模型选择器**：每次对话可选择不同模型
-- **自带配额**：订阅包含一定量的快速请求
+- **Multi-model support**:
+  - Claude series (Sonnet / Opus)
+  - GPT series (GPT-4o / o1 / o3)
+  - Gemini series (2.5 Pro)
+  - Custom models (via API key)
+- **Model selector**: choose a different model for each conversation
+- **Included quota**: subscriptions include a certain number of fast requests
 
-### 关键差异
+### Key Differences
 
-| 维度 | Claude Code | Cursor |
+| Dimension | Claude Code | Cursor |
 |------|------------|--------|
-| 模型锁定 | 仅 Claude | 多提供商 |
-| 最强模型 | Opus 4.6（100 万上下文） | 取决于用户选择 |
-| 模型切换 | `/model` 命令 | 下拉菜单 |
-| 自定义模型 | 不支持 | 支持 API key 接入 |
-| 计费方式 | 按 token 消耗 | 订阅内含快速请求 |
+| Model lock-in | Claude only | Multi-provider |
+| Strongest model | Opus 4.6 (1M context) | Depends on user choice |
+| Model switching | `/model` command | Dropdown menu |
+| Custom models | Not supported | API key access supported |
+| Billing model | Based on token usage | Fast requests included in subscription |
 
 ---
 
-## 5. 扩展性
+## 5. Extensibility
 
 ### Claude Code
 
 ```toml
-# MCP 服务器配置（~/.claude/settings.json）
+# MCP server configuration (~/.claude/settings.json)
 {
   "mcpServers": {
     "github": {
@@ -211,230 +211,230 @@ Cursor 编辑器界面
 }
 ```
 
-- **MCP 协议**：标准化工具扩展，支持 GitHub / Jira / 数据库等
-- **Prompt Hooks（钩子 (Hook)）**：PreToolUse / PostToolUse / Stop 钩子 (Hook)，自定义工作流
-- **自定义斜杠命令**：`.claude/commands/` 目录下定义项目命令
-- **13 个官方插件 (Plugin)**：GitHub / Linear / Sentry 等
+- **MCP protocol**: standardized tool extension for GitHub / Jira / databases, etc.
+- **Prompt Hooks**: PreToolUse / PostToolUse / Stop Hooks for custom workflows
+- **Custom slash commands**: define project commands under `.claude/commands/`
+- **13 official plugins**: GitHub / Linear / Sentry, etc.
 
 ### Cursor
 
 ```
-Cursor 扩展体系：
-├── VS Code 扩展市场（完全兼容）
-├── .cursorrules（项目指令）
-├── MCP 服务器（工具扩展）
-├── @-引用自定义文档
-└── 自定义 AI 规则
+Cursor extension system:
+├── VS Code Extension Marketplace (fully compatible)
+├── .cursorrules (project instructions)
+├── MCP servers (tool extensions)
+├── @-reference custom documentation
+└── Custom AI rules
 ```
 
-- **VS Code 扩展**：继承整个 VS Code 扩展生态
-- **MCP 支持**：同样支持 MCP 协议接入外部工具
-- **Rules 系统**：项目级 / 用户级规则文件
-- **文档索引**：`@docs` 添加自定义文档源
+- **VS Code extensions**: inherits the entire VS Code extension ecosystem
+- **MCP support**: also supports MCP protocol access to external tools
+- **Rules system**: project-level / user-level rule files
+- **Documentation index**: add custom documentation sources through `@docs`
 
-### 关键差异
+### Key Differences
 
-| 维度 | Claude Code | Cursor |
+| Dimension | Claude Code | Cursor |
 |------|------------|--------|
-| 插件生态 | MCP + 13 个官方插件 | VS Code 市场 + MCP |
-| 扩展规模 | 有限但精准 | 海量（VS Code 生态） |
-| 工作流定制 | Prompt Hooks（代码级） | Rules（声明式） |
-| 项目指令 | CLAUDE.md + 自定义命令 | .cursorrules + Rules |
-| 协议标准 | MCP 原生支持 | MCP 支持 + 扩展 API |
+| Plugin ecosystem | MCP + 13 official plugins | VS Code Marketplace + MCP |
+| Extension scale | Limited but focused | Massive (VS Code ecosystem) |
+| Workflow customization | Prompt Hooks (code-level) | Rules (declarative) |
+| Project instructions | CLAUDE.md + custom commands | .cursorrules + Rules |
+| Protocol standard | Native MCP support | MCP support + extension APIs |
 
 ---
 
-## 6. Git 集成
+## 6. Git Integration
 
 ### Claude Code
 
 ```bash
-# 原生 Git 操作
-$ claude "提交当前更改"
-> 运行 git status...
-> 分析变更内容...
-> 生成 commit message...
-> 执行 git add + git commit
-✓ 已提交：fix: resolve auth token refresh race condition
+# Native Git operations
+$ claude "Commit the current changes"
+> Running git status...
+> Analyzing changes...
+> Generating commit message...
+> Running git add + git commit
+✓ Committed: fix: resolve auth token refresh race condition
 
-# PR 工作流
-$ claude "创建 PR"
-> 分析分支差异...
-> 生成 PR 标题和描述...
-> 执行 gh pr create
-✓ PR #142 已创建
+# PR workflow
+$ claude "Create a PR"
+> Analyzing branch diff...
+> Generating PR title and description...
+> Running gh pr create
+✓ PR #142 created
 ```
 
-- **直接调用 git**：通过 Bash 工具执行所有 git 命令
-- **智能 commit**：自动分析变更生成提交信息
-- **PR 创建**：集成 `gh` CLI，自动生成 PR 描述
-- **冲突解决**：理解 merge conflict 标记并自动解决
+- **Direct git calls**: executes all git commands through the Bash tool
+- **Intelligent commits**: automatically analyzes changes and generates commit messages
+- **PR creation**: integrates with the `gh` CLI and automatically generates PR descriptions
+- **Conflict resolution**: understands merge-conflict markers and resolves them automatically
 
 ### Cursor
 
-- **GUI Git 面板**：继承 VS Code 的 Source Control 面板
-- **AI Commit Message**：一键生成提交信息
-- **可视化 diff**：图形化差异比较
-- **分支管理**：图形界面操作分支
+- **GUI Git panel**: inherits VS Code's Source Control panel
+- **AI Commit Message**: one-click commit-message generation
+- **Visual diff**: graphical diff comparison
+- **Branch management**: operate branches through the graphical interface
 
-### 关键差异
+### Key Differences
 
-| 维度 | Claude Code | Cursor |
+| Dimension | Claude Code | Cursor |
 |------|------------|--------|
-| Git 操作 | 命令行直接执行 | GUI 面板 + 命令行 |
-| Commit 生成 | 深度分析 + 自动执行 | 一键生成消息 |
-| PR 工作流 | 端到端自动化 | 需手动操作 |
-| 冲突解决 | AI 自动解决 | 可视化手动解决 |
-| CI/CD 集成 | 原生脚本集成 | 需额外配置 |
+| Git operations | Direct command-line execution | GUI panel + command line |
+| Commit generation | Deep analysis + automatic execution | One-click message generation |
+| PR workflow | End-to-end automation | Requires manual operations |
+| Conflict resolution | AI automatic resolution | Visual manual resolution |
+| CI/CD integration | Native script integration | Requires extra configuration |
 
 ---
 
-## 7. 团队与企业
+## 7. Teams and Enterprise
 
 ### Claude Code
 
 ```
-设置优先级（5 层）：
-1. 系统级设置（Anthropic 内置）
-2. 企业策略（管理员）
-3. 工作区设置（项目级）
-4. 用户设置（个人）
-5. 项目 CLAUDE.md
-6. 目录级 CLAUDE.md
-7. 用户级 CLAUDE.md
+Settings priority (5 levels):
+1. System-level settings (Anthropic built-in)
+2. Enterprise policy (administrator)
+3. Workspace settings (project level)
+4. User settings (personal)
+5. Project CLAUDE.md
+6. Directory-level CLAUDE.md
+7. User-level CLAUDE.md
 ```
 
-- **Teammates**：共享代理实例，团队协作
-- **企业策略**：管理员控制权限、工具访问、模型选择
-- **Max 订阅**：团队级别的使用量管理
-- **SSO/SCIM**：企业身份管理集成
+- **Teammates**: shared agent instances for team collaboration
+- **Enterprise policies**: administrators control permissions, tool access, and model selection
+- **Max subscription**: team-level usage management
+- **SSO/SCIM**: enterprise identity-management integration
 
 ### Cursor
 
-- **Business 计划**：团队管理 + 集中计费
-- **管理控制台**：成员管理、使用量监控
-- **Privacy Mode**：企业级隐私模式，代码不用于训练
-- **集中规则**：团队共享 .cursorrules
+- **Business plan**: team management + centralized billing
+- **Admin console**: member management and usage monitoring
+- **Privacy Mode**: enterprise-grade privacy mode; code is not used for training
+- **Centralized rules**: team-shared .cursorrules
 
-### 关键差异
+### Key Differences
 
-| 维度 | Claude Code | Cursor |
+| Dimension | Claude Code | Cursor |
 |------|------------|--------|
-| 设置层级 | 5 层优先级体系 | 项目级 + 用户级 |
-| 团队协作 | Teammates 共享代理 | Business 计划团队管理 |
-| 管理粒度 | 企业策略精细控制 | 管理控制台 |
-| 身份管理 | SSO / SCIM | SSO |
-| 审计日志 | 会话级别追踪 | 使用量统计 |
+| Settings hierarchy | 5-level priority system | Project level + user level |
+| Team collaboration | Teammates shared agents | Business-plan team management |
+| Management granularity | Fine-grained enterprise policies | Admin console |
+| Identity management | SSO / SCIM | SSO |
+| Audit logs | Session-level tracing | Usage statistics |
 
 ---
 
-## 8. 安全模型
+## 8. Security Model
 
 ### Claude Code
 
 ```
-权限三级体系：
+Three-level permission system:
 ┌─────────────────────────────────────┐
-│  allow  — 自动允许（白名单工具）     │
-│  ask    — 每次询问用户（默认）       │
-│  deny   — 禁止执行（黑名单）        │
+│  allow  — Automatically allow (allowlisted tools) │
+│  ask    — Ask the user each time (default)        │
+│  deny   — Deny execution (denylist)               │
 └─────────────────────────────────────┘
 
-沙箱机制：
-├── macOS：Seatbelt sandbox-exec
-├── Linux：Docker 容器隔离
-└── 网络：默认允许，可配置限制
+Sandbox mechanism:
+├── macOS: Seatbelt sandbox-exec
+├── Linux: Docker container isolation
+└── Network: allowed by default, configurable restrictions
 ```
 
-- **文件系统沙箱 (Sandbox)**：限制代理访问的目录范围
-- **命令白名单**：精确控制可执行的 shell 命令
-- **Prompt Hooks（钩子 (Hook)）**：PreToolUse 钩子 (Hook) 可拦截危险操作
-- **网络控制**：可限制代理的网络访问范围
+- **Filesystem sandbox**: restricts the directories the agent can access
+- **Command allowlist**: precisely controls executable shell commands
+- **Prompt Hooks**: PreToolUse Hook can intercept dangerous operations
+- **Network control**: can restrict the agent's network access scope
 
 ### Cursor
 
-- **Privacy Mode**：开启后代码不存储在 Cursor 服务器
-- **SOC 2 认证**：企业级安全合规
-- **本地处理**：代码索引在本地构建
-- **代码不训练**：明确承诺不使用用户代码训练模型
+- **Privacy Mode**: when enabled, code is not stored on Cursor servers
+- **SOC 2 certification**: enterprise-grade security compliance
+- **Local processing**: code index is built locally
+- **Code not used for training**: explicit commitment not to train models on user code
 
-### 关键差异
+### Key Differences
 
-| 维度 | Claude Code | Cursor |
+| Dimension | Claude Code | Cursor |
 |------|------------|--------|
-| 执行沙箱 | OS 级沙箱（Seatbelt/Docker） | IDE 进程隔离 |
-| 权限控制 | 三级权限 + 工具粒度 | Privacy Mode 开关 |
-| 数据隐私 | 本地执行，API 传输对话 | Privacy Mode 控制 |
-| 网络限制 | 可配置网络白名单 | 无细粒度网络控制 |
-| 代码访问 | 按需读取，用户可控 | 索引全项目 |
-| 合规认证 | 依赖 Anthropic API 政策 | SOC 2 |
+| Execution sandbox | OS-level sandbox (Seatbelt/Docker) | IDE process isolation |
+| Permission control | Three-level permissions + tool granularity | Privacy Mode switch |
+| Data privacy | Local execution, conversations transmitted via API | Controlled by Privacy Mode |
+| Network restrictions | Configurable network allowlist | No fine-grained network control |
+| Code access | On-demand reading, user-controllable | Indexes the whole project |
+| Compliance certification | Depends on Anthropic API policies | SOC 2 |
 
 ---
 
-## 9. 定价对比
+## 9. Pricing Comparison
 
 ### Claude Code
 
-| 方案 | 价格 | 说明 |
+| Plan | Price | Description |
 |------|------|------|
-| **API 直接计费** | 按 token 计费 | Sonnet ~$3/$15 per 1M token（输入/输出） |
-| **Claude Pro** | $20/月 | 包含有限 Claude Code 使用量 |
-| **Claude Max** | $100-200/月 | 大量 Claude Code 使用量 |
-| **企业 API** | 按量协商 | 批量折扣 + SLA |
+| **Direct API billing** | Per token | Sonnet ~$3/$15 per 1M tokens (input/output) |
+| **Claude Pro** | $20/month | Includes limited Claude Code usage |
+| **Claude Max** | $100-200/month | Large Claude Code usage allowance |
+| **Enterprise API** | Negotiated usage-based | Volume discounts + SLA |
 
 ### Cursor
 
-| 方案 | 价格 | 说明 |
+| Plan | Price | Description |
 |------|------|------|
-| **Hobby** | 免费 | 2000 次补全 + 50 次慢速请求 |
-| **Pro** | $20/月 | 无限补全 + 500 次快速请求 |
-| **Business** | $40/月/人 | 团队管理 + 管理控制台 |
-| **Enterprise** | 定制 | SSO + 审计 + 自定义部署 |
+| **Hobby** | Free | 2,000 completions + 50 slow requests |
+| **Pro** | $20/month | Unlimited completions + 500 fast requests |
+| **Business** | $40/month/person | Team management + admin console |
+| **Enterprise** | Custom | SSO + audit + custom deployment |
 
-### 成本分析
+### Cost Analysis
 
-| 使用场景 | Claude Code 估算 | Cursor 估算 |
+| Usage scenario | Claude Code estimate | Cursor estimate |
 |----------|------------------|-------------|
-| 轻度使用（每天 10 次对话） | ~$20/月（Pro） | $0（Hobby 够用） |
-| 中度使用（每天 30 次对话） | ~$100/月（Max） | $20/月（Pro） |
-| 重度使用（每天 100+ 次对话） | ~$200/月（Max） | $20/月（Pro，含慢速） |
-| 团队（10 人） | ~$2000/月 | $400/月（Business） |
+| Light use (10 conversations/day) | ~$20/month (Pro) | $0 (Hobby is enough) |
+| Medium use (30 conversations/day) | ~$100/month (Max) | $20/month (Pro) |
+| Heavy use (100+ conversations/day) | ~$200/month (Max) | $20/month (Pro, with slow requests) |
+| Team (10 people) | ~$2000/month | $400/month (Business) |
 
 ---
 
-## 选型建议
+## Selection Recommendations
 
-| 用户画像 | 推荐工具 | 理由 |
+| User profile | Recommended tool | Reason |
 |----------|----------|------|
-| **终端重度用户** | Claude Code | 原生终端体验，管道集成，SSH 友好 |
-| **VS Code 用户** | Cursor | 零成本迁移，熟悉的 IDE 体验 |
-| **全栈独立开发者** | Claude Code | 端到端自动化，代理自主性强 |
-| **前端开发者** | Cursor | 可视化预览，内联补全体验好 |
-| **DevOps / SRE** | Claude Code | 脚本集成，CI/CD 自动化 |
-| **团队协作（预算敏感）** | Cursor | 订阅制可预测成本 |
-| **大型代码库** | 两者结合 | Claude Code 深度分析 + Cursor 日常编辑 |
-| **远程服务器开发** | Claude Code | SSH 直连，无需 GUI |
-| **多语言/多模型需求** | Cursor | 多模型选择灵活 |
-| **安全敏感环境** | Claude Code | 细粒度权限控制 + OS 级沙箱 |
+| **Terminal-heavy users** | Claude Code | Native terminal experience, pipeline integration, SSH-friendly |
+| **VS Code users** | Cursor | Zero-cost migration and familiar IDE experience |
+| **Full-stack solo developers** | Claude Code | End-to-end automation and strong agent autonomy |
+| **Frontend developers** | Cursor | Visual previews and strong inline-completion experience |
+| **DevOps / SRE** | Claude Code | Script integration and CI/CD automation |
+| **Team collaboration (budget-sensitive)** | Cursor | Subscription pricing with predictable costs |
+| **Large codebases** | Use both | Claude Code for deep analysis + Cursor for daily editing |
+| **Remote server development** | Claude Code | Direct SSH access without a GUI |
+| **Multi-language/multi-model needs** | Cursor | Flexible multi-model selection |
+| **Security-sensitive environments** | Claude Code | Fine-grained permission control + OS-level sandbox |
 
 ---
 
-## 结论
+## Conclusion
 
-Claude Code 和 Cursor 代表了 AI 辅助编程的两条不同路径：
+Claude Code and Cursor represent two different paths for AI-assisted programming:
 
-**Claude Code 的核心优势**：
-- 终端原生，与 Unix 工具链深度集成
-- 100 万 token 超长上下文，适合理解大型代码库
-- 高度自主的代理能力，端到端完成复杂任务
-- 细粒度安全控制（沙箱 + 三级权限）
-- 5 层设置体系，企业管理灵活
+**Claude Code's core strengths**:
+- Terminal-native, deeply integrated with the Unix toolchain
+- 1M-token ultra-long context, suitable for understanding large codebases
+- Highly autonomous agent capabilities for end-to-end complex tasks
+- Fine-grained security controls (sandbox + three-level permissions)
+- 5-level settings system for flexible enterprise management
 
-**Cursor 的核心优势**：
-- GUI 可视化体验，学习成本低
-- 多模型支持，不锁定单一供应商
-- VS Code 扩展生态，海量插件可用
-- 订阅制定价可预测，有免费层
-- 内联补全体验流畅，适合日常编码
+**Cursor's core strengths**:
+- Visual GUI experience with low learning cost
+- Multi-model support without lock-in to a single provider
+- VS Code extension ecosystem with a huge plugin catalog
+- Predictable subscription pricing with a free tier
+- Smooth inline-completion experience for daily coding
 
-**最佳实践**：两者并非互斥。许多开发者采用组合策略——用 Cursor 处理日常编码和小范围修改，用 Claude Code 执行大型重构、代码审查和自动化任务。终端与 IDE 的互补，往往能发挥 AI 编程工具的最大价值。
+**Best practice**: the two are not mutually exclusive. Many developers use a combined strategy: Cursor for daily coding and small edits, Claude Code for large refactors, code reviews, and automation tasks. The complementarity of terminal and IDE often unlocks the greatest value from AI coding tools.

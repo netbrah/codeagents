@@ -1,90 +1,91 @@
-# 21. 工具执行运行时——开发者参考
+# 21. Tool Execution Runtime — Developer Reference
 
-> 当模型一次返回 5 个工具调用时，哪些可以并行？哪些必须串行？并发结果如何排序？长时间工具如何报告进度？工具能修改共享上下文吗？——这些问题属于**工具执行运行时**，不是工具注册。
+> When the model returns 5 tool calls at once, which can run in parallel? Which must be serial? How should concurrent results be ordered? How should long-running tools report progress? Can tools modify shared context? These questions belong to the **tool execution runtime**, not tool registration.
 >
-> **Qwen Code 对标**：Qwen Code 的 `CoreToolScheduler` 已实现 Agent 工具并行 + 其他工具串行。但缺少进度消息、上下文修改器合并、并发安全分类。
+> **Qwen Code comparison**: Qwen Code's `CoreToolScheduler` already implements parallel Agent tools + serial execution for other tools. However, it lacks progress messages, context-modifier merging, and concurrency-safety classification.
 >
-> **致谢**：概念框架参考 [learn-claude-code](https://github.com/shareAI-lab/learn-claude-code) s02b 章节。
+> **Acknowledgment**: The conceptual framework references the s02b chapter of [learn-claude-code](https://github.com/shareAI-lab/learn-claude-code).
 
-## 一、工具注册 vs 工具执行运行时
+## 1. Tool Registration vs Tool Execution Runtime
 
-| 层 | 关注的问题 | 典型代码 |
+| Layer | Concern | Typical code |
 |---|-----------|---------|
-| **工具注册**（04-tools.md 已覆盖） | Schema 定义、名称映射、权限声明 | `ToolSpec`、`ToolDispatchMap` |
-| **工具执行运行时**（本文） | 并发调度、进度报告、结果排序、上下文合并 | `ToolExecutionBatch`、`TrackedTool` |
+| **Tool registration** (covered in 04-tools.md) | Schema definitions, name mapping, permission declarations | `ToolSpec`, `ToolDispatchMap` |
+| **Tool execution runtime** (this article) | Concurrent scheduling, progress reporting, result ordering, context merging | `ToolExecutionBatch`, `TrackedTool` |
 
-## 二、核心问题
+## 2. Core Problems
 
-### 2.1 并发安全分类
+### 2.1 Concurrency-Safety Classification
 
-不是所有工具都能并行——需要显式分类：
+Not every tool can run in parallel; explicit classification is required:
 
-| 分类 | 含义 | 典型工具 |
+| Classification | Meaning | Typical tools |
 |------|------|---------|
-| **并发安全** | 可与同类工具并行，不破坏共享状态 | `read_file`、`grep`、`glob`、只读 MCP |
-| **非并发安全** | 修改共享状态，必须串行 | `write_file`、`edit`、修改应用状态的工具 |
-| **上下文修改器** | 不仅返回结果，还修改后续工具的执行环境 | `cd`（改工作目录）、权限工具 |
+| **Concurrency-safe** | Can run in parallel with tools of the same class without corrupting shared state | `read_file`, `grep`, `glob`, read-only MCP |
+| **Not concurrency-safe** | Modifies shared state and must run serially | `write_file`, `edit`, tools that modify application state |
+| **Context modifier** | Not only returns a result, but also modifies the execution environment of later tools | `cd` (changes working directory), permission tools |
 
-### 2.2 并发执行模型
+### 2.2 Concurrent Execution Model
 
-Claude Code 的 `StreamingToolExecutor` 将一批工具调用分区后并发执行：
+Claude Code's `StreamingToolExecutor` partitions a batch of tool calls and executes them concurrently:
 
 ```
-模型返回: [read_file(a.ts), read_file(b.ts), edit(c.ts), grep("TODO")]
+Model returns: [read_file(a.ts), read_file(b.ts), edit(c.ts), grep("TODO")]
                                                     │
                                                     ▼
-                                              并发安全分区
+                                          Concurrency-safe partition
                                                     │
                                     ┌───────────────┼───────────┐
                                     │               │           │
                               ┌─────▼─────┐   ┌────▼────┐  ┌──▼──┐
-                              │ 并行批次 1  │   │串行批次 │  │并行 2│
-                              │ read(a.ts) │   │edit(c.ts)│  │grep │
-                              │ read(b.ts) │   └────┬────┘  └──┬──┘
+                              │ Parallel  │   │ Serial  │  │Par.2│
+                              │ batch 1   │   │ batch   │  │grep │
+                              │ read(a.ts)│   │edit(c.ts)│ └──┬──┘
+                              │ read(b.ts)│   └────┬────┘     │
                               └─────┬─────┘        │          │
                                     │               │          │
                                     └───────────────┼──────────┘
                                                     │
-                                              结果排序（原始顺序）
+                                          Result ordering (original order)
                                                     │
-                                              上下文修改器合并
+                                          Context modifier merging
                                                     │
-                                              返回主循环
+                                          Return to main loop
 ```
 
-### 2.3 Gemini CLI 的 Wave-based 调度器
+### 2.3 Gemini CLI's Wave-Based Scheduler
 
-Gemini CLI（Qwen Code 上游）在 v0.35 引入了 `scheduler.ts`，采用波次调度：
+Gemini CLI (Qwen Code's upstream) introduced `scheduler.ts` in v0.35, using wave-based scheduling:
 
 ```
 [read, read, write, read]
-  → Wave 1: [read, read] 并发执行
-  → Wave 2: [write] 串行执行
-  → Wave 3: [read] 执行
+  → Wave 1: [read, read] runs concurrently
+  → Wave 2: [write] runs serially
+  → Wave 3: [read] runs
 ```
 
-Qwen Code 未 backport 此功能——见 [backport 报告 #40](../comparison/qwen-code-gemini-upstream-report-details.md#item-40)。
+Qwen Code has not backported this feature. See [backport report #40](../comparison/qwen-code-gemini-upstream-report-details.md#item-40).
 
-### 2.4 进度消息
+### 2.4 Progress Messages
 
-长时间运行的工具（如 `npm install`、`git clone`）应在执行期间报告进度，而非让用户面对沉默：
+Long-running tools (such as `npm install` and `git clone`) should report progress during execution instead of leaving the user facing silence:
 
 ```
-工具开始 → "正在安装依赖..."
-         → "已安装 42/100 个包..."
-         → "运行 postinstall 脚本..."
-工具完成 → 返回结果
+Tool starts → "Installing dependencies..."
+            → "Installed 42/100 packages..."
+            → "Running postinstall scripts..."
+Tool completes → return result
 ```
 
-### 2.5 结果排序
+### 2.5 Result Ordering
 
-并行执行的工具可能以任意顺序完成。但返回给模型的结果应保持**原始调用顺序**——否则模型可能困惑。
+Tools executed in parallel may complete in any order. But the results returned to the model should preserve the **original call order**; otherwise the model may become confused.
 
-## 三、Qwen Code 的改进方向
+## 3. Improvement Directions for Qwen Code
 
-| 改进 | 当前状态 | 建议 | 优先级 |
+| Improvement | Current status | Recommendation | Priority |
 |------|---------|------|--------|
-| 并发安全分类 | Agent 工具并行，其他串行 | 对所有工具标记 `concurrencySafe: boolean` | P2 |
-| Wave-based 调度 | 未 backport | 从上游复制 `scheduler.ts` | P2 |
-| 进度消息 | 无 | 工具执行超过 3 秒时发射进度事件 | P2 |
-| 上下文修改器合并 | 无 | 识别修改 CWD/环境变量的工具，串行执行 | P3 |
+| Concurrency-safety classification | Agent tools run in parallel; others run serially | Mark all tools with `concurrencySafe: boolean` | P2 |
+| Wave-based scheduling | Not backported | Copy `scheduler.ts` from upstream | P2 |
+| Progress messages | None | Emit progress events when tool execution exceeds 3 seconds | P2 |
+| Context modifier merging | None | Identify tools that modify CWD/environment variables and run them serially | P3 |

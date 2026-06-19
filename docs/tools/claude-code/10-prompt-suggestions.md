@@ -1,65 +1,65 @@
-# 10. Prompt Suggestions（智能补全）——开发者参考
+# 10. Prompt Suggestions — Developer Reference
 
-> 预测用户下一步操作并提前生成建议，Tab 接受后零延迟执行（Speculation 推测执行）。Qwen Code 已实现但默认关闭（PR#2525 ✓ 已合并）。
+> Predicts the user's next action and generates suggestions in advance; after Tab acceptance, execution starts with zero perceived latency (Speculation). Qwen Code has implemented this but keeps it disabled by default (PR#2525 ✓ merged).
 >
-> **Qwen Code 对标**：suggestion 生成流程、12 条过滤规则（避免低质量建议）、Speculation 推测执行（预测 Tab 接受并提前执行 API 调用）
+> **Qwen Code parity target**: suggestion generation flow, 12 filtering rules (to avoid low-quality suggestions), Speculation (predict Tab acceptance and execute API calls in advance)
 >
-> **内部代号**：`tengu_chomp_inflection`（GrowthBook feature flag）
+> **Internal codename**: `tengu_chomp_inflection` (GrowthBook feature flag)
 
-## 为什么需要 Prompt Suggestions
+## Why Prompt Suggestions Are Needed
 
-### 问题定义
+### Problem Definition
 
-Code Agent 的典型交互模式是：用户输入 → Agent 执行 → 用户输入下一步。在"Agent 执行完 → 用户开始输入"之间有一个**决策空白期**——用户需要思考"接下来让 Agent 做什么"。
+A typical Code Agent interaction pattern is: user input → Agent execution → next user input. Between "Agent finishes execution" and "user starts typing", there is a **decision gap**—the user needs to think about "what should I ask the Agent to do next?"
 
-对于 80%+ 的场景，下一步操作是可预测的：
+For 80%+ of scenarios, the next action is predictable:
 
-| Agent 刚做完 | 用户通常会说 |
+| What the Agent just did | What the user usually says |
 |-------------|-------------|
-| 修改了代码 | "运行测试" |
-| 测试失败了 | "修复这个失败" |
-| 创建了文件 | "在这里添加更多功能" |
-| 审查了 PR | "提交这些修改" |
+| Modified code | "run the tests" |
+| Tests failed | "fix this failure" |
+| Created a file | "add more functionality here" |
+| Reviewed a PR | "commit these changes" |
 
-### 设计理念：Speculation（推测执行）
+### Design Philosophy: Speculation
 
-Claude Code 的 Suggestion 系统不只是"显示建议文本"——它在生成建议的同时，**假设用户会接受**，提前向 API 发起推理请求。当用户按 Tab 时，结果已经在路上甚至已经返回，实现**零感知延迟**。
+Claude Code's Suggestion system does more than "display suggestion text"—while generating the suggestion, it **assumes the user will accept it** and sends an inference request to the API in advance. When the user presses Tab, the result is already in flight or even returned, achieving **zero perceived latency**.
 
 ```
-传统流程（无 Speculation）：
-  Agent 完成 → 显示建议 → 用户按 Tab → 发送 API 请求 → 等待 2-5s → 开始执行
-                                      ↑ 延迟在这里
+Traditional flow (without Speculation):
+  Agent completes → Show suggestion → User presses Tab → Send API request → Wait 2-5s → Start execution
+                                      ↑ Latency is here
 
-Speculation 流程：
-  Agent 完成 → 显示建议 → 同时发送 API 请求 → 用户按 Tab → 结果已就绪 → 立即执行
-                           ↑ 延迟被隐藏
+Speculation flow:
+  Agent completes → Show suggestion → Send API request at the same time → User presses Tab → Result ready → Execute immediately
+                           ↑ Latency is hidden
 ```
 
-### 竞品对比
+### Competitive Comparison
 
-| Agent | 智能补全 | 推测执行 | 过滤机制 |
+| Agent | Intelligent completion | Speculative execution | Filtering mechanism |
 |-------|---------|---------|---------|
-| **Claude Code** | ✓ 每轮结束后生成 | ✓ Speculation + Prompt Cache 共享 | 12 条规则 |
-| **Gemini CLI** | ✓ Follow-up suggestions | — | 基础过滤 |
-| **Qwen Code** | ✓ 已实现但默认关闭 | ✓ 已实现（PR#2525） | 需完善 |
+| **Claude Code** | ✓ Generated after each turn ends | ✓ Speculation + shared Prompt Cache | 12 rules |
+| **Gemini CLI** | ✓ Follow-up suggestions | — | Basic filtering |
+| **Qwen Code** | ✓ Implemented but disabled by default | ✓ Implemented (PR#2525) | Needs improvement |
 | **Copilot CLI** | — | — | — |
-| **Cursor** | ✓ Tab 补全 | ✓ Speculative edits | 编辑器级过滤 |
+| **Cursor** | ✓ Tab completion | ✓ Speculative edits | Editor-level filtering |
 
-### 关键风险：低质量建议的代价
+### Key Risk: The Cost of Low-Quality Suggestions
 
-如果建议质量差（如反复建议"继续"、建议已完成的操作），用户会**停止阅读建议**——这比没有建议更糟，因为偶尔的好建议也会被忽略。Claude Code 用 12 条过滤规则解决这个问题。
+If suggestion quality is poor (for example, repeatedly suggesting "continue" or suggesting operations that are already complete), users will **stop reading suggestions**—which is worse than having no suggestions, because occasional good suggestions will also be ignored. Claude Code addresses this with 12 filtering rules.
 
-## 功能概述
+## Feature Overview
 
-Claude Code 在每轮 assistant 回复完成后，自动预测用户下一步可能输入的内容，以蓝紫色提示文本显示在输入框中。用户可通过 Tab/Enter 接受，或直接输入覆盖。
+After each assistant response completes, Claude Code automatically predicts what the user may type next and displays it in the input box as blue-purple hint text. The user can accept it with Tab/Enter, or simply type over it.
 
-## 架构概览
+## Architecture Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  stopHooks.ts                                                   │
 │  query/stopHooks.ts#L139                                        │
-│  每轮 assistant 回复完成后触发                                   │
+│  Triggered after each assistant response completes              │
 │  void executePromptSuggestion(stopHookContext)                  │
 └────────────────────┬────────────────────────────────────────────┘
                      │
@@ -67,11 +67,12 @@ Claude Code 在每轮 assistant 回复完成后，自动预测用户下一步可
 ┌─────────────────────────────────────────────────────────────────┐
 │  executePromptSuggestion()                                      │
 │  services/PromptSuggestion/promptSuggestion.ts#L184             │
-│  仅处理 querySource === 'repl_main_thread' 的主线程请求          │
+│  Only handles main-thread requests where                        │
+│  querySource === 'repl_main_thread'                             │
 │                                                                 │
-│  1. tryGenerateSuggestion() — 守卫检查 + 生成 + 过滤             │
-│  2. 写入 AppState.promptSuggestion                              │
-│  3. 如果 Speculation 启用 → startSpeculation()                  │
+│  1. tryGenerateSuggestion() — guard checks + generation + filter│
+│  2. Write to AppState.promptSuggestion                          │
+│  3. If Speculation is enabled → startSpeculation()              │
 └────────────────────┬────────────────────────────────────────────┘
                      │
               ┌──────┴──────┐
@@ -80,45 +81,47 @@ Claude Code 在每轮 assistant 回复完成后，自动预测用户下一步可
 │ usePromptSuggestion  │  │ startSpeculation()                   │
 │ hooks/               │  │ services/PromptSuggestion/           │
 │ usePromptSuggestion  │  │ speculation.ts                       │
-│ .ts                  │  │ 以 suggestion 为假设输入预执行 agent  │
-│                      │  │ (仅限 Anthropic 内部用户启用)         │
-│ 管理 UI 显示         │  └──────────────────────────────────────┘
-│ Tab/Enter 接受       │
-│ 遥测日志             │
+│ .ts                  │  │ Pre-executes the agent with the       │
+│                      │  │ suggestion as hypothetical input      │
+│                      │  │ (enabled only for internal Anthropic  │
+│                      │  │ users)                               │
+│ Manages UI display   │  └──────────────────────────────────────┘
+│ Tab/Enter acceptance │
+│ Telemetry logging    │
 └──────────────────────┘
 ```
 
-## 生成流程
+## Generation Flow
 
-### 触发入口
+### Trigger Entry Point
 
-每轮 assistant 回复完成后，在 stop hooks 阶段以 fire-and-forget 方式异步发起：
+After each assistant response completes, generation is started asynchronously in fire-and-forget mode during the stop hooks phase:
 
 ```typescript
-// 源码: query/stopHooks.ts#L138-139
+// Source: query/stopHooks.ts#L138-139
 if (!isEnvDefinedFalsy(process.env.CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION)) {
   void executePromptSuggestion(stopHookContext)
 }
 ```
 
-`--bare` 模式（最小化模式，跳过 hooks、LSP、插件同步等）和 `-p`（非交互管道模式）均跳过 suggestion 生成。
+Both `--bare` mode (minimal mode that skips hooks, LSP, plugin sync, and so on) and `-p` (non-interactive pipe mode) skip suggestion generation.
 
-### API 调用方式
+### API Invocation Method
 
-源码: `services/PromptSuggestion/promptSuggestion.ts#L294-352`
+Source: `services/PromptSuggestion/promptSuggestion.ts#L294-352`
 
-调用 `runForkedAgent()` 发起独立的 API 请求：
+Calls `runForkedAgent()` to send an independent API request:
 
-- **缓存复用**：复用主对话的 `cacheSafeParams`，刻意不覆盖任何 API 参数（不设 `effortValue`、`maxOutputTokens` 等），以确保命中主对话的 prompt cache
-- **独立标记**：`querySource: "prompt_suggestion"`、`forkLabel: "prompt_suggestion"`
-- **不写 transcript**：`skipTranscript: true, skipCacheWrite: true`
-- **禁止工具**：所有工具调用通过 `canUseTool` 回调拒绝（`behavior: "deny"`），模型只能返回纯文本
+- **Cache reuse**: Reuses the main conversation's `cacheSafeParams` and deliberately does not override any API parameters (no `effortValue`, `maxOutputTokens`, etc.) to ensure it hits the main conversation's prompt cache
+- **Independent markers**: `querySource: "prompt_suggestion"`, `forkLabel: "prompt_suggestion"`
+- **No transcript writes**: `skipTranscript: true, skipCacheWrite: true`
+- **No tools**: All tool calls are rejected through the `canUseTool` callback (`behavior: "deny"`), so the model can only return plain text
 
-> **历史教训**：据源码注释（`promptSuggestion.ts#L308-318`），Anthropic 内部曾尝试设置 `effort:'low'` 降低 suggestion 成本，结果导致 cache 命中率从 92.7% 暴跌至 61%（45x cache write spike）。billing cache key 包含的参数比文档描述的更多，任何差异都会 bust cache。
+> **Historical lesson**: According to source comments (`promptSuggestion.ts#L308-318`), Anthropic internally tried setting `effort:'low'` to reduce suggestion cost, but the cache hit rate crashed from 92.7% to 61% (45x cache write spike). The billing cache key includes more parameters than the documentation describes; any difference will bust the cache.
 
 ### Suggestion Prompt
 
-源码: `services/PromptSuggestion/promptSuggestion.ts#L258-287`，常量 `SUGGESTION_PROMPT`
+Source: `services/PromptSuggestion/promptSuggestion.ts#L258-287`, constant `SUGGESTION_PROMPT`
 
 ```
 [SUGGESTION MODE: Suggest what the user might naturally type next into Claude Code.]
@@ -153,168 +156,168 @@ Format: 2-12 words, match the user's style. Or nothing.
 Reply with ONLY the suggestion, no quotes or explanation.
 ```
 
-Prompt 通过 `PromptVariant` 类型索引（源码: `promptSuggestion.ts#L31-35`），定义了 `'user_intent'` 和 `'stated_intent'` 两个变体，均映射到同一模板。`getPromptVariant()` 当前始终硬编码返回 `'user_intent'`，`'stated_intent'` 为预留变体，未被使用。
+The prompt is indexed through the `PromptVariant` type (Source: `promptSuggestion.ts#L31-35`), which defines two variants, `'user_intent'` and `'stated_intent'`; both map to the same template. `getPromptVariant()` is currently hard-coded to always return `'user_intent'`. `'stated_intent'` is a reserved variant and is not used.
 
-## 过滤机制
+## Filtering Mechanism
 
-源码: `services/PromptSuggestion/promptSuggestion.ts#L354-456`，函数 `shouldFilterSuggestion`
+Source: `services/PromptSuggestion/promptSuggestion.ts#L354-456`, function `shouldFilterSuggestion`
 
-生成的 suggestion 经过 12 条过滤规则严格筛选，不满足条件的被静默丢弃：
+Generated suggestions are strictly screened by 12 filtering rules; any suggestion that fails the criteria is silently discarded:
 
-| 过滤规则 | 说明 | 匹配示例 |
+| Filtering rule | Description | Match examples |
 |----------|------|----------|
-| `done` | 内容恰好为 "done" | `done` |
-| `meta_text` | 模型输出元描述而非真实预测 | "nothing to suggest"、"silence"、"nothing found" |
-| `meta_wrapped` | 被括号包裹的元推理 | `(silence — ...)`、`[no suggestion]` |
-| `error_message` | API 错误信息泄漏 | "api error: ..."、"prompt is too long"、"image was too large" |
-| `prefixed_label` | 带 `word: ` 标签前缀 | "Next step: run tests" |
-| `too_few_words` | 少于 2 个单词（允许斜杠命令和特定单词） | 单个普通单词（非白名单词） |
-| `too_many_words` | 超过 12 个单词 | 过长的句子 |
-| `too_long` | ≥100 个字符 | — |
-| `multiple_sentences` | 包含多个句子（`/[.!?]\s+[A-Z]/`） | "Do this. Then that." |
-| `has_formatting` | 包含换行符或 Markdown 格式 | 含 `\n`、`*`、`**` |
-| `evaluative` | 评价性/感谢语句 | "looks good"、"thanks"、"perfect"、"awesome" |
-| `claude_voice` | 模型自身语气开头 | "Let me..."、"I'll..."、"Here's..."、"You should..." |
+| `done` | Content is exactly "done" | `done` |
+| `meta_text` | Model outputs meta-description rather than a real prediction | "nothing to suggest", "silence", "nothing found" |
+| `meta_wrapped` | Meta-reasoning wrapped in brackets or parentheses | `(silence — ...)`, `[no suggestion]` |
+| `error_message` | API error information leaks into output | "api error: ...", "prompt is too long", "image was too large" |
+| `prefixed_label` | Has a `word: ` label prefix | "Next step: run tests" |
+| `too_few_words` | Fewer than 2 words (slash commands and specific words are allowed) | A single ordinary word (non-whitelisted word) |
+| `too_many_words` | More than 12 words | An overly long sentence |
+| `too_long` | ≥100 characters | — |
+| `multiple_sentences` | Contains multiple sentences (`/[.!?]\s+[A-Z]/`) | "Do this. Then that." |
+| `has_formatting` | Contains line breaks or Markdown formatting | Contains `\n`, `*`, `**` |
+| `evaluative` | Evaluative or thank-you statements | "looks good", "thanks", "perfect", "awesome" |
+| `claude_voice` | Starts in the model's own voice | "Let me...", "I'll...", "Here's...", "You should..." |
 
-**单词白名单**（源码: `promptSuggestion.ts#L403-424`，即使只有 1 个单词也不过滤）：
+**Word whitelist** (Source: `promptSuggestion.ts#L403-424`; not filtered even when only 1 word):
 
-| 类别 | 单词 |
+| Category | Words |
 |------|------|
-| 肯定词 | yes, yeah, yep, yea, yup, sure, ok, okay |
-| 动作词 | push, commit, deploy, stop, continue, check, exit, quit |
-| 否定词 | no |
+| Affirmative words | yes, yeah, yep, yea, yup, sure, ok, okay |
+| Action words | push, commit, deploy, stop, continue, check, exit, quit |
+| Negative words | no |
 
-## 交互方式
+## Interaction Methods
 
-| 操作 | 效果 | 遥测 `acceptMethod` |
+| Action | Effect | Telemetry `acceptMethod` |
 |------|------|---------------------|
-| **Tab** | 接受 suggestion 填入输入框（可继续编辑后再提交） | `tab` |
-| **Enter**（输入框为空时） | 接受 suggestion 并直接提交 | `enter` |
-| **→**（右箭头） | 接受 suggestion 填入输入框 | — |
-| 开始输入其他内容 | suggestion 自动消失，Speculation 被中止 | — |
-| 忽略（直接输入新内容提交） | suggestion 在下一轮对话后被新预测替换 | `ignored` |
+| **Tab** | Accepts the suggestion into the input box (can continue editing before submitting) | `tab` |
+| **Enter** (when the input box is empty) | Accepts the suggestion and submits it directly | `enter` |
+| **→** (right arrow) | Accepts the suggestion into the input box | — |
+| Start typing other content | The suggestion automatically disappears and Speculation is aborted | — |
+| Ignore (submit new content directly) | The suggestion is replaced by a new prediction after the next conversation turn | `ignored` |
 
-接受判定逻辑（源码: `hooks/usePromptSuggestion.ts#L116-117`）：
-- Tab 按下：`acceptedAt > shownAt`
-- 或：用户最终提交内容 === suggestion 文本（空 Enter 场景）
+Acceptance decision logic (Source: `hooks/usePromptSuggestion.ts#L116-117`):
+- Tab pressed: `acceptedAt > shownAt`
+- Or: final user-submitted content === suggestion text (empty Enter scenario)
 
-## 状态数据结构
+## State Data Structure
 
-源码: `state/AppStateStore.ts#L385-393`
+Source: `state/AppStateStore.ts#L385-393`
 
 ```typescript
 promptSuggestion: {
-  text: string | null           // suggestion 文本内容，无 suggestion 时为 null
-  promptId: 'user_intent' | 'stated_intent' | null  // prompt 变体标识，无 suggestion 时为 null
-  shownAt: number               // 首次渲染时间戳（Date.now() ms），未显示时为 0
-  acceptedAt: number            // Tab 接受时间戳（Date.now() ms），未接受时为 0
-  generationRequestId: string | null  // 关联的 API 请求 ID（用于 RL 数据集关联）
+  text: string | null           // Suggestion text content; null when there is no suggestion
+  promptId: 'user_intent' | 'stated_intent' | null  // Prompt variant identifier; null when there is no suggestion
+  shownAt: number               // First render timestamp (Date.now() ms); 0 when not shown
+  acceptedAt: number            // Tab acceptance timestamp (Date.now() ms); 0 when not accepted
+  generationRequestId: string | null  // Associated API request ID (for RL dataset association)
 }
 ```
 
-> **默认值语义**：`shownAt` 和 `acceptedAt` 均为 `number` 类型，以 `0` 表示「未触发」。时间戳单位为 `Date.now()` 返回的毫秒（ms since Unix epoch）。接受判定使用 `acceptedAt > shownAt`（源码: `usePromptSuggestion.ts#L116`），因此 `0 > 0` 为 false 即表示未接受。每次新 suggestion 写入时，两个字段均重置为 `0`。
+> **Default value semantics**: `shownAt` and `acceptedAt` are both `number` types, with `0` meaning "not triggered". The timestamp unit is the millisecond value returned by `Date.now()` (ms since Unix epoch). Acceptance uses `acceptedAt > shownAt` (Source: `usePromptSuggestion.ts#L116`), so `0 > 0` being false means not accepted. Whenever a new suggestion is written, both fields are reset to `0`.
 
-## 抑制条件（三层守卫）
+## Suppression Conditions (Three-Layer Guards)
 
-### 初始化守卫
+### Initialization Guard
 
-源码: `promptSuggestion.ts#L37-94`，函数 `shouldEnablePromptSuggestion`
+Source: `promptSuggestion.ts#L37-94`, function `shouldEnablePromptSuggestion`
 
-| 检查顺序 | 条件 | 结果 |
+| Check order | Condition | Result |
 |----------|------|------|
-| 1 | 环境变量显式为 falsy（`0`/`false`/`no`/`off`） | 强制禁用 |
-| 2 | 环境变量显式为 truthy（`1`/`true`/`yes`/`on`） | 强制启用 |
-| 3 | 环境变量未设置或空字符串 → 进入后续判定 | — |
-| 4 | GrowthBook flag `tengu_chomp_inflection` 为 false | 禁用 |
-| 5 | 非交互模式（`-p`、管道输入、SDK） | 禁用 |
-| 6 | Swarm teammate（非 leader） | 禁用 |
-| 7 | `settings.promptSuggestionEnabled !== false` | 按设置值 |
+| 1 | Environment variable is explicitly falsy (`0`/`false`/`no`/`off`) | Force disabled |
+| 2 | Environment variable is explicitly truthy (`1`/`true`/`yes`/`on`) | Force enabled |
+| 3 | Environment variable is unset or an empty string → proceed to subsequent checks | — |
+| 4 | GrowthBook flag `tengu_chomp_inflection` is false | Disabled |
+| 5 | Non-interactive mode (`-p`, piped input, SDK) | Disabled |
+| 6 | Swarm teammate (non-leader) | Disabled |
+| 7 | `settings.promptSuggestionEnabled !== false` | Follows the setting value |
 
-> **环境变量解析**（源码: `utils/envUtils.ts#L32-47`）：`isEnvDefinedFalsy()` 仅在变量已设置且值为 `0`/`false`/`no`/`off`（不区分大小写）时返回 true；`isEnvTruthy()` 仅在值为 `1`/`true`/`yes`/`on` 时返回 true。变量未设置（`undefined`）或空字符串时两者均返回 false，继续进入 GrowthBook 等后续判定。
+> **Environment variable parsing** (Source: `utils/envUtils.ts#L32-47`): `isEnvDefinedFalsy()` returns true only when the variable is set and its value is `0`/`false`/`no`/`off` (case-insensitive); `isEnvTruthy()` returns true only when the value is `1`/`true`/`yes`/`on`. When the variable is unset (`undefined`) or an empty string, both return false and evaluation continues to GrowthBook and subsequent checks.
 
-### 运行时守卫
+### Runtime Guard
 
-源码: `promptSuggestion.ts#L107-119`，函数 `getSuggestionSuppressReason`
+Source: `promptSuggestion.ts#L107-119`, function `getSuggestionSuppressReason`
 
-| 条件 | 抑制原因 |
+| Condition | Suppression reason |
 |------|----------|
 | `promptSuggestionEnabled === false` | `disabled` |
-| 存在待审批的 Worker/Sandbox 权限请求 | `pending_permission` |
-| MCP elicitation 队列非空 | `elicitation_active` |
-| Plan mode 激活 | `plan_mode` |
-| 外部用户且速率限制触发 | `rate_limit` |
+| Pending Worker/Sandbox permission request exists | `pending_permission` |
+| MCP elicitation queue is non-empty | `elicitation_active` |
+| Plan mode is active | `plan_mode` |
+| External user and rate limit triggered | `rate_limit` |
 
-### 生成前守卫
+### Pre-Generation Guard
 
-源码: `promptSuggestion.ts#L125-182`，函数 `tryGenerateSuggestion`
+Source: `promptSuggestion.ts#L125-182`, function `tryGenerateSuggestion`
 
-| 条件 | 抑制原因 |
+| Condition | Suppression reason |
 |------|----------|
-| AbortController 已中止 | `aborted` |
-| assistant 回复不足 2 轮 | `early_conversation` |
-| 上一条回复是 API 错误 | `last_response_error` |
-| 父消息总 token 数（`input_tokens + cache_creation_input_tokens + output_tokens`）> 10,000 | `cache_cold` |
+| AbortController has been aborted | `aborted` |
+| Fewer than 2 assistant response turns | `early_conversation` |
+| Previous response was an API error | `last_response_error` |
+| Total token count of parent messages (`input_tokens + cache_creation_input_tokens + output_tokens`) > 10,000 | `cache_cold` |
 
-## 配置方式
+## Configuration Methods
 
-| 方式 | 说明 |
+| Method | Description |
 |------|------|
-| `/config` → "Prompt suggestions" | 交互式配置菜单中切换开关 |
-| `settings.json` 中设置 `"promptSuggestionEnabled": false` | 持久化关闭 |
-| 环境变量 `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=0` | 强制关闭（优先级最高） |
-| 环境变量 `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=1` | 强制开启（优先级最高） |
-| GrowthBook feature flag `tengu_chomp_inflection` | 服务端灰度发布控制 |
+| `/config` → "Prompt suggestions" | Toggle in the interactive configuration menu |
+| Set `"promptSuggestionEnabled": false` in `settings.json` | Persistently disable |
+| Environment variable `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=0` | Force disable (highest priority) |
+| Environment variable `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=1` | Force enable (highest priority) |
+| GrowthBook feature flag `tengu_chomp_inflection` | Server-side gradual rollout control |
 
-## UI 样式
+## UI Styling
 
-suggestion 文本使用主题中的 `suggestion` 颜色渲染：
+The suggestion text is rendered using the theme's `suggestion` color:
 
-| 主题 | 颜色 |
+| Theme | Color |
 |------|------|
-| Light | `rgb(87, 105, 247)`（蓝紫色） |
-| Dark | `rgb(177, 185, 249)`（浅蓝紫色） |
+| Light | `rgb(87, 105, 247)` (blue-purple) |
+| Dark | `rgb(177, 185, 249)` (light blue-purple) |
 | High Contrast Light | `rgb(51, 102, 255)` |
 | High Contrast Dark | `rgb(153, 204, 255)` |
 | ANSI Light | `ansi:blue` |
 | ANSI Dark | `ansi:blueBright` |
 
-## 遥测事件
+## Telemetry Events
 
-### 初始化事件
+### Initialization Event
 
-事件名: `tengu_prompt_suggestion_init`（源码: `promptSuggestion.ts#L41-92`）
+Event name: `tengu_prompt_suggestion_init` (Source: `promptSuggestion.ts#L41-92`)
 
-| 字段 | 说明 |
+| Field | Description |
 |------|------|
-| `enabled` | 是否启用 |
-| `source` | 决策来源：`env` / `growthbook` / `non_interactive` / `swarm_teammate` / `setting` |
+| `enabled` | Whether enabled |
+| `source` | Decision source: `env` / `growthbook` / `non_interactive` / `swarm_teammate` / `setting` |
 
-### 结果事件
+### Result Event
 
-事件名: `tengu_prompt_suggestion`（源码: `hooks/usePromptSuggestion.ts#L120-157`、`promptSuggestion.ts#L462-523`）
+Event name: `tengu_prompt_suggestion` (Source: `hooks/usePromptSuggestion.ts#L120-157`, `promptSuggestion.ts#L462-523`)
 
-| 字段 | 说明 |
+| Field | Description |
 |------|------|
-| `source` | `cli`（TUI）或 `sdk`（API 消费方） |
+| `source` | `cli` (TUI) or `sdk` (API consumer) |
 | `outcome` | `accepted` / `ignored` / `suppressed` |
 | `prompt_id` | `user_intent` / `stated_intent` |
-| `reason` | 抑制原因（仅 suppressed 时） |
-| `acceptMethod` | `tab` / `enter`（仅 CLI 且 accepted 时） |
-| `timeToAcceptMs` | 从显示到接受的毫秒数 |
-| `timeToIgnoreMs` | 从显示到忽略的毫秒数 |
-| `timeToFirstKeystrokeMs` | 从显示到首次按键的毫秒数 |
-| `wasFocusedWhenShown` | suggestion 出现时终端是否有焦点 |
-| `similarity` | `finalInput.length / suggestion.length`（相似度） |
+| `reason` | Suppression reason (only when suppressed) |
+| `acceptMethod` | `tab` / `enter` (only when CLI and accepted) |
+| `timeToAcceptMs` | Milliseconds from display to acceptance |
+| `timeToIgnoreMs` | Milliseconds from display to ignore |
+| `timeToFirstKeystrokeMs` | Milliseconds from display to first keystroke |
+| `wasFocusedWhenShown` | Whether the terminal had focus when the suggestion appeared |
+| `similarity` | `finalInput.length / suggestion.length` (similarity) |
 
-> Anthropic 内部用户（`USER_TYPE === 'ant'`）额外记录 `suggestion` 和 `userInput` 原文，用于 RL 数据集训练。
+> Internal Anthropic users (`USER_TYPE === 'ant'`) additionally log the raw `suggestion` and `userInput` text for RL dataset training.
 
-## Speculation（推测执行）
+## Speculation
 
-Prompt Suggestions 是更深层 **Speculation** 系统的触发器。当 suggestion 生成后，系统立即使用该 suggestion 作为假设的用户输入，预执行一轮 agent 响应。
+Prompt Suggestions are the trigger for the deeper **Speculation** system. After a suggestion is generated, the system immediately uses that suggestion as hypothetical user input and pre-executes one agent response turn.
 
-### 启用条件
+### Enablement Conditions
 
-源码: `speculation.ts#L337-343`
+Source: `speculation.ts#L337-343`
 
 ```typescript
 export function isSpeculationEnabled(): boolean {
@@ -325,117 +328,117 @@ export function isSpeculationEnabled(): boolean {
 }
 ```
 
-> **注意**：Speculation 仅对 Anthropic 内部用户启用（`USER_TYPE === 'ant'`），外部用户仅使用 Prompt Suggestions 文本预测功能。
+> **Note**: Speculation is enabled only for internal Anthropic users (`USER_TYPE === 'ant'`); external users only use the Prompt Suggestions text prediction feature.
 
-### 核心参数
+### Core Parameters
 
-源码: `services/PromptSuggestion/speculation.ts#L58-70`
+Source: `services/PromptSuggestion/speculation.ts#L58-70`
 
 ```typescript
-const MAX_SPECULATION_TURNS = 20    // 最大推测轮数
-const MAX_SPECULATION_MESSAGES = 100 // 最大消息数
+const MAX_SPECULATION_TURNS = 20    // Maximum number of speculation turns
+const MAX_SPECULATION_MESSAGES = 100 // Maximum number of messages
 
-// 允许在推测中执行的工具
+// Tools allowed to execute during speculation
 const WRITE_TOOLS = new Set(['Edit', 'Write', 'NotebookEdit'])
 const SAFE_READ_ONLY_TOOLS = new Set([
   'Read', 'Glob', 'Grep', 'ToolSearch', 'LSP', 'TaskGet', 'TaskList'
 ])
 ```
 
-### 文件隔离机制（Copy-on-Write Overlay）
+### File Isolation Mechanism (Copy-on-Write Overlay)
 
-源码: `speculation.ts#L80-81, #L402-715`
+Source: `speculation.ts#L80-81, #L402-715`
 
-- 推测执行在独立目录中进行：`$CLAUDE_TEMP_DIR/speculation/{pid}/{id}/`
-- 写操作使用 Copy-on-Write：首次写入时将原文件复制到 overlay 目录，后续读写均重定向到 overlay
-- CWD 外的写操作被拒绝
-- 接受时：overlay 文件复制回主目录（`copyOverlayToMain`）；中止时：overlay 直接删除（`safeRemoveOverlay`）
+- Speculative execution runs in an isolated directory: `$CLAUDE_TEMP_DIR/speculation/{pid}/{id}/`
+- Write operations use Copy-on-Write: on the first write, the original file is copied into the overlay directory; subsequent reads and writes are redirected to the overlay
+- Write operations outside the CWD are rejected
+- On acceptance: overlay files are copied back to the main directory (`copyOverlayToMain`); on abort: the overlay is deleted directly (`safeRemoveOverlay`)
 
-### 边界检测
+### Boundary Detection
 
-`CompletionBoundary` 类型（源码: `state/AppStateStore.ts#L41-50`）：
+`CompletionBoundary` type (Source: `state/AppStateStore.ts#L41-50`):
 
-| 边界类型 | 触发条件 | 行为 |
+| Boundary type | Trigger condition | Behavior |
 |----------|----------|------|
-| `complete` | agent 自然完成 | 记录 `outputTokens` |
-| `bash` | 非只读 Bash 命令（只读命令如 `ls`/`grep`/`cat` 允许执行） | 中止推测 |
-| `edit` | 文件编辑但权限不足（非 `acceptEdits`/`bypassPermissions` 模式） | 中止推测 |
-| `denied_tool` | 不在允许列表中的工具（记录 `detail`: URL/路径/命令，截取前 200 字符） | 中止推测 |
+| `complete` | Agent completes naturally | Records `outputTokens` |
+| `bash` | Non-read-only Bash command (read-only commands such as `ls`/`grep`/`cat` are allowed to execute) | Abort speculation |
+| `edit` | File edit but insufficient permissions (not in `acceptEdits`/`bypassPermissions` mode) | Abort speculation |
+| `denied_tool` | Tool not in the allowlist (records `detail`: URL/path/command, truncated to the first 200 characters) | Abort speculation |
 
-Speculation 通过 `onMessage` 回调实时追踪消息数量，达到 `MAX_SPECULATION_MESSAGES`（100）时自动中止，防止 speculation 无限运行（源码: `speculation.ts#L637-641`）。
+Speculation tracks the message count in real time through the `onMessage` callback. When it reaches `MAX_SPECULATION_MESSAGES` (100), it automatically aborts to prevent speculation from running indefinitely (Source: `speculation.ts#L637-641`).
 
-### Pipeline 机制
+### Pipeline Mechanism
 
-源码: `speculation.ts#L345-400`，函数 `generatePipelinedSuggestion`
+Source: `speculation.ts#L345-400`, function `generatePipelinedSuggestion`
 
-推测执行完成后，如果用户尚未做出响应，会立即生成下一轮 suggestion。当用户接受当前 suggestion 时，**仅在 speculation 自然完成（`boundary.type === 'complete'`）时**，pipelined suggestion 才会被提升为新的 suggestion 显示并启动新一轮 speculation；若 speculation 因 bash/edit/denied_tool 边界中止，pipelined suggestion 会被丢弃（源码: `speculation.ts#L928-929`）。
+After speculative execution completes, if the user has not responded yet, the next suggestion is generated immediately. When the user accepts the current suggestion, **only if speculation completed naturally (`boundary.type === 'complete'`)** will the pipelined suggestion be promoted to the new displayed suggestion and start a new round of speculation; if speculation was aborted due to a bash/edit/denied_tool boundary, the pipelined suggestion is discarded (Source: `speculation.ts#L928-929`).
 
 ```
-用户发送消息 → Claude 回复
-  → 生成 suggestion A → 开始 speculation A
-    → speculation A 完成 → 生成 pipelined suggestion B
-      → 用户接受 A → 提升 B 为当前 suggestion → 开始 speculation B
+User sends message → Claude replies
+  → Generate suggestion A → Start speculation A
+    → speculation A completes → Generate pipelined suggestion B
+      → User accepts A → Promote B to current suggestion → Start speculation B
         → ...
 ```
 
-Speculation 使用独立的 fork 标签：`querySource: 'speculation'`、`forkLabel: 'speculation'`（源码: `speculation.ts#L633-634`），与 suggestion 生成的 `querySource: 'prompt_suggestion'` 区分。
+Speculation uses an independent fork label: `querySource: 'speculation'`, `forkLabel: 'speculation'` (Source: `speculation.ts#L633-634`), distinct from suggestion generation's `querySource: 'prompt_suggestion'`.
 
-### 接受后处理
+### Post-Acceptance Handling
 
-用户接受 suggestion 后，接受流程由两个函数协作完成：
-- `handleSpeculationAccept()`（源码: `speculation.ts#L835-991`）：React 层，负责状态更新、消息注入、pipeline promotion
-- `acceptSpeculation()`（源码: `speculation.ts#L717-800`）：底层，负责 overlay 回写、transcript 记录、`timeSavedMs` 计算
+After the user accepts a suggestion, the acceptance flow is completed by two cooperating functions:
+- `handleSpeculationAccept()` (Source: `speculation.ts#L835-991`): React layer, responsible for state updates, message injection, and pipeline promotion
+- `acceptSpeculation()` (Source: `speculation.ts#L717-800`): lower layer, responsible for overlay writeback, transcript recording, and `timeSavedMs` calculation
 
-执行步骤：
+Execution steps:
 
-0. **用户消息优先注入**：立即将用户输入显示在 UI 中，确保即时视觉反馈（源码: `speculation.ts#L875-876`）
+0. **User message injection first**: Immediately displays the user's input in the UI to ensure instant visual feedback (Source: `speculation.ts#L875-876`)
 
-1. **消息清洗**（`prepareMessagesForInjection`，源码: `speculation.ts#L203-271`）：
-   - 过滤 `thinking` 和 `redacted_thinking` 块
-   - 移除未成功完成的 `tool_use`/`tool_result` 对
-   - 移除中断消息（`INTERRUPT_MESSAGE`）
-   - 过滤全空白文本消息（避免 API 400 错误）
-   - 若 speculation 未完成，丢弃尾部 assistant 消息（不支持 prefill 的模型拒绝以 assistant turn 结尾）
+1. **Message sanitization** (`prepareMessagesForInjection`, Source: `speculation.ts#L203-271`):
+   - Filters `thinking` and `redacted_thinking` blocks
+   - Removes `tool_use`/`tool_result` pairs that did not complete successfully
+   - Removes interrupt messages (`INTERRUPT_MESSAGE`)
+   - Filters all-whitespace text messages (to avoid API 400 errors)
+   - If speculation did not complete, discards the trailing assistant message (models that do not support prefill reject requests ending with an assistant turn)
 
-2. **文件状态合并**：将 speculation 读取的文件状态缓存合并到主对话，避免重复读取（源码: `speculation.ts#L910-917`）
+2. **File state merge**: Merges the file state cache read by speculation into the main conversation to avoid duplicate reads (Source: `speculation.ts#L910-917`)
 
-3. **Overlay 回写**：将 overlay 目录中修改的文件复制回主目录
+3. **Overlay writeback**: Copies modified files from the overlay directory back to the main directory
 
-4. **反馈消息注入**（仅 `USER_TYPE === 'ant'`，源码: `speculation.ts#L273-308`）：
+4. **Feedback message injection** (only for `USER_TYPE === 'ant'`, Source: `speculation.ts#L273-308`):
    ```
    [ANT-ONLY] Speculated 3 tool uses · 1,234 tokens · +2.1s saved (5.3s this session)
    ```
 
-5. **Transcript 记录**：写入 `speculation-accept` 条目到 JSONL transcript（源码: `speculation.ts#L784-794`），用于统计会话累计节省时间
+5. **Transcript recording**: Writes a `speculation-accept` entry to the JSONL transcript (Source: `speculation.ts#L784-794`) for calculating cumulative time saved in the session
 
-### Speculation 遥测
+### Speculation Telemetry
 
-事件名: `tengu_speculation`（源码: `speculation.ts#L124-153`）
+Event name: `tengu_speculation` (Source: `speculation.ts#L124-153`)
 
-| 字段 | 说明 |
+| Field | Description |
 |------|------|
-| `speculation_id` | 推测会话 UUID（前 8 位） |
+| `speculation_id` | Speculation session UUID (first 8 characters) |
 | `outcome` | `accepted` / `aborted` / `error` |
-| `duration_ms` | 推测执行耗时 |
-| `suggestion_length` | suggestion 文本长度 |
-| `tools_executed` | 成功返回结果的工具调用数（计数 `tool_result && !is_error`） |
-| `completed` | 是否到达边界（`boundary !== null`） |
+| `duration_ms` | Time spent on speculative execution |
+| `suggestion_length` | Length of the suggestion text |
+| `tools_executed` | Number of tool calls that successfully returned results (counts `tool_result && !is_error`) |
+| `completed` | Whether a boundary was reached (`boundary !== null`) |
 | `boundary_type` | `complete` / `bash` / `edit` / `denied_tool` |
-| `boundary_tool` | 触发边界的工具名 |
-| `boundary_detail` | 触发边界的命令/路径（截取前 200 字符） |
-| `message_count` | 推测消息总数（仅 accepted 时） |
-| `time_saved_ms` | 从 speculation 开始到 `min(接受时间, 边界完成时间)` 的毫秒数（仅 accepted 时） |
-| `is_pipelined` | 是否为 pipeline 产生的推测 |
+| `boundary_tool` | Tool name that triggered the boundary |
+| `boundary_detail` | Command/path that triggered the boundary (truncated to the first 200 characters) |
+| `message_count` | Total number of speculation messages (only when accepted) |
+| `time_saved_ms` | Milliseconds from speculation start to `min(acceptance time, boundary completion time)` (only when accepted) |
+| `is_pipelined` | Whether the speculation was generated by the pipeline |
 
-## 源码文件索引
+## Source File Index
 
-| 文件 | LOC | 职责 |
+| File | LOC | Responsibility |
 |------|-----|------|
-| `services/PromptSuggestion/promptSuggestion.ts` | 524 | 核心服务：启用检查、生成、过滤、遥测 |
-| `services/PromptSuggestion/speculation.ts` | 992 | 推测执行：overlay 隔离、边界检测、pipeline |
-| `hooks/usePromptSuggestion.ts` | 178 | React Hook：UI 状态管理、接受/显示/遥测 |
-| `components/PromptInput/PromptInput.tsx` | — | 输入框组件：集成 suggestion 显示与 Enter 接受 |
-| `components/PromptInput/useTypeahead.tsx` | — | Tab/→ 键接受与 ghost text 渲染 |
-| `state/AppStateStore.ts` | — | 状态定义：`promptSuggestion` + `speculation` + `speculationSessionTimeSavedMs` |
-| `query/stopHooks.ts` | — | 入口：在 stop hooks 中 fire-and-forget 调用 |
-| `components/Settings/Config.tsx` | — | `/config` 菜单中的开关切换 |
+| `services/PromptSuggestion/promptSuggestion.ts` | 524 | Core service: enablement checks, generation, filtering, telemetry |
+| `services/PromptSuggestion/speculation.ts` | 992 | Speculative execution: overlay isolation, boundary detection, pipeline |
+| `hooks/usePromptSuggestion.ts` | 178 | React Hook: UI state management, acceptance/display/telemetry |
+| `components/PromptInput/PromptInput.tsx` | — | Input box component: integrates suggestion display and Enter acceptance |
+| `components/PromptInput/useTypeahead.tsx` | — | Tab/→ key acceptance and ghost text rendering |
+| `state/AppStateStore.ts` | — | State definitions: `promptSuggestion` + `speculation` + `speculationSessionTimeSavedMs` |
+| `query/stopHooks.ts` | — | Entry point: fire-and-forget call in stop hooks |
+| `components/Settings/Config.tsx` | — | Toggle switch in the `/config` menu |

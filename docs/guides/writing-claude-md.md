@@ -1,235 +1,235 @@
-# 10. CLAUDE.md 写作指南
+# 10. CLAUDE.md Writing Guide
 
-> 如何编写高效的 CLAUDE.md 项目指令文件，让 Claude Code 在每次会话中准确理解你的项目。基于 Anthropic 官方文档、社区最佳实践（Builder.io、HumanLayer、Arize）以及我们对 Claude Code 二进制的逆向分析。
-
----
-
-## 1. 什么是 CLAUDE.md
-
-CLAUDE.md 是 Claude Code 的**项目指令文件**。每次启动会话时，Claude Code 自动读取此文件，将其内容注入系统提示，作为整个会话的行为指导。
-
-它的本质是一份**写给 AI 的项目说明书**：
-
-- 告诉 Claude Code 你的项目用什么技术栈
-- 如何构建、测试、部署
-- 遵循哪些编码规范
-- 有哪些不可触碰的限制
-
-与 `.editorconfig` 规范编辑器行为类似，CLAUDE.md 规范 AI 代理的行为。
+> How to write an effective CLAUDE.md project instruction file so Claude Code accurately understands your project in every session. Based on Anthropic's official documentation, community best practices (Builder.io, HumanLayer, Arize), and our reverse engineering analysis of the Claude Code binary.
 
 ---
 
-## 2. 文件层级与加载顺序
+## 1. What Is CLAUDE.md
 
-通过二进制分析，Claude Code 按以下顺序加载指令文件，后加载的内容可覆盖先加载的：
+CLAUDE.md is Claude Code's **project instruction file**. Every time a session starts, Claude Code automatically reads this file and injects its contents into the system prompt as behavioral guidance for the entire session.
 
-| 层级 | 路径 | 作用域 | 是否提交到 Git |
+In essence, it is a **project manual written for AI**:
+
+- Tell Claude Code what tech stack your project uses
+- How to build, test, and deploy it
+- Which coding conventions to follow
+- Which constraints must not be touched
+
+Just as `.editorconfig` standardizes editor behavior, CLAUDE.md standardizes AI agent behavior.
+
+---
+
+## 2. File Hierarchy and Loading Order
+
+Based on binary analysis, Claude Code loads instruction files in the following order; later-loaded content can override earlier content:
+
+| Level | Path | Scope | Committed to Git? |
 |------|------|--------|---------------|
-| 1 | `~/.claude/CLAUDE.md` | 个人全局 | 否 |
-| 2 | 项目根目录 `CLAUDE.md` | 项目共享 | 是（推荐） |
-| 3 | 子目录 `CLAUDE.md` | 模块级别 | 是（可选） |
+| 1 | `~/.claude/CLAUDE.md` | Personal global | No |
+| 2 | Project root `CLAUDE.md` | Project-shared | Yes (recommended) |
+| 3 | Subdirectory `CLAUDE.md` | Module-level | Yes (optional) |
 
-**补充配置**：`.claude/settings.local.json` 用于本地设置覆盖，不提交到 Git。
+**Supplemental configuration**: `.claude/settings.local.json` is used for local setting overrides and is not committed to Git.
 
-### 各层级的典型用途
+### Typical Uses for Each Level
 
-**全局 `~/.claude/CLAUDE.md`**：个人编码风格偏好，跨所有项目生效。
+**Global `~/.claude/CLAUDE.md`**: Personal coding style preferences that apply across all projects.
 
 ```markdown
-# 个人偏好
-- 优先使用函数式编程风格
-- 变量命名使用 camelCase
-- 提交消息使用英文
-- 回复我时使用中文
+# Personal Preferences
+- Prefer a functional programming style
+- Use camelCase for variable names
+- Use English for commit messages
+- Reply to me in Chinese
 ```
 
-**项目根目录 `CLAUDE.md`**：团队共享的项目规范，提交到版本控制。
+**Project root `CLAUDE.md`**: Team-shared project standards, committed to version control.
 
 ```markdown
 # Project: my-saas-app
-## 技术栈
+## Tech Stack
 TypeScript + Next.js 15 + Prisma + PostgreSQL
 
-## 构建命令
-- 开发：`pnpm dev`
-- 测试：`pnpm test`
-- 类型检查：`pnpm typecheck`
+## Build Commands
+- Development: `pnpm dev`
+- Test: `pnpm test`
+- Type check: `pnpm typecheck`
 ```
 
-**子目录 `CLAUDE.md`**：特定模块的规则，仅在该目录下工作时生效。
+**Subdirectory `CLAUDE.md`**: Rules for a specific module that apply only when working in that directory.
 
 ```markdown
 # packages/shared-ui
-本包是共享 UI 组件库，所有组件必须：
-- 导出 Storybook stories
-- 包含单元测试
-- 使用 CSS Modules，禁止内联样式
+This package is a shared UI component library. Every component must:
+- Export Storybook stories
+- Include unit tests
+- Use CSS Modules; inline styles are prohibited
 ```
 
 ---
 
-## 3. 推荐结构：WHAT / WHY / HOW 框架
+## 3. Recommended Structure: The WHAT / WHY / HOW Framework
 
-一份优秀的 CLAUDE.md 应回答三个问题：
+An excellent CLAUDE.md should answer three questions:
 
-### WHAT — 这个项目是什么
+### WHAT — What This Project Is
 
 ```markdown
-## 项目概述
-电商平台后端 API，服务日活 50 万用户。
-- 技术栈：Python 3.12 + FastAPI + SQLAlchemy 2.0 + Redis
-- 数据库：PostgreSQL 16，读写分离
-- 部署：Kubernetes on AWS EKS
-- 关键依赖：Stripe（支付）、SendGrid（邮件）、S3（文件存储）
+## Project Overview
+Backend API for an e-commerce platform serving 500,000 daily active users.
+- Tech stack: Python 3.12 + FastAPI + SQLAlchemy 2.0 + Redis
+- Database: PostgreSQL 16, read/write split
+- Deployment: Kubernetes on AWS EKS
+- Key dependencies: Stripe (payments), SendGrid (email), S3 (file storage)
 ```
 
-### WHY — 为什么这样做
+### WHY — Why It Is Done This Way
 
 ```markdown
-## 架构决策
-- 使用 CQRS 模式分离读写，因为读写比为 100:1
-- 所有 API 必须幂等，因为客户端会重试失败请求
-- 禁止使用 ORM 的 lazy loading，因为会导致 N+1 查询
-- 金额计算必须使用 Decimal，禁止 float
+## Architecture Decisions
+- Use the CQRS pattern to separate reads and writes because the read/write ratio is 100:1
+- All APIs must be idempotent because clients retry failed requests
+- ORM lazy loading is prohibited because it causes N+1 queries
+- Monetary calculations must use Decimal; float is prohibited
 ```
 
-### HOW — 怎么操作
+### HOW — How to Operate
 
 ```markdown
-## 开发命令
-- 安装依赖：`uv sync`
-- 启动开发服务器：`uv run uvicorn app.main:app --reload`
-- 运行全部测试：`uv run pytest`
-- 运行单个测试：`uv run pytest tests/test_orders.py -k "test_create_order"`
-- 生成迁移：`uv run alembic revision --autogenerate -m "描述"`
-- 代码格式化：`uv run ruff format .`
-- 类型检查：`uv run mypy app/`
+## Development Commands
+- Install dependencies: `uv sync`
+- Start development server: `uv run uvicorn app.main:app --reload`
+- Run all tests: `uv run pytest`
+- Run a single test: `uv run pytest tests/test_orders.py -k "test_create_order"`
+- Generate migration: `uv run alembic revision --autogenerate -m "description"`
+- Format code: `uv run ruff format .`
+- Type check: `uv run mypy app/`
 
-## 编码规范
-- 所有 API 端点必须有 Pydantic response model
-- 数据库查询封装在 Repository 类中
-- 错误处理使用自定义异常类，不要裸抛 HTTPException
-- 测试使用 factory_boy 生成测试数据，禁止硬编码
+## Coding Standards
+- Every API endpoint must have a Pydantic response model
+- Database queries are encapsulated in Repository classes
+- Error handling uses custom exception classes; do not throw bare HTTPException
+- Tests use factory_boy to generate test data; hardcoding is prohibited
 
-## Git 工作流
-- 分支命名：`feat/xxx`、`fix/xxx`、`refactor/xxx`
-- 提交消息：Conventional Commits 格式
-- PR 必须包含测试，覆盖率不低于 80%
+## Git Workflow
+- Branch naming: `feat/xxx`, `fix/xxx`, `refactor/xxx`
+- Commit messages: Conventional Commits format
+- PRs must include tests, with coverage no lower than 80%
 ```
 
 ---
 
-## 4. 长度建议
+## 4. Length Recommendations
 
-**推荐控制在 200 行以内**。根据社区实践数据，200 行以下的 CLAUDE.md 约有 80% 的遵循率；超过 500 行后，遵循率显著下降。
+**Recommended: keep it under 200 lines**. According to community practice data, CLAUDE.md files under 200 lines have an adherence rate of about 80%; after exceeding 500 lines, adherence drops significantly.
 
-| 长度 | 遵循率 | 建议 |
+| Length | Adherence rate | Recommendation |
 |------|--------|------|
-| < 100 行 | ~90% | 小型项目的理想长度 |
-| 100-200 行 | ~80% | 中大型项目的推荐上限 |
-| 200-500 行 | ~60% | 考虑拆分到子目录或 Skills |
-| > 500 行 | < 50% | 必须拆分，否则关键指令会被忽略 |
+| < 100 lines | ~90% | Ideal length for small projects |
+| 100-200 lines | ~80% | Recommended upper limit for medium and large projects |
+| 200-500 lines | ~60% | Consider splitting into subdirectories or Skills |
+| > 500 lines | < 50% | Must be split, otherwise key instructions will be ignored |
 
-**原因**：CLAUDE.md 内容占用上下文窗口。过长的指令会与代码内容、对话历史竞争有限的 token 空间。
-
----
-
-## 5. 应该写什么
-
-### 写 Claude 猜不到的命令
-
-```markdown
-# 好 — 自定义脚本，Claude 无法从 package.json 推断
-- 数据库重置：`./scripts/reset-db.sh --seed`
-- 生成 API 客户端：`make gen-client`
-- 本地 HTTPS：`mkcert -install && ./scripts/dev-ssl.sh`
-```
-
-### 写与默认行为不同的规范
-
-```markdown
-# 好 — 显式声明非标准做法
-- 测试文件放在 `__tests__/` 目录（不是与源码同级）
-- 使用 tabs 缩进，宽度 4（不是 spaces）
-- import 排序：stdlib > third-party > local，每组之间空一行
-```
-
-### 写测试运行器的特殊用法
-
-```markdown
-# 好 — 非标准 flag 和环境变量
-- 集成测试：`TEST_DB=true pytest tests/integration/ -x --timeout=30`
-- 快照更新：`pnpm test -- -u`
-- 覆盖率报告：`pytest --cov=app --cov-report=html`
-```
-
-### 写架构决策和约束
-
-```markdown
-# 好 — 防止 Claude 做出错误的架构变更
-- 不要引入新的 ORM（当前使用原生 SQL + sqlc）
-- 所有新端点必须通过 API Gateway，不要直接暴露服务
-- 前端状态管理只使用 Zustand，不要引入 Redux
-```
-
-### 写常见陷阱
-
-```markdown
-# 好 — 避免反复踩坑
-- `pnpm install` 后必须运行 `pnpm prisma generate`，否则类型报错
-- M1 Mac 上 `sharp` 需要 `--platform=linux` flag（Docker 环境）
-- CI 中 `NODE_ENV=test` 时数据库连接字符串从 `.env.test` 读取
-```
+**Reason**: CLAUDE.md content consumes the context window. Overly long instructions compete with code content and conversation history for limited token space.
 
 ---
 
-## 6. 不应该写什么
+## 5. What to Write
 
-### 不要写 Claude 能从代码推断的信息
+### Write Commands Claude Cannot Guess
 
 ```markdown
-# 坏 — Claude 读 package.json 就知道
-- 项目使用 React 18
-- 使用 ESLint 做代码检查
-- 使用 TypeScript 5.3
+# Good — Custom scripts that Claude cannot infer from package.json
+- Database reset: `./scripts/reset-db.sh --seed`
+- Generate API client: `make gen-client`
+- Local HTTPS: `mkcert -install && ./scripts/dev-ssl.sh`
 ```
 
-### 不要写标准惯例
+### Write Conventions That Differ from Defaults
 
 ```markdown
-# 坏 — Claude 已经知道这些
-- 函数应该有清晰的命名
-- 代码应该有注释
-- 不要使用 var，使用 const/let
+# Good — Explicitly state non-standard practices
+- Test files live in the `__tests__/` directory (not alongside source files)
+- Use tabs for indentation, width 4 (not spaces)
+- Import order: stdlib > third-party > local, with a blank line between groups
 ```
 
-### 不要写详细的 API 文档
+### Write Special Test Runner Usage
 
 ```markdown
-# 坏 — 太长，应该链接而非内联
-## API 端点清单
-POST /api/users - 创建用户，参数：name, email, password...
-GET /api/users/:id - 获取用户详情...
-（后面还有 50 个端点）
-
-# 好 — 指向文档
-- API 文档见 `docs/api.md` 或访问 http://localhost:8000/docs
+# Good — Non-standard flags and environment variables
+- Integration tests: `TEST_DB=true pytest tests/integration/ -x --timeout=30`
+- Snapshot updates: `pnpm test -- -u`
+- Coverage report: `pytest --cov=app --cov-report=html`
 ```
 
-### 不要逐文件描述
+### Write Architecture Decisions and Constraints
 
 ```markdown
-# 坏 — 项目结构 Claude 自己可以 glob/grep 发现
-- src/utils/format.ts：格式化工具函数
-- src/utils/validate.ts：校验工具函数
-- src/hooks/useAuth.ts：认证 Hook
+# Good — Prevent Claude from making incorrect architecture changes
+- Do not introduce a new ORM (currently using raw SQL + sqlc)
+- All new endpoints must go through API Gateway; do not expose services directly
+- Frontend state management uses only Zustand; do not introduce Redux
+```
+
+### Write Common Pitfalls
+
+```markdown
+# Good — Avoid repeated mistakes
+- After `pnpm install`, you must run `pnpm prisma generate`, otherwise type errors occur
+- On M1 Mac, `sharp` needs the `--platform=linux` flag (Docker environment)
+- In CI, when `NODE_ENV=test`, the database connection string is read from `.env.test`
 ```
 
 ---
 
-## 7. 不同项目类型的示例
+## 6. What Not to Write
 
-### Python（FastAPI + pytest）
+### Do Not Write Information Claude Can Infer from Code
+
+```markdown
+# Bad — Claude can learn this by reading package.json
+- The project uses React 18
+- ESLint is used for linting
+- TypeScript 5.3 is used
+```
+
+### Do Not Write Standard Conventions
+
+```markdown
+# Bad — Claude already knows these
+- Functions should have clear names
+- Code should have comments
+- Do not use var; use const/let
+```
+
+### Do Not Write Detailed API Documentation
+
+```markdown
+# Bad — Too long; link instead of inlining
+## API Endpoint List
+POST /api/users - Create user, parameters: name, email, password...
+GET /api/users/:id - Get user details...
+(50 more endpoints follow)
+
+# Good — Point to documentation
+- API documentation is in `docs/api.md` or at http://localhost:8000/docs
+```
+
+### Do Not Describe File by File
+
+```markdown
+# Bad — Claude can discover project structure by itself with glob/grep
+- src/utils/format.ts: formatting utility functions
+- src/utils/validate.ts: validation utility functions
+- src/hooks/useAuth.ts: authentication Hook
+```
+
+---
+
+## 7. Examples for Different Project Types
+
+### Python (FastAPI + pytest)
 
 ```markdown
 # CLAUDE.md
@@ -246,18 +246,18 @@ Python 3.12, FastAPI, SQLAlchemy 2.0, Alembic, pytest
 - Lint: `uv run ruff check . --fix`
 
 ## Conventions
-- 路由定义在 `app/routers/`，每个资源一个文件
-- 业务逻辑在 `app/services/`，不要放在路由函数里
-- 所有数据库操作通过 `app/repositories/` 层
-- 测试使用 httpx.AsyncClient，不要用 TestClient（async 兼容）
-- 环境变量通过 `app/config.py` 的 pydantic Settings 读取
+- Routes are defined in `app/routers/`, one file per resource
+- Business logic belongs in `app/services/`, not in route functions
+- All database operations go through the `app/repositories/` layer
+- Tests use httpx.AsyncClient; do not use TestClient (async compatibility)
+- Environment variables are read through pydantic Settings in `app/config.py`
 
 ## Restrictions
-- 不要修改 `alembic/versions/` 中已有的迁移文件
-- 不要在路由层直接操作数据库 session
+- Do not modify existing migration files in `alembic/versions/`
+- Do not operate on the database session directly in the route layer
 ```
 
-### TypeScript（Next.js + Prisma）
+### TypeScript (Next.js + Prisma)
 
 ```markdown
 # CLAUDE.md
@@ -274,18 +274,18 @@ TypeScript 5.5, Next.js 15 (App Router), Prisma 6, TailwindCSS 4
 - DB push: `pnpm prisma db push`
 
 ## Conventions
-- 使用 Server Components 为默认，仅必要时添加 "use client"
-- API Routes 放在 `app/api/`，使用 Route Handlers
-- 数据获取使用 Server Actions 或 Route Handlers，不要用 useEffect + fetch
-- 样式使用 Tailwind，不要创建 CSS 文件
-- Zod 用于所有表单验证和 API 输入校验
+- Use Server Components by default; add "use client" only when necessary
+- API Routes live in `app/api/` and use Route Handlers
+- Data fetching uses Server Actions or Route Handlers; do not use useEffect + fetch
+- Use Tailwind for styling; do not create CSS files
+- Use Zod for all form validation and API input validation
 
 ## Gotchas
-- `pnpm install` 后必须 `pnpm prisma generate`
-- 修改 `prisma/schema.prisma` 后需要重启 dev server
+- After `pnpm install`, you must run `pnpm prisma generate`
+- After modifying `prisma/schema.prisma`, restart the dev server
 ```
 
-### Rust（Cargo workspace）
+### Rust (Cargo Workspace)
 
 ```markdown
 # CLAUDE.md
@@ -295,9 +295,9 @@ Rust 1.82, Cargo workspace, tokio async runtime
 
 ## Structure
 Cargo workspace with 3 crates:
-- `crates/core/` — 核心业务逻辑，无 IO 依赖
-- `crates/server/` — HTTP 服务器（axum）
-- `crates/cli/` — 命令行工具（clap）
+- `crates/core/` — Core business logic, no IO dependencies
+- `crates/server/` — HTTP server (axum)
+- `crates/cli/` — Command-line tool (clap)
 
 ## Commands
 - Build: `cargo build`
@@ -308,133 +308,133 @@ Cargo workspace with 3 crates:
 - Format: `cargo fmt --all`
 
 ## Conventions
-- 错误处理使用 thiserror（库代码）和 anyhow（应用代码）
-- 所有 pub 函数必须有文档注释
-- unsafe 代码需要注释说明为什么安全
-- 新依赖必须在根 Cargo.toml 的 [workspace.dependencies] 声明
+- Error handling uses thiserror (library code) and anyhow (application code)
+- All pub functions must have documentation comments
+- unsafe code needs comments explaining why it is safe
+- New dependencies must be declared in [workspace.dependencies] in the root Cargo.toml
 ```
 
 ### Monorepo
 
 ```markdown
-# CLAUDE.md (根目录)
+# CLAUDE.md (root directory)
 
 ## Structure
 pnpm workspace monorepo:
-- `apps/web` — Next.js 前端
-- `apps/api` — NestJS 后端
-- `packages/shared` — 共享类型和工具函数
-- `packages/ui` — 共享 UI 组件
+- `apps/web` — Next.js frontend
+- `apps/api` — NestJS backend
+- `packages/shared` — Shared types and utility functions
+- `packages/ui` — Shared UI components
 
 ## Commands
-- Install: `pnpm install`（根目录执行）
-- Dev all: `pnpm dev`（turbo 并行启动所有 apps）
+- Install: `pnpm install` (run from the root directory)
+- Dev all: `pnpm dev` (turbo starts all apps in parallel)
 - Test all: `pnpm test`
 - Test single package: `pnpm --filter @repo/web test`
 - Build: `pnpm build`
 
 ## Important
-- 修改 `packages/shared` 后需要重新 build：`pnpm --filter @repo/shared build`
-- 跨包引用使用 workspace 协议：`"@repo/shared": "workspace:*"`
-- 不要在 apps 中直接 import 另一个 app 的代码
+- After modifying `packages/shared`, rebuild it: `pnpm --filter @repo/shared build`
+- Cross-package references use the workspace protocol: `"@repo/shared": "workspace:*"`
+- Do not directly import code from another app inside an app
 ```
 
 ---
 
-## 8. CLAUDE.md vs Hooks：建议性 vs 确定性
+## 8. CLAUDE.md vs Hooks: Advisory vs Deterministic
 
-CLAUDE.md 中的指令是**建议性的**，Claude Code 的遵循率约 80%。对于必须 100% 执行的规则，使用 Hooks。
+Instructions in CLAUDE.md are **advisory**; Claude Code's adherence rate is about 80%. For rules that must be enforced 100% of the time, use Hooks.
 
-| 对比维度 | CLAUDE.md | Hooks |
+| Comparison dimension | CLAUDE.md | Hooks |
 |---------|-----------|-------|
-| 执行方式 | LLM 解读后自行遵循 | 脚本硬编码执行 |
-| 遵循率 | ~80%（建议性） | 100%（确定性） |
-| 适用场景 | 编码风格、架构偏好 | 安全检查、格式化、自动测试 |
-| 配置位置 | `CLAUDE.md` 文件 | `.claude/settings.json` 的 `hooks` 字段 |
+| Execution method | Interpreted by the LLM and then followed autonomously | Hard-coded script execution |
+| Adherence rate | ~80% (advisory) | 100% (deterministic) |
+| Suitable scenarios | Coding style, architecture preferences | Security checks, formatting, automated tests |
+| Configuration location | `CLAUDE.md` file | `hooks` field in `.claude/settings.json` |
 
-**实践建议**：
+**Practical recommendation**:
 
 ```
-CLAUDE.md：不要提交包含 TODO 的代码      → 80% 遵循
-Hook：PostToolUse 后自动运行 lint       → 100% 执行
+CLAUDE.md: Do not commit code containing TODO      -> 80% adherence
+Hook: Automatically run lint after PostToolUse     -> 100% execution
 ```
 
-将**偏好**放在 CLAUDE.md，将**强制规则**放在 Hooks。
+Put **preferences** in CLAUDE.md and **mandatory rules** in Hooks.
 
 ---
 
-## 9. 渐进式信息披露
+## 9. Progressive Disclosure
 
-不要把所有信息塞进 CLAUDE.md。利用 Claude Code 的 Skills 机制实现分层：
+Do not stuff all information into CLAUDE.md. Use Claude Code's Skills mechanism for layering:
 
-| 层级 | 放什么 | 何时加载 |
+| Level | What to put there | When it loads |
 |------|--------|---------|
-| CLAUDE.md | 每次会话都需要的核心信息 | 会话开始时自动加载 |
-| Skills（`.claude/skills/`） | 特定任务的详细指导 | 按需加载（通过 `/skill` 或自动匹配） |
-| 外部文档 | API 参考、设计文档 | Claude 主动读取文件 |
+| CLAUDE.md | Core information needed in every session | Automatically loaded at session start |
+| Skills (`.claude/skills/`) | Detailed guidance for specific tasks | Loaded on demand (via `/skill` or automatic matching) |
+| External docs | API references, design documents | Claude proactively reads files |
 
 ```markdown
-# CLAUDE.md 中只写概要
-## 数据库
-使用 PostgreSQL + Prisma。迁移规范详见 .claude/skills/database-migrations.md
+# CLAUDE.md contains only a summary
+## Database
+Uses PostgreSQL + Prisma. For migration standards, see .claude/skills/database-migrations.md
 
-## 部署
-使用 GitHub Actions + AWS ECS。部署流程详见 .claude/skills/deployment.md
+## Deployment
+Uses GitHub Actions + AWS ECS. For the deployment flow, see .claude/skills/deployment.md
 ```
 
-这样 CLAUDE.md 保持精简，详细指导按需注入，最大化上下文空间利用率。
+This keeps CLAUDE.md concise, injects detailed guidance on demand, and maximizes context space utilization.
 
 ---
 
-## 10. 维护策略
+## 10. Maintenance Strategy
 
-CLAUDE.md 应该像代码一样维护：
+CLAUDE.md should be maintained like code:
 
-### 定期修剪
+### Prune Regularly
 
-- 每月审查一次，删除过时的信息
-- 如果一条规则 Claude 已经自己做对了（通过代码推断），就删掉它
-- 合并重复的规则
+- Review once a month and remove outdated information
+- If Claude already gets a rule right on its own (by inferring from code), delete it
+- Merge duplicate rules
 
-### 通过观察验证
+### Validate by Observation
 
 ```bash
-# 开一个新会话，给 Claude 一个相关任务，观察它是否遵循 CLAUDE.md
-# 如果它忽略了某条规则，考虑：
-# 1. 规则是否措辞不清晰？→ 重写
-# 2. 规则是否被淹没在太多内容中？→ 精简
-# 3. 规则是否必须遵守？→ 改用 Hook
+# Start a new session, give Claude a relevant task, and observe whether it follows CLAUDE.md
+# If it ignores a rule, consider:
+# 1. Is the rule worded unclearly? -> Rewrite it
+# 2. Is the rule buried in too much content? -> Simplify
+# 3. Must the rule be followed? -> Use a Hook instead
 ```
 
-### 版本控制
+### Version Control
 
-- 项目根目录的 CLAUDE.md 提交到 Git
-- 在 PR Review 中审查 CLAUDE.md 的变更
-- 重大变更在提交消息中注明
+- Commit the project root CLAUDE.md to Git
+- Review CLAUDE.md changes during PR Review
+- Note major changes in the commit message
 
 ---
 
-## 11. 跨工具兼容性
+## 11. Cross-Tool Compatibility
 
-CLAUDE.md 不仅被 Claude Code 读取。以下工具也会加载它：
+CLAUDE.md is not only read by Claude Code. The following tools also load it:
 
-| Agent | 是否读取 CLAUDE.md | 原生指令文件 |
+| Agent | Reads CLAUDE.md? | Native instruction file |
 |------|-------------------|-------------|
-| Claude Code | 是（原生） | `CLAUDE.md` |
-| Copilot CLI | 是 | `.github/copilot-instructions.md` |
-| Codex CLI | 否 | `CODEX.md` / `AGENTS.md` |
-| Gemini CLI | 否 | `GEMINI.md` |
-| Kimi CLI | 否 | `AGENTS.md` |
+| Claude Code | Yes (native) | `CLAUDE.md` |
+| Copilot CLI | Yes | `.github/copilot-instructions.md` |
+| Codex CLI | No | `CODEX.md` / `AGENTS.md` |
+| Gemini CLI | No | `GEMINI.md` |
+| Kimi CLI | No | `AGENTS.md` |
 
-如果团队同时使用 Claude Code 和 Copilot CLI，一份 CLAUDE.md 可以同时服务两个工具。
+If a team uses both Claude Code and Copilot CLI, a single CLAUDE.md can serve both tools.
 
-> 如果需要一份指令文件覆盖更多工具，参考 [AGENTS.md 配置指南](agents-md.md)。
+> If you need one instruction file to cover more tools, see the [AGENTS.md Configuration Guide](agents-md.md).
 
 ---
 
-## 12. .claudeignore 减少 Token 浪费
+## 12. .claudeignore Reduces Token Waste
 
-`.claudeignore` 文件告诉 Claude Code 忽略特定文件和目录，减少不必要的文件读取和上下文占用。语法与 `.gitignore` 相同。
+The `.claudeignore` file tells Claude Code to ignore specific files and directories, reducing unnecessary file reads and context usage. Its syntax is the same as `.gitignore`.
 
 ```gitignore
 # .claudeignore
@@ -450,96 +450,96 @@ __pycache__/
 *.pyc
 ```
 
-**典型效果**：一个中型 Node.js 项目，添加 `.claudeignore` 后，Claude Code 的文件搜索速度提升约 30%，上下文中的噪音文件减少 50% 以上。
+**Typical effect**: In a medium-sized Node.js project, after adding `.claudeignore`, Claude Code's file search speed improves by about 30% and noisy files in the context decrease by more than 50%.
 
 ---
 
-## 13. 常见错误与修正
+## 13. Common Mistakes and Fixes
 
-### 错误 1：写成了 README
+### Mistake 1: Writing It Like a README
 
 ```markdown
-# 坏 — 这是给人看的介绍，不是给 AI 的指令
+# Bad — This is an introduction for humans, not instructions for AI
 ## Welcome to MyApp!
 MyApp is a revolutionary platform that helps users manage their tasks
 efficiently. It was founded in 2023 and has over 10,000 users...
 ```
 
 ```markdown
-# 好 — 直接告诉 AI 需要知道什么
+# Good — Tell the AI directly what it needs to know
 ## Stack: TypeScript + Next.js 15 + Supabase
 ## Build: `pnpm build`
 ## Test: `pnpm vitest run`
 ```
 
-### 错误 2：指令互相矛盾
+### Mistake 2: Contradictory Instructions
 
 ```markdown
-# 坏 — 前后矛盾
-- 所有函数必须有 JSDoc 注释
-- 代码应该自解释，减少注释
+# Bad — Contradictory
+- All functions must have JSDoc comments
+- Code should be self-explanatory and use fewer comments
 ```
 
 ```markdown
-# 好 — 明确适用范围
-- 导出的公共 API 函数必须有 JSDoc 注释
-- 内部私有函数只在逻辑复杂时添加注释
+# Good — Clearly define the scope
+- Exported public API functions must have JSDoc comments
+- Internal private functions should add comments only when the logic is complex
 ```
 
-### 错误 3：过于笼统
+### Mistake 3: Being Too Vague
 
 ```markdown
-# 坏 — 太模糊，AI 无法执行
-- 写好代码
-- 注意安全
-- 性能要好
+# Bad — Too vague for AI to execute
+- Write good code
+- Pay attention to security
+- Performance should be good
 ```
 
 ```markdown
-# 好 — 具体可执行
-- 所有 SQL 查询使用参数化，禁止字符串拼接
-- API 响应时间超过 200ms 时需要添加缓存
-- 列表接口必须分页，默认 page_size=20
+# Good — Specific and executable
+- All SQL queries use parameterization; string concatenation is prohibited
+- Add caching when API response time exceeds 200ms
+- List endpoints must be paginated, with default page_size=20
 ```
 
-### 错误 4：信息过时
+### Mistake 4: Outdated Information
 
-定期检查这些易过时的内容：
-- 依赖版本号（让 Claude 从 package.json/Cargo.toml 读取）
-- 团队成员名单（不需要放在 CLAUDE.md）
-- 已弃用的 API 端点（及时清理）
-- 已完成的迁移说明（完成后删除）
+Regularly check these easily outdated items:
+- Dependency version numbers (let Claude read them from package.json/Cargo.toml)
+- Team member lists (they do not need to be in CLAUDE.md)
+- Deprecated API endpoints (clean them up promptly)
+- Completed migration notes (delete after completion)
 
-### 错误 5：把秘密写进 CLAUDE.md
+### Mistake 5: Putting Secrets in CLAUDE.md
 
 ```markdown
-# 坏 — CLAUDE.md 会提交到 Git
+# Bad — CLAUDE.md will be committed to Git
 - API Key: sk-xxxxx
 - Database password: mypassword123
 
-# 好 — 指向环境变量
-- 所有密钥从环境变量读取，参考 `.env.example`
-- 本地开发密钥找团队 lead 获取
+# Good — Point to environment variables
+- All secrets are read from environment variables; see `.env.example`
+- For local development secrets, ask the team lead
 ```
 
 ---
 
-## 总结
+## Summary
 
-| 原则 | 说明 |
+| Principle | Description |
 |------|------|
-| 精简 | 控制在 200 行以内，只写 Claude 需要但无法推断的信息 |
-| 具体 | 提供可执行的命令和规则，避免模糊描述 |
-| 分层 | 核心指令在 CLAUDE.md，详细指导在 Skills |
-| 维护 | 像代码一样审查和修剪，删除过时内容 |
-| 互补 | 建议性规则用 CLAUDE.md，强制性规则用 Hooks |
+| Concise | Keep it under 200 lines and include only information Claude needs but cannot infer |
+| Specific | Provide executable commands and rules; avoid vague descriptions |
+| Layered | Put core instructions in CLAUDE.md and detailed guidance in Skills |
+| Maintained | Review and prune it like code; delete outdated content |
+| Complementary | Use CLAUDE.md for advisory rules and Hooks for mandatory rules |
 
-## 相关资源
+## Related Resources
 
-- [AGENTS.md 配置指南](./agents-md.md) — 跨 Agent 指令文件 + 符号链接（CLAUDE.md → AGENTS.md）
-- [长期记忆与项目指令对比](../comparison/memory-system-deep-dive.md) — 4 层 CLAUDE.md + auto-memory
-- [系统提示与 Prompt 工程](../comparison/system-prompt-deep-dive.md) — 8 模块系统提示架构
-- [Claude Code 概述](../tools/claude-code/01-overview.md) — 79 命令 + 24 Hook 事件
-- [Claude Code 用户指南](./claude-code-user-guide.md) — 15 个实用技巧
-- [Skill 设计指南](./skill-design.md) — SKILL.md 编写 + allowed-tools 白名单
-- [配置示例](./config-examples.md) — settings.json 格式与示例
+- [AGENTS.md Configuration Guide](./agents-md.md) — Cross-agent instruction files + symlink (CLAUDE.md -> AGENTS.md)
+- [Long-Term Memory vs Project Instructions](../comparison/memory-system-deep-dive.md) — 4-layer CLAUDE.md + auto-memory
+- [System Prompts and Prompt Engineering](../comparison/system-prompt-deep-dive.md) — 8-module system prompt architecture
+- [Claude Code Overview](../tools/claude-code/01-overview.md) — 79 commands + 24 Hook events
+- [Claude Code User Guide](./claude-code-user-guide.md) — 15 practical tips
+- [Skill Design Guide](./skill-design.md) — Writing SKILL.md + allowed-tools whitelist
+- [Configuration Examples](./config-examples.md) — settings.json format and examples

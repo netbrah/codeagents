@@ -1,87 +1,90 @@
-# 22. 消息与提示管线——开发者参考
+# 22. Message and Prompt Pipeline — Developer Reference
 
-> 系统提示只是模型输入的一部分。完整的输入是由**多个来源**经过标准化、排序、注入后拼装的**管线**。本文分析 Claude Code 的消息变换全流程。
+> The system prompt is only one part of the model input. The complete input is a **pipeline** assembled from **multiple sources** after normalization, ordering, and injection. This document analyzes Claude Code's full message transformation flow.
 >
-> **Qwen Code 对标**：Qwen Code 的消息构建相对简单（系统提示 + 消息历史 + 工具 Schema）。Claude Code 的管线包含 6 层变换——其中 `<system-reminder>` 注入和 Prompt Cache 分区是 Qwen Code 缺失的关键环节。
+> **Qwen Code comparison**: Qwen Code's message construction is relatively simple (system prompt + message history + tool Schema). Claude Code's pipeline includes 6 layers of transformation; `<system-reminder>` injection and Prompt Cache partitioning are key missing pieces in Qwen Code.
 >
-> **致谢**：概念框架参考 [learn-claude-code](https://github.com/shareAI-lab/learn-claude-code) s10a 章节。
+> **Acknowledgment**: Conceptual framework references the s10a chapter of [learn-claude-code](https://github.com/shareAI-lab/learn-claude-code).
 
-## 一、为什么系统提示不是全部
+## 1. Why the System Prompt Is Not Everything
 
-### 问题定义
+### Problem Definition
 
-模型接收的完整输入不只是"系统提示 + 用户消息"，而是多个来源的组合：
+The complete input received by the model is not just "system prompt + user message". It is a combination of multiple sources:
 
 ```
-模型实际接收的输入：
+Actual input received by the model:
 
 ┌─────────────────────────────────────────────┐
-│ 1. 系统提示（多个 block 拼装）               │
-│    ├─ 角色定义                               │
-│    ├─ 行为规则                               │
-│    ├─ 工具使用指南                            │
-│    ├─ 语气风格                               │
-│    ├─ 环境信息（平台/shell/日期）             │
-│    ├─ 记忆（MEMORY.md）                      │
-│    └─ MCP 指令                               │
+│ 1. System prompt (assembled from blocks)    │
+│    ├─ Role definition                       │
+│    ├─ Behavioral rules                      │
+│    ├─ Tool usage guide                      │
+│    ├─ Tone and style                        │
+│    ├─ Environment info (platform/shell/date)│
+│    ├─ Memory (MEMORY.md)                    │
+│    └─ MCP instructions                      │
 ├─────────────────────────────────────────────┤
-│ 2. 第一条用户消息（系统注入）                 │
-│    └─ <system-reminder> 标签                 │
-│        ├─ CLAUDE.md 项目指令                  │
-│        ├─ Git 状态（分支/提交/变更）           │
-│        └─ 当前日期                            │
+│ 2. First user message (system-injected)     │
+│    └─ <system-reminder> tag                 │
+│        ├─ CLAUDE.md project instructions    │
+│        ├─ Git status (branch/commit/changes)│
+│        └─ Current date                      │
 ├─────────────────────────────────────────────┤
-│ 3. 对话历史                                  │
-│    ├─ 用户消息                               │
-│    ├─ 助手回复                               │
-│    ├─ 工具调用 + 结果                        │
-│    └─ isMeta 消息（UI 不可见但模型可见）      │
+│ 3. Conversation history                     │
+│    ├─ User messages                         │
+│    ├─ Assistant replies                     │
+│    ├─ Tool calls + results                  │
+│    └─ isMeta messages (hidden in UI but     │
+│       visible to the model)                 │
 ├─────────────────────────────────────────────┤
-│ 4. 工具 Schema（独立传输，非在系统提示中）    │
-│    ├─ 核心工具（始终加载）                    │
-│    ├─ 延迟工具（ToolSearch 激活后加载）        │
-│    └─ MCP 工具（动态发现）                    │
+│ 4. Tool Schema (transmitted separately, not  │
+│    in the system prompt)                    │
+│    ├─ Core tools (always loaded)            │
+│    ├─ Deferred tools (loaded after          │
+│    │  ToolSearch activation)                │
+│    └─ MCP tools (dynamically discovered)    │
 └─────────────────────────────────────────────┘
 ```
 
-## 二、管线变换流程
+## 2. Pipeline Transformation Flow
 
 ```
-来源                          变换                      输出
-─────                        ─────                    ─────
+Source                        Transform                 Output
+─────                         ─────                     ─────
 
-系统提示段落[]  ──── 段落缓存 + Feature Flag ────→  SystemPromptBlock[]
+System prompt paragraphs[] ── paragraph cache + Feature Flag ──→ SystemPromptBlock[]
                                                         │
                      SYSTEM_PROMPT_DYNAMIC_BOUNDARY      │
-                     (静态/动态分区标记)                   │
+                     (static/dynamic partition marker)   │
                                                         ▼
                                                   splitSysPromptPrefix()
-                                                  (分配 Cache Scope)
+                                                  (assign Cache Scope)
                                                         │
                                                         ▼
                                                   buildSystemPromptBlocks()
-                                                  (添加 cache_control)
+                                                  (add cache_control)
                                                         │
 CLAUDE.md ────── loadClaudeMds() ─────→                 │
-Git 状态 ────── getGitStatus() ──────→  getUserContext() │
-日期 ──────────────────────────────→     │              │
-                                         ▼              │
-                                   prependUserContext()  │
-                                   (<system-reminder>)   │
-                                         │              │
-消息历史 ──── 标准化 ──── 压缩检查 ──→    │              │
-                                         ▼              ▼
+Git status ──── getGitStatus() ──────→  getUserContext()│
+Date ────────────────────────────────→     │            │
+                                           ▼            │
+                                     prependUserContext()│
+                                     (<system-reminder>) │
+                                           │            │
+Message history ── normalize ── compaction check ──→    │
+                                           ▼            ▼
                                     ┌─────────────────────┐
-                                    │   API 请求           │
+                                    │   API request        │
                                     │  system: Block[]     │
                                     │  messages: Message[] │
                                     │  tools: ToolSpec[]   │
                                     └─────────────────────┘
 ```
 
-## 三、关键设计——`<system-reminder>` 注入
+## 3. Key Design: `<system-reminder>` Injection
 
-Claude Code 把 CLAUDE.md 内容放在**第一条用户消息**中（而非系统提示），用 `<system-reminder>` 标签包裹：
+Claude Code places CLAUDE.md content in the **first user message** (rather than the system prompt), wrapped in a `<system-reminder>` tag:
 
 ```typescript
 createUserMessage({
@@ -94,56 +97,56 @@ Today's date is ${date}.
 
 IMPORTANT: this context may or may not be relevant...
 </system-reminder>`,
-  isMeta: true,  // UI 不显示，但模型可见
+  isMeta: true,  // Not shown in the UI, but visible to the model
 })
 ```
 
-**为什么不放在系统提示中？**
-1. 系统提示的静态前缀需要跨用户共享 Prompt Cache——CLAUDE.md 是项目特定的，会打破缓存
-2. 用户消息的缓存粒度更细（org-level），不影响全局缓存
-3. `isMeta: true` 确保 UI 不显示这条"注入的"消息
+**Why not put it in the system prompt?**
+1. The static prefix of the system prompt needs to share Prompt Cache across users; CLAUDE.md is project-specific and would break the cache.
+2. User-message cache granularity is finer (org-level) and does not affect the global cache.
+3. `isMeta: true` ensures this "injected" message is not shown in the UI.
 
-**Qwen Code 对标**：Qwen Code 的 QWEN.md 内容直接拼入系统提示——会打破 Prompt Cache 的前缀匹配。建议迁移到 `<system-reminder>` 注入模式。
+**Qwen Code comparison**: Qwen Code directly appends QWEN.md content to the system prompt, which breaks Prompt Cache prefix matching. Consider migrating to the `<system-reminder>` injection pattern.
 
-## 四、消息标准化
+## 4. Message Normalization
 
-原始消息来自多个来源（用户输入、工具结果、Hook 注入），格式各异。标准化确保所有消息满足同一结构契约：
+Raw messages come from multiple sources (user input, tool results, Hook injections) and use different formats. Normalization ensures all messages satisfy the same structural contract:
 
-| 原始来源 | 标准化处理 |
+| Original Source | Normalization Handling |
 |---------|-----------|
-| 用户文本输入 | 包裹为 `{role: "user", content: [{type: "text"}]}` |
-| 工具结果 | 包裹为 `{role: "user", content: [{type: "tool_result"}]}` |
-| 图片粘贴 | 转换为 `{type: "image", source: {type: "base64"}}` |
-| `<system-reminder>` | 作为 `isMeta: true` 的用户消息前置 |
-| 压缩摘要 | 替换被压缩的消息段 |
+| User text input | Wrap as `{role: "user", content: [{type: "text"}]}` |
+| Tool result | Wrap as `{role: "user", content: [{type: "tool_result"}]}` |
+| Pasted image | Convert to `{type: "image", source: {type: "base64"}}` |
+| `<system-reminder>` | Prepended as a user message with `isMeta: true` |
+| Compaction summary | Replaces the message segments that were compacted |
 
-## 五、Prompt Cache 分区的管线位置
+## 5. Pipeline Position of Prompt Cache Partitioning
 
-Cache 分区不是在系统提示构建时做的，而是在**管线最后一步**（`buildSystemPromptBlocks`）做的：
+Cache partitioning is not done while constructing the system prompt; it is done in the **final pipeline step** (`buildSystemPromptBlocks`):
 
 ```
-系统提示段落[]
+System prompt paragraphs[]
   │
-  ├─ 段落 1: 角色定义      ← 静态（不变）
-  ├─ 段落 2: 行为规则      ← 静态
-  ├─ 段落 3: 工具指南      ← 静态
+  ├─ Paragraph 1: role definition      ← static (unchanged)
+  ├─ Paragraph 2: behavioral rules     ← static
+  ├─ Paragraph 3: tool guide           ← static
   ├─ ── BOUNDARY ──
-  ├─ 段落 4: 环境信息      ← 动态（每轮变）
-  ├─ 段落 5: 记忆          ← 动态（会话间变）
-  └─ 段落 6: MCP 指令      ← 动态（MCP 连接变）
+  ├─ Paragraph 4: environment info     ← dynamic (changes each round)
+  ├─ Paragraph 5: memory               ← dynamic (changes across sessions)
+  └─ Paragraph 6: MCP instructions     ← dynamic (changes with MCP connections)
         │
         ▼
   splitSysPromptPrefix()
         │
-        ├─ 静态 → cache_control: {scope: "global"}
-        └─ 动态 → cache_control: null（不缓存）
+        ├─ Static → cache_control: {scope: "global"}
+        └─ Dynamic → cache_control: null (not cached)
 ```
 
-## 六、Qwen Code 改进建议
+## 6. Qwen Code Improvement Suggestions
 
-| 改进 | 描述 | 优先级 |
+| Improvement | Description | Priority |
 |------|------|--------|
-| **QWEN.md → system-reminder 注入** | 项目指令从系统提示移到第一条用户消息 | P1 |
-| **Prompt Cache 静态/动态分区** | 不变的行为指令放在前缀，确保缓存命中 | P1 |
-| **显式消息标准化** | 所有来源的消息经过统一的 normalize 函数 | P2 |
-| **isMeta 消息** | 支持 UI 不可见但模型可见的系统注入消息 | P2 |
+| **QWEN.md → system-reminder injection** | Move project instructions from the system prompt to the first user message | P1 |
+| **Prompt Cache static/dynamic partitioning** | Put immutable behavioral instructions in the prefix to ensure cache hits | P1 |
+| **Explicit message normalization** | Pass messages from all sources through a unified normalize function | P2 |
+| **isMeta messages** | Support system-injected messages that are hidden in the UI but visible to the model | P2 |

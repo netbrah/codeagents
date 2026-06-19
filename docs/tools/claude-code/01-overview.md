@@ -1,148 +1,148 @@
-# 1. Claude Code 概述——Code Agent 开发者视角
+# 1. Claude Code Overview: A Code Agent Developer Perspective
 
-> **阅读对象**：正在开发 Qwen Code / Gemini CLI 等 CLI Code Agent 的工程师
+> **Audience**: Engineers developing CLI Code Agents such as Qwen Code / Gemini CLI
 >
-> **核心问题**：Claude Code 做对了什么？哪些设计值得借鉴？哪些是 Anthropic 独有优势无法复制？
+> **Core questions**: What did Claude Code get right? Which designs are worth learning from? Which advantages are unique to Anthropic and cannot be replicated?
 
-## 一、为什么要研究 Claude Code
+## 1. Why Study Claude Code
 
-Claude Code 是目前功能最完整的 CLI Code Agent——79 个斜杠命令、42 个内置工具、5 层设置体系、24 种 Hook 事件、多 Agent 协作、100 万 token 上下文。它在 SWE-bench 等编程基准上持续领先，且是唯一在内部使用 Kairos（Always-On 自治模式）的 Agent。
+Claude Code is currently the most complete CLI Code Agent: 79 slash commands, 42 built-in tools, a 5-layer settings hierarchy, 24 Hook events, multi-Agent collaboration, and a 1-million-token context window. It continues to lead on programming benchmarks such as SWE-bench, and it is the only Agent known to use Kairos (an Always-On autonomous mode) internally.
 
-对于 Qwen Code 开发者，Claude Code 的价值不在于它的模型能力（那是 Anthropic 独有的），而在于它的**工程架构**——这些模式可以在任何模型上复现。
+For Qwen Code developers, Claude Code's value is not its model capability (that is unique to Anthropic), but its **engineering architecture**: these patterns can be reproduced on top of any model.
 
-## 二、能力矩阵速查
+## 2. Capability Matrix Quick Reference
 
-> v2.1.82 → v2.1.132（2026-04 后）的增量见 [§23 近期更新](./23-recent-updates.md)。下表反映 v2.1.132 当前能力，标 ✨ 的为近期新增。
+> For increments from v2.1.82 to v2.1.132 (after 2026-04), see [§23 Recent Updates](./23-recent-updates.md). The table below reflects current v2.1.132 capabilities; ✨ marks recent additions.
 
-| 能力领域 | Claude Code | Qwen Code | 差距 | 详见 |
+| Capability Area | Claude Code | Qwen Code | Gap | Details |
 |---------|-------------|-----------|------|------|
-| **上下文管理** | 5 层压缩 + 自动裁剪 | 单一 70% 手动压缩 | 大 | [07-会话](./07-session.md) |
-| **工具系统** | 42 工具 + 延迟加载 (ToolSearch) | ~30 工具 + 全量加载 | 中 | [04-工具](./04-tools.md) |
-| **命令系统** | 79+ 命令 + 插件扩展（✨ 加 `/ultrareview` `/ultraplan` `/usage` `/team-onboarding` 等）| ~40 命令 | 中 | [02-命令](./02-commands.md) · [§23](./23-recent-updates.md) |
-| **安全模型** | 5 层设置 + 沙箱 + 24 种 Hook + ✨ Conditional `if` hooks | 权限规则 + Hook | 中 | [06-设置](./06-settings.md) · [12-Hooks](./12-hooks.md) |
-| **权限审批** | ✨ Auto Mode（classifier 智能审批，介于 manual / skip 之间）| 4 mode flow | 中 | [§23 §2.2](./23-recent-updates.md) |
-| **多 Agent** | Coordinator/Swarm + Kairos + ✨ Ultrareview cloud fleet | Arena + Agent Team | 大 | [09-多Agent](./09-multi-agent.md) · [§23 §2.4](./23-recent-updates.md) |
-| **会话恢复** | 崩溃检测 + 合成续行 | 无 | 大 | [07-会话](./07-session.md) |
-| **记忆系统** | CLAUDE.md + Auto Dream + Team Memory | 简单笔记 | 大 | [07-会话](./07-session.md) |
-| **Prompt 缓存** | 静态/动态分区 + 工具 Schema 锁定 | 基础缓存 | 中 | [03-架构](./03-architecture.md) |
-| **启动性能** | TCP preconnect + 键盘捕获 + ✨ Native binaries | 无优化 | 大 | [03-架构](./03-architecture.md) · [§23 §四](./23-recent-updates.md) |
-| **终端渲染** | DEC 2026 同步 + 差分渲染 + ✨ Flicker-free alt-screen | 标准 Ink | 中 | [11-终端渲染](./11-terminal-rendering.md) |
-| **远程控制** | WebSocket/SSE Bridge + ✨ Routines on Web（cron / GitHub event 调度）| 无 | 大 | [08-Remote](./08-remote-control.md) · [§23 §2.5](./23-recent-updates.md) |
-| **协作云端** | ✨ Ultraplan（plan 协作）+ ✨ Ultrareview（review fleet）| 无 | 大 | [§23 §2.3 §2.4](./23-recent-updates.md) |
-| **Computer Use** | ✨ CLI 内 GUI 自动化（点击 UI / 视觉验证）| 无 | 大 | [§23 §2.1](./23-recent-updates.md) |
-| **MCP 集成** | 6 种传输 + OAuth + ✨ Per-tool size override（500K）| 基础 MCP | 中 | [14-MCP](./14-mcp.md) · [§23 §八](./23-recent-updates.md) |
-| **Speculation** | 预测执行 + Tab 接受 | 已实现但默认关闭 | 小 | [10-Prompt](./10-prompt-suggestions.md) |
-| **默认模型** | ✨ Opus 4.7（Max/Team Premium，含 `xhigh` effort level）| Qwen3-Coder | — | [03-架构](./03-architecture.md) · [§23 §三](./23-recent-updates.md) |
+| **Context Management** | 5-layer compression + automatic pruning | Single 70% manual compression | Large | [07-Session](./07-session.md) |
+| **Tool System** | 42 tools + lazy loading (ToolSearch) | ~30 tools + full loading | Medium | [04-Tools](./04-tools.md) |
+| **Command System** | 79+ commands + plugin extension (✨ adds `/ultrareview`, `/ultraplan`, `/usage`, `/team-onboarding`, etc.) | ~40 commands | Medium | [02-Commands](./02-commands.md) · [§23](./23-recent-updates.md) |
+| **Security Model** | 5-layer settings + sandbox + 24 Hook types + ✨ conditional `if` hooks | Permission rules + Hook | Medium | [06-Settings](./06-settings.md) · [12-Hooks](./12-hooks.md) |
+| **Permission Approval** | ✨ Auto Mode (classifier-based intelligent approval, between manual and skip) | 4-mode flow | Medium | [§23 §2.2](./23-recent-updates.md) |
+| **Multi-Agent** | Coordinator/Swarm + Kairos + ✨ Ultrareview cloud fleet | Arena + Agent Team | Large | [09-Multi-Agent](./09-multi-agent.md) · [§23 §2.4](./23-recent-updates.md) |
+| **Session Recovery** | Crash detection + synthetic continuation | None | Large | [07-Session](./07-session.md) |
+| **Memory System** | CLAUDE.md + Auto Dream + Team Memory | Simple notes | Large | [07-Session](./07-session.md) |
+| **Prompt Caching** | Static/dynamic partitioning + tool schema pinning | Basic cache | Medium | [03-Architecture](./03-architecture.md) |
+| **Startup Performance** | TCP preconnect + keyboard capture + ✨ native binaries | No optimization | Large | [03-Architecture](./03-architecture.md) · [§23 §4](./23-recent-updates.md) |
+| **Terminal Rendering** | DEC 2026 synchronization + differential rendering + ✨ flicker-free alt-screen | Standard Ink | Medium | [11-Terminal Rendering](./11-terminal-rendering.md) |
+| **Remote Control** | WebSocket/SSE Bridge + ✨ Routines on Web (cron / GitHub event scheduling) | None | Large | [08-Remote](./08-remote-control.md) · [§23 §2.5](./23-recent-updates.md) |
+| **Cloud Collaboration** | ✨ Ultraplan (plan collaboration) + ✨ Ultrareview (review fleet) | None | Large | [§23 §2.3 §2.4](./23-recent-updates.md) |
+| **Computer Use** | ✨ In-CLI GUI automation (UI clicking / visual verification) | None | Large | [§23 §2.1](./23-recent-updates.md) |
+| **MCP Integration** | 6 transports + OAuth + ✨ per-tool size override (500K) | Basic MCP | Medium | [14-MCP](./14-mcp.md) · [§23 §8](./23-recent-updates.md) |
+| **Speculation** | Predictive execution + Tab accept | Implemented but disabled by default | Small | [10-Prompt](./10-prompt-suggestions.md) |
+| **Default Model** | ✨ Opus 4.7 (Max/Team Premium, with `xhigh` effort level) | Qwen3-Coder | — | [03-Architecture](./03-architecture.md) · [§23 §3](./23-recent-updates.md) |
 
-## 三、架构概览（开发者视角）
+## 3. Architecture Overview (Developer Perspective)
 
-### 3.1 技术栈
+### 3.1 Technology Stack
 
-| 组件 | Claude Code | 开发者启示 |
+| Component | Claude Code | Developer Takeaway |
 |------|-------------|-----------|
-| 运行时 | Bun（v2.1.88 前为 Bun 打包的 JS）| Bun 的启动速度和 Node.js 兼容性值得考虑 |
-| UI 框架 | Ink (React for CLI) | 与 Qwen Code/Gemini CLI 相同 |
-| 构建 | esbuild bundler | 单文件 bundle 减少依赖 |
-| 二进制分发 | Node.js SEA → 后改为 Rust 原生 | 原生二进制 = 亚秒启动 + 防反编译 |
-| 源码规模 | ~1800 文件，56 个顶层模块 | 远大于 Qwen Code (~500 文件) |
+| Runtime | Bun (JS bundled by Bun before v2.1.88) | Bun's startup speed and Node.js compatibility are worth considering |
+| UI Framework | Ink (React for CLI) | Same as Qwen Code/Gemini CLI |
+| Build | esbuild bundler | A single-file bundle reduces dependencies |
+| Binary Distribution | Node.js SEA → later changed to native Rust | Native binary = sub-second startup + harder to decompile |
+| Source Scale | ~1800 files, 56 top-level modules | Much larger than Qwen Code (~500 files) |
 
-### 3.2 模块结构
+### 3.2 Module Structure
 
 ```
 claude-code/
-├─ tools/         43 目录    # 工具系统（Read/Write/Edit/Bash/Agent/...）
-├─ services/      36 目录    # 后端服务（compact/MCP/analytics/memory/...）
-├─ commands/      101 目录   # 斜杠命令
-├─ components/    144 项     # TUI 组件（React/Ink）
-├─ hooks/         85 项      # React hooks
-├─ tasks/         9 项       # 任务系统（LocalAgent/RemoteAgent/Dream/...）
-├─ state/         6 项       # 全局状态管理
-├─ bridge/        31 项      # REPL 远程桥接
-├─ utils/         大量       # 工具函数
-├─ coordinator/   1 项       # 协调器模式（Swarm）
-├─ plugins/       2 项       # 插件系统
-├─ memdir/        8 项       # 记忆目录/检索
-├─ context/       9 项       # 上下文管理
-├─ constants/     多项       # 常量 + 系统提示
-└─ proactive/     —          # Kairos 主动行为（已 DCE 移除）
+├─ tools/         43 dirs    # Tool system (Read/Write/Edit/Bash/Agent/...)
+├─ services/      36 dirs    # Backend services (compact/MCP/analytics/memory/...)
+├─ commands/      101 dirs   # Slash commands
+├─ components/    144 items  # TUI components (React/Ink)
+├─ hooks/         85 items   # React hooks
+├─ tasks/         9 items    # Task system (LocalAgent/RemoteAgent/Dream/...)
+├─ state/         6 items    # Global state management
+├─ bridge/        31 items   # REPL remote bridge
+├─ utils/         many       # Utility functions
+├─ coordinator/   1 item     # Coordinator mode (Swarm)
+├─ plugins/       2 items    # Plugin system
+├─ memdir/        8 items    # Memory directory/retrieval
+├─ context/       9 items    # Context management
+├─ constants/     many       # Constants + system prompts
+└─ proactive/     —          # Kairos proactive behavior (removed by DCE)
 ```
 
-**开发者启示**：Claude Code 的模块拆分粒度极细——每个工具一个目录、每个命令一个文件。这种结构支持 Feature Flag 的 Dead Code Elimination（DCE），让内部特性（如 Kairos、Proactive）在外部构建中完全不存在。Qwen Code 可以参考这种 Feature Flag + DCE 模式来管理实验性功能。
+**Developer takeaway**: Claude Code decomposes modules very finely: one directory per tool and one file per command. This structure supports Feature Flag-based Dead Code Elimination (DCE), so internal features such as Kairos and Proactive are completely absent from external builds. Qwen Code can adopt this Feature Flag + DCE pattern to manage experimental features.
 
-### 3.3 核心循环
+### 3.3 Core Loop
 
 ```
-用户输入
+User input
   │
-  ├─ processSlashCommand()    ← 斜杠命令拦截
-  │     ↓ (非命令)
-  ├─ QueryEngine.run()        ← 核心推理循环
-  │     ├─ buildSystemPrompt() ← 动态构建系统提示
-  │     ├─ API 请求（流式）
-  │     ├─ 流式工具调用解析    ← StreamingToolExecutor
-  │     ├─ 工具批次执行
-  │     ├─ Mid-Turn Queue Drain ← 工具间检查用户输入
-  │     └─ 循环直到模型返回 end_turn
+  ├─ processSlashCommand()    ← Slash command interception
+  │     ↓ (not a command)
+  ├─ QueryEngine.run()        ← Core reasoning loop
+  │     ├─ buildSystemPrompt() ← Dynamically build the system prompt
+  │     ├─ API request (streaming)
+  │     ├─ Streaming tool-call parsing ← StreamingToolExecutor
+  │     ├─ Tool batch execution
+  │     ├─ Mid-Turn Queue Drain ← Check for user input between tools
+  │     └─ Loop until the model returns end_turn
   │
-  └─ 上下文压缩检查           ← 5 层压缩策略
+  └─ Context compression check ← 5-layer compression strategy
 ```
 
-**与 Qwen Code 的关键差异**：
-1. **StreamingToolExecutor**：Claude Code 在 API 流式返回工具调用时就开始解析和准备执行，而非等整个响应完成。这减少了用户等待时间。
-2. **Mid-Turn Queue Drain**：工具批次之间检查用户是否有新输入，允许中途注入指令。Qwen Code 的 PR#2854 正在实现此功能。
-3. **5 层上下文压缩**：不是简单的"超过 70% 就压缩"，而是从轻量（cache_edits 裁剪）到重量（全量 compact）逐级升级。
+**Key differences from Qwen Code**:
+1. **StreamingToolExecutor**: Claude Code begins parsing and preparing tool execution as tool calls stream back from the API, rather than waiting for the full response. This reduces user wait time.
+2. **Mid-Turn Queue Drain**: It checks for new user input between tool batches, allowing instructions to be injected mid-turn. Qwen Code PR#2854 is implementing this feature.
+3. **5-layer context compression**: It is not a simple "compress after exceeding 70%" rule; it escalates gradually from lightweight pruning (`cache_edits`) to heavyweight full compaction.
 
-## 四、可借鉴 vs 不可复制
+## 4. Learnable vs. Non-Replicable
 
-### 可借鉴的工程模式（与模型无关）
+### Learnable Engineering Patterns (Model-Independent)
 
-| 模式 | 核心价值 | 实现复杂度 |
+| Pattern | Core Value | Implementation Complexity |
 |------|---------|-----------|
-| 5 层上下文压缩 | 延长有效会话 3-5 倍 | 中 |
-| ToolSearch 延迟加载 | 减少 50%+ 系统提示 token | 小 |
-| Fork Subagent + Prompt Cache 共享 | 多 Agent 省 80%+ 费用 | 中 |
-| StreamingToolExecutor | 减少工具执行等待 | 中 |
-| Mid-Turn Queue Drain | 用户可中途注入指令 | 中 |
-| 24 种 Hook 事件 | 企业级可扩展性 | 大 |
-| Feature Flag DCE | 安全管理实验性功能 | 小 |
-| CLAUDE.md 记忆系统 | 跨会话知识传递 | 中 |
-| 崩溃恢复 + 合成续行 | 长任务不丢失 | 大 |
-| Prompt Cache 分区（静态/动态） | 缓存命中率最大化 | 中 |
+| 5-layer context compression | Extends effective sessions by 3-5x | Medium |
+| ToolSearch lazy loading | Reduces system prompt tokens by 50%+ | Small |
+| Fork Subagent + shared Prompt Cache | Saves 80%+ cost for multi-Agent workflows | Medium |
+| StreamingToolExecutor | Reduces tool execution wait time | Medium |
+| Mid-Turn Queue Drain | Allows users to inject instructions mid-turn | Medium |
+| 24 Hook event types | Enterprise-grade extensibility | Large |
+| Feature Flag DCE | Safely manages experimental features | Small |
+| CLAUDE.md memory system | Transfers knowledge across sessions | Medium |
+| Crash recovery + synthetic continuation | Prevents long tasks from being lost | Large |
+| Prompt Cache partitioning (static/dynamic) | Maximizes cache hit rate | Medium |
 
-### Anthropic 独有优势（不可复制）
+### Anthropic-Only Advantages (Not Replicable)
 
-| 优势 | 为什么不可复制 |
+| Advantage | Why It Cannot Be Replicated |
 |------|---------------|
-| Claude 模型能力 | 模型是 Anthropic 核心资产 |
-| 100 万 token 上下文 | 依赖 Claude 模型的长上下文能力 |
-| Kairos Always-On 模式 | 需要 Anthropic 的 API 配额和推送基础设施 |
-| GrowthBook 远程特性开关 | 依赖 Anthropic 的 SaaS 基础设施 |
-| 遥测驱动的模型调优 | 需要大规模用户反馈数据 |
+| Claude model capability | The model is Anthropic's core asset |
+| 1-million-token context | Depends on Claude's long-context capability |
+| Kairos Always-On mode | Requires Anthropic's API quota and push infrastructure |
+| GrowthBook remote feature flags | Depends on Anthropic's SaaS infrastructure |
+| Telemetry-driven model tuning | Requires large-scale user feedback data |
 
-## 五、阅读路线推荐
+## 5. Recommended Reading Paths
 
-### 如果你想改进上下文管理
-→ [07-会话与记忆](./07-session.md)：5 层压缩、Auto Dream、Team Memory
+### If you want to improve context management
+→ [07-Session and Memory](./07-session.md): 5-layer compression, Auto Dream, Team Memory
 
-### 如果你想优化工具系统
-→ [04-工具系统](./04-tools.md)：ToolSearch 延迟加载、Zod Schema 校验、权限模型
+### If you want to optimize the tool system
+→ [04-Tool System](./04-tools.md): ToolSearch lazy loading, Zod Schema validation, permission model
 
-### 如果你想做多 Agent 协作
-→ [09-多 Agent 系统](./09-multi-agent.md)：Leader-Worker、Swarm 三后端、Kairos
+### If you want to build multi-Agent collaboration
+→ [09-Multi-Agent System](./09-multi-agent.md): Leader-Worker, three Swarm backends, Kairos
 
-### 如果你想解决终端闪烁
-→ [11-终端渲染](./11-terminal-rendering.md)：DEC 2026 同步输出、差分渲染
+### If you want to solve terminal flicker
+→ [11-Terminal Rendering](./11-terminal-rendering.md): DEC 2026 synchronized output, differential rendering
 
-### 如果你想加强安全
-→ [06-设置与安全](./06-settings.md)：5 层设置、沙箱、Hook 事件
+### If you want to strengthen security
+→ [06-Settings and Security](./06-settings.md): 5-layer settings, sandbox, Hook events
 
-## 六、源码验证
+## 6. Source Verification
 
-本系列所有技术声明通过以下方式验证：
+All technical claims in this series are verified through:
 
-1. **源码分析**：~1800 文件 TypeScript 反编译分析
-2. **二进制分析**：ELF x86-64 二进制的 strings / readelf / 反编译
-3. **官方文档**：[code.claude.com/docs](https://code.claude.com/docs/en)
-4. **网络搜索**：GitHub Blog、社区分析、第三方拆解文章
+1. **Source analysis**: decompiled analysis of ~1800 TypeScript files
+2. **Binary analysis**: `strings` / `readelf` / decompilation of ELF x86-64 binaries
+3. **Official documentation**: [code.claude.com/docs](https://code.claude.com/docs/en)
+4. **Web research**: GitHub Blog, community analysis, and third-party teardown articles
 
-原始证据见 [EVIDENCE.md](./EVIDENCE.md)。
+Original evidence is available in [EVIDENCE.md](./EVIDENCE.md).

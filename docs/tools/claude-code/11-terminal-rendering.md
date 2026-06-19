@@ -1,133 +1,133 @@
-# 11. 终端渲染与防闪烁——开发者参考
+# 11. Terminal Rendering and Flicker Prevention — Developer Reference
 
-> DEC 2026 同步输出、差分渲染、双缓冲、硬件滚动、缓存池化、60fps 节流等 13 项防闪烁机制。Claude Code 自建 Ink fork 实现了这些底层优化。
+> DEC 2026 synchronized output, differential rendering, double buffering, hardware scrolling, cache pooling, 60fps throttling, and 13 other flicker-prevention mechanisms. Claude Code implements these low-level optimizations through its own Ink fork.
 >
-> **Qwen Code 对标**：Qwen Code 使用标准 Ink，存在大输出闪烁问题。Gemini CLI 已在上游实现了 SlicingMaxSizedBox + 硬上限等部分方案（见 [工具输出限高](../../comparison/tool-output-height-limiting-deep-dive.md)）。本文的 DEC 同步输出和差分渲染是更底层的解决方案。
+> **Qwen Code comparison**: Qwen Code uses standard Ink and suffers from flicker with large outputs. Gemini CLI has already implemented partial solutions upstream, including SlicingMaxSizedBox and hard limits (see [Tool Output Height Limiting](../../comparison/tool-output-height-limiting-deep-dive.md)). This article's DEC synchronized output and differential rendering are lower-level solutions.
 
-## 为什么需要自建渲染引擎
+## Why a Custom Rendering Engine Is Needed
 
-### 核心问题
+### Core Problem
 
-标准 Ink 的渲染策略是"清屏 → 全量重绘"——每次 React 状态更新都写入完整的屏幕内容。对于简单 CLI 工具这没问题，但 Code Agent 的 TUI 面临独特挑战：
+Standard Ink uses a "clear screen → full redraw" rendering strategy: every React state update writes the entire screen contents. This is fine for simple CLI tools, but a Code Agent TUI faces unique challenges:
 
-| 场景 | 更新频率 | 标准 Ink | Claude Code Ink fork |
+| Scenario | Update Frequency | Standard Ink | Claude Code Ink fork |
 |------|---------|---------|---------------------|
-| 流式 LLM 输出 | 每秒 10-30 次 | 每次全屏重绘 → 闪烁 | 差分渲染仅更新变化 cell |
-| Spinner 动画 | 每秒 4-8 次 | 全屏重绘只为转一个字符 | 损伤追踪精确到单个 cell |
-| 500 行 shell 输出 | 每行触发 | 布局 + 渲染 500 行 | 硬件滚动 + 仅渲染新增行 |
-| 终端 resize | 偶发 | 全量重排 → 撕裂 | BSU/ESU 原子包裹 |
+| Streaming LLM output | 10-30 times per second | Full-screen redraw every time → flicker | Differential rendering updates only changed cells |
+| Spinner animation | 4-8 times per second | Full-screen redraw just to rotate one character | Damage tracking down to individual cells |
+| 500 lines of shell output | Triggered per line | Layout + render 500 lines | Hardware scrolling + render only newly added lines |
+| Terminal resize | Occasional | Full relayout → tearing | Atomic wrapping with BSU/ESU |
 
-### 设计决策：为什么不用应用层限高替代
+### Design Decision: Why Not Replace This with Application-Level Height Limits
 
-Gemini CLI 和 Qwen Code 选择了应用层方案——`SlicingMaxSizedBox` 在渲染前裁剪数据到 15 行，避免 Ink 布局大量内容。这有效但不彻底：
+Gemini CLI and Qwen Code chose an application-level approach: `SlicingMaxSizedBox` clips data to 15 lines before rendering, avoiding Ink layout over large amounts of content. This is effective but incomplete:
 
-| 方案 | 层级 | 解决的问题 | 无法解决的问题 |
+| Approach | Layer | Problems Solved | Problems Not Solved |
 |------|------|-----------|--------------|
-| 应用层限高（Gemini/Qwen） | React 组件 | 大输出 → 裁剪到 15 行 | Spinner、流式输出、resize 仍然全屏重绘 |
-| 自建渲染引擎（Claude Code） | Ink fork | 所有场景的闪烁 | 维护成本高、无法合并 Ink 上游更新 |
+| Application-level height limiting (Gemini/Qwen) | React component | Large output → clipped to 15 lines | Spinner, streaming output, and resize still cause full-screen redraws |
+| Custom rendering engine (Claude Code) | Ink fork | Flicker in all scenarios | High maintenance cost; cannot merge upstream Ink updates |
 
-**最佳方案是两者结合**——应用层限高降低数据量（Gemini CLI 已做），渲染引擎层优化降低重绘成本（Claude Code 已做，Qwen Code 待做）。
+**The best solution is to combine both**: application-level height limits reduce the amount of data (already done in Gemini CLI), while rendering-engine-level optimization reduces redraw cost (already done in Claude Code; still pending in Qwen Code).
 
-### 竞品渲染方案对比
+### Rendering Approach Comparison with Competitors
 
-| Agent | 渲染引擎 | 防闪烁机制 | 效果 |
+| Agent | Rendering Engine | Flicker-Prevention Mechanisms | Result |
 |-------|---------|-----------|------|
-| **Claude Code** | 自建 Ink fork（~6,800 行） | DEC 同步 + 差分渲染 + 硬件滚动 + 损伤追踪 | 最佳 |
-| **Gemini CLI** | `@jrichman/ink@6.6.7`（自定义 fork） | SlicingMaxSizedBox + 15 行硬上限 + VirtualizedList | 良好 |
-| **Qwen Code** | 标准 `ink@6.2.3` | MaxSizedBox 视觉裁剪（渲染后） | 大输出闪烁 |
-| **Cursor** | VS Code Webview | 浏览器 DOM + GPU 合成 | 无闪烁（Web 技术） |
-| **Copilot CLI** | 自建 Ink fork | 类似 Claude Code | 良好 |
+| **Claude Code** | Custom Ink fork (~6,800 lines) | DEC synchronized output + differential rendering + hardware scrolling + damage tracking | Best |
+| **Gemini CLI** | `@jrichman/ink@6.6.7` (custom fork) | SlicingMaxSizedBox + 15-line hard limit + VirtualizedList | Good |
+| **Qwen Code** | Standard `ink@6.2.3` | MaxSizedBox visual clipping (after rendering) | Flickers on large output |
+| **Cursor** | VS Code Webview | Browser DOM + GPU compositing | No flicker (web technology) |
+| **Copilot CLI** | Custom Ink fork | Similar to Claude Code | Good |
 
-## 问题背景
+## Problem Background
 
-终端 UI 不同于浏览器 DOM——没有硬件合成层、没有 `requestAnimationFrame`、没有 GPU 加速。每次输出都是往 stdout 写入 ANSI 转义序列的字节流，终端模拟器实时逐字解析并渲染。如果一次渲染涉及"清屏→重绘"两步，终端会先显示空白画面再显示新内容，产生可见闪烁。
+A terminal UI is different from the browser DOM: there is no hardware compositing layer, no `requestAnimationFrame`, and no GPU acceleration. Every output is a byte stream of ANSI escape sequences written to stdout, and the terminal emulator parses and renders it character by character in real time. If one render involves two steps, "clear screen → redraw," the terminal first shows a blank screen and then the new content, producing visible flicker.
 
-Claude Code 使用 React + Ink 构建 TUI（Terminal UI），需要在以下场景保持视觉稳定：
+Claude Code builds its TUI (Terminal UI) with React + Ink and must maintain visual stability in the following scenarios:
 
-- **文本流式输出**：assistant 回复按 chunk 到达，每秒多次更新
-- **Spinner / 进度指示**：高频旋转动画
-- **滚动**：对话历史上下滚动
-- **布局变化**：工具调用展开/折叠、权限面板弹出
-- **窗口大小调整**：终端 resize 后全量重排
+- **Streaming text output**: assistant responses arrive in chunks and update multiple times per second
+- **Spinner / progress indication**: high-frequency rotation animation
+- **Scrolling**: scrolling up and down through conversation history
+- **Layout changes**: expanding/collapsing tool calls and opening permission panels
+- **Window resizing**: full relayout after terminal resize
 
-## 架构总览
+## Architecture Overview
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│  React 组件树（Ink）                                            │
-│  JSX → Yoga 布局 → 虚拟屏幕（Screen Buffer）                    │
+│  React component tree (Ink)                                    │
+│  JSX → Yoga layout → virtual screen (Screen Buffer)            │
 └────────────────────┬───────────────────────────────────────────┘
                      │ renderNodeToOutput()
                      ▼
 ┌────────────────────────────────────────────────────────────────┐
-│  Screen Buffer（二维 cell 数组）                                │
-│  output.ts: 损伤追踪 + CharCache + blit 优化                    │
+│  Screen Buffer (two-dimensional cell array)                    │
+│  output.ts: damage tracking + CharCache + blit optimization    │
 └────────────────────┬───────────────────────────────────────────┘
                      │ logUpdate()
                      ▼
 ┌────────────────────────────────────────────────────────────────┐
-│  差分引擎（log-update.ts, 773 行）                              │
-│  前后帧 diff → Diff 补丁数组                                    │
-│  DECSTBM 硬件滚动 / 逐 cell 增量写入                            │
+│  Diff engine (log-update.ts, 773 lines)                        │
+│  Previous/current frame diff → Diff patch array                │
+│  DECSTBM hardware scrolling / per-cell incremental writes      │
 └────────────────────┬───────────────────────────────────────────┘
                      │ writeDiffToTerminal()
                      ▼
 ┌────────────────────────────────────────────────────────────────┐
-│  终端输出（terminal.ts, 248 行）                                │
-│  BSU/ESU 包裹 → 单次 stdout.write()                             │
+│  Terminal output (terminal.ts, 248 lines)                      │
+│  BSU/ESU wrapping → single stdout.write()                      │
 └────────────────────────────────────────────────────────────────┘
 ```
 
-## 核心渲染文件
+## Core Rendering Files
 
-| 文件 | LOC | 职责 |
+| File | LOC | Responsibility |
 |------|-----|------|
-| `ink/ink.tsx` | 1,722 | Ink 主循环：调度渲染、双缓冲、池管理、alt-screen |
-| `ink/log-update.ts` | 773 | 差分引擎：逐 cell diff、DECSTBM 滚动、全量回退检测 |
-| `ink/output.ts` | 797 | 屏幕绘制：损伤追踪、CharCache、blit 优化 |
-| `ink/screen.ts` | 1,486 | Screen buffer：StylePool、CharPool、HyperlinkPool |
-| `ink/render-node-to-output.ts` | 1,462 | React 节点 → Screen buffer 渲染 |
-| `ink/terminal.ts` | 248 | 终端能力检测、BSU/ESU 包裹、单次写入 |
-| `ink/renderer.ts` | 178 | 光标管理、alt-screen 切换 |
-| `utils/bufferedWriter.ts` | 100 | 流式文本批量写入 |
+| `ink/ink.tsx` | 1,722 | Ink main loop: render scheduling, double buffering, pool management, alt-screen |
+| `ink/log-update.ts` | 773 | Diff engine: per-cell diff, DECSTBM scrolling, full-reset fallback detection |
+| `ink/output.ts` | 797 | Screen drawing: damage tracking, CharCache, blit optimization |
+| `ink/screen.ts` | 1,486 | Screen buffer: StylePool, CharPool, HyperlinkPool |
+| `ink/render-node-to-output.ts` | 1,462 | React node → Screen buffer rendering |
+| `ink/terminal.ts` | 248 | Terminal capability detection, BSU/ESU wrapping, single write |
+| `ink/renderer.ts` | 178 | Cursor management and alt-screen switching |
+| `utils/bufferedWriter.ts` | 100 | Batched writes for streaming text |
 
-## 机制 1：DEC 2026 同步输出（原子更新）
+## Mechanism 1: DEC 2026 Synchronized Output (Atomic Updates)
 
-源码: `ink/terminal.ts#L66-118`, `ink/terminal.ts#L190-248`
+Source: `ink/terminal.ts#L66-118`, `ink/terminal.ts#L190-248`
 
-**最关键的防闪烁机制**。所有终端输出用 BSU/ESU（Begin/End Synchronized Update）包裹，终端在收到 ESU 前不会渲染任何中间状态。这里的"DEC 2026"是 DEC 私有模式 DECSET/DECRST `?2026`（synchronized output）的编号，并非年份：
+**The most critical flicker-prevention mechanism**. All terminal output is wrapped with BSU/ESU (Begin/End Synchronized Update), so the terminal does not render any intermediate state before receiving ESU. Here, "DEC 2026" is the number of the DEC private mode DECSET/DECRST `?2026` (synchronized output), not a year:
 
 ```
-CSI ?2026h   ← BSU: 开始缓冲
-...清屏、光标移动、文本写入...
-CSI ?2026l   ← ESU: 一次性刷新到屏幕
+CSI ?2026h   ← BSU: begin buffering
+...clear screen, move cursor, write text...
+CSI ?2026l   ← ESU: flush to the screen atomically
 ```
 
-### 终端检测
+### Terminal Detection
 
-`isSynchronizedOutputSupported()` 在模块加载时计算一次（能力不会中途变化）。DEC 2026 检测除 VTE 外**不做版本检查**——VTE 需 `VTE_VERSION >= 6800`（0.68+），其他终端只匹配名称/环境变量。注意：版本检查也存在于独立的 `isProgressReportingAvailable()` 函数中（用于 OSC 9;4 进度报告），两者是不同功能：
+`isSynchronizedOutputSupported()` is computed once when the module loads (capabilities do not change midway). Except for VTE, DEC 2026 detection **does not perform version checks**: VTE requires `VTE_VERSION >= 6800` (0.68+), while other terminals are matched only by name/environment variable. Note: version checking also exists in the separate `isProgressReportingAvailable()` function (for OSC 9;4 progress reporting); these are different features:
 
-| 终端 | 检测方式 |
+| Terminal | Detection Method |
 |------|----------|
 | iTerm2 | `TERM_PROGRAM === 'iTerm.app'` |
 | WezTerm | `TERM_PROGRAM === 'WezTerm'` |
-| Ghostty | `TERM_PROGRAM === 'ghostty'` 或 `TERM === 'xterm-ghostty'` |
-| Kitty | `TERM` 含 `kitty` 或 `KITTY_WINDOW_ID` 存在 |
-| Alacritty | `TERM_PROGRAM === 'alacritty'` 或 `TERM` 含 `alacritty` |
-| foot | `TERM` 以 `foot` 开头 |
-| Windows Terminal | `WT_SESSION` 存在 |
+| Ghostty | `TERM_PROGRAM === 'ghostty'` or `TERM === 'xterm-ghostty'` |
+| Kitty | `TERM` contains `kitty` or `KITTY_WINDOW_ID` exists |
+| Alacritty | `TERM_PROGRAM === 'alacritty'` or `TERM` contains `alacritty` |
+| foot | `TERM` starts with `foot` |
+| Windows Terminal | `WT_SESSION` exists |
 | VS Code | `TERM_PROGRAM === 'vscode'` |
 | Warp | `TERM_PROGRAM === 'WarpTerminal'` |
 | Contour | `TERM_PROGRAM === 'contour'` |
-| Zed | `ZED_TERM` 存在 |
-| VTE 系列（GNOME Terminal、Tilix 等） | `VTE_VERSION >= 6800`（VTE 0.68+） |
-| **tmux** | **跳过**：tmux 不实现 DEC 2026，BSU/ESU 穿透到外层终端但 tmux 已破坏原子性 |
+| Zed | `ZED_TERM` exists |
+| VTE family (GNOME Terminal, Tilix, etc.) | `VTE_VERSION >= 6800` (VTE 0.68+) |
+| **tmux** | **Skipped**: tmux does not implement DEC 2026; BSU/ESU pass through to the outer terminal, but tmux has already broken atomicity |
 
-> **SSH 场景**：`TERM_PROGRAM` 默认不被 SSH 转发。Claude Code 在启动时通过 XTVERSION 查询（`CSI > 0 q → DCS > | name ST`）异步检测终端名称，补充 env 检测的盲区（源码: `terminal.ts#L120-147`）。
+> **SSH scenario**: `TERM_PROGRAM` is not forwarded by SSH by default. On startup, Claude Code asynchronously detects the terminal name through an XTVERSION query (`CSI > 0 q → DCS > | name ST`), filling gaps in env-based detection (Source: `terminal.ts#L120-147`).
 
-### 输出管线
+### Output Pipeline
 
-`writeDiffToTerminal()`（源码: `terminal.ts#L190-248`）将所有 diff 补丁拼接为单个字符串，用 BSU/ESU 包裹后单次 `stdout.write()` 发送：
+`writeDiffToTerminal()` (Source: `terminal.ts#L190-248`) concatenates all diff patches into a single string, wraps it with BSU/ESU, and sends it with one `stdout.write()`:
 
 ```typescript
 let buffer = useSync ? BSU : ''
@@ -142,119 +142,119 @@ for (const patch of diff) {
   }
 }
 if (useSync) buffer += ESU
-terminal.stdout.write(buffer)  // 单次写入
+terminal.stdout.write(buffer)  // single write
 ```
 
-## 机制 2：差分渲染引擎
+## Mechanism 2: Differential Rendering Engine
 
-源码: `ink/log-update.ts`（773 行）
+Source: `ink/log-update.ts` (773 lines)
 
-不做全屏重绘，而是逐 cell 对比前后两帧，只输出变化的单元格。
+Instead of a full-screen redraw, it compares the previous and current frames cell by cell and outputs only the cells that changed.
 
-### diff 算法
+### Diff Algorithm
 
-1. **损伤区域检查**：只扫描 `screen.damage` 矩形范围内的 cell（源码: `log-update.ts#L268-305`）
-2. **逐行比较**：对每行的每个 cell，比较 charId、styleId、hyperlinkId 三元组
-3. **跳过规则**：
-   - 空 cell 不覆写已有内容（避免尾部空格导致终端换行）
-   - 宽字符占位符（`SpacerTail`/`SpacerHead`）跳过
-   - 前后帧相同的 cell 跳过（大部分 cell）
-4. **光标管理**：追踪虚拟光标位置，使用相对移动（CR+LF、CUD）而非绝对定位
+1. **Damage-region check**: scan only cells within the `screen.damage` rectangle (Source: `log-update.ts#L268-305`)
+2. **Line-by-line comparison**: for each cell on each line, compare the charId, styleId, and hyperlinkId tuple
+3. **Skip rules**:
+   - Empty cells do not overwrite existing content (avoids terminal line wrapping caused by trailing spaces)
+   - Wide-character placeholders (`SpacerTail`/`SpacerHead`) are skipped
+   - Cells identical between previous and current frames are skipped (most cells)
+4. **Cursor management**: track the virtual cursor position and use relative movement (CR+LF, CUD) rather than absolute positioning
 
-### 全量回退检测
+### Full-Reset Fallback Detection
 
-某些场景 diff 无法处理，必须全屏重绘（源码: `log-update.ts#L142-147`）：
+In some scenarios, diff cannot handle the update and a full-screen redraw is required (Source: `log-update.ts#L142-147`):
 
-| 触发条件 | 原因 |
+| Trigger Condition | Reason |
 |----------|------|
-| `viewport.height` 缩小 | 终端高度变化无法增量处理 |
-| `viewport.width` 变化 | 文本换行完全改变 |
-| 内容超出视口 | 需要清除滚动缓冲区 |
+| `viewport.height` shrinks | Terminal height changes cannot be handled incrementally |
+| `viewport.width` changes | Text wrapping changes completely |
+| Content exceeds the viewport | The scrollback buffer needs to be cleared |
 
-全量重绘通过 `fullResetSequence_CAUSES_FLICKER()` 执行——函数名本身就是对开发者的警告。
+The full redraw is executed through `fullResetSequence_CAUSES_FLICKER()`; the function name itself is a warning to developers.
 
-### diff 后优化
+### Post-Diff Optimization
 
-diff 产生的补丁数组在写入终端前经过 `optimize()` 后处理（源码: `ink.tsx#L621`），合并相邻光标移动、消除冗余样式序列、将多个小补丁拼接为更少的写入单元，进一步减少输出字节数。
+Before the patch array produced by diff is written to the terminal, it goes through `optimize()` post-processing (Source: `ink.tsx#L621`), which merges adjacent cursor movements, removes redundant style sequences, and concatenates multiple small patches into fewer write units, further reducing output bytes.
 
-## 机制 3：DECSTBM 硬件滚动
+## Mechanism 3: DECSTBM Hardware Scrolling
 
-源码: `ink/log-update.ts#L149-185`
+Source: `ink/log-update.ts#L149-185`
 
-当 ScrollBox 的 `scrollTop` 变化时，用终端硬件滚动指令替代逐行重写：
+When a ScrollBox's `scrollTop` changes, terminal hardware scrolling instructions are used instead of rewriting line by line:
 
 ```
-CSI top;bottom r    ← DECSTBM: 设置滚动区域
-CSI n S             ← SU: 向上滚动 n 行
-CSI r               ← 重置滚动区域
-CSI H               ← 光标回原点
+CSI top;bottom r    ← DECSTBM: set scroll region
+CSI n S             ← SU: scroll up n lines
+CSI r               ← reset scroll region
+CSI H               ← return cursor to origin
 ```
 
-关键优化：在 `prev.screen` 上模拟同样的 `shiftRows()`，使 diff 循环自然只发现滚入的新行。
+Key optimization: the same `shiftRows()` is simulated on `prev.screen`, so the diff loop naturally detects only the new rows that have scrolled into view.
 
-**安全条件**（源码: `log-update.ts#L158-164`）：
-- 必须在 alt-screen 模式
-- 必须有 DEC 2026 支持（`decstbmSafe` 参数）
-- 无 BSU/ESU 时回退到逐行重写——多输出字节，但无中间状态闪烁
+**Safety conditions** (Source: `log-update.ts#L158-164`):
+- Must be in alt-screen mode
+- Must have DEC 2026 support (`decstbmSafe` parameter)
+- Without BSU/ESU, fall back to line-by-line rewriting: more output bytes, but no intermediate-state flicker
 
-> **源码注释原文**：*"Without atomicity the outer terminal renders the intermediate state — region scrolled, edge rows not yet painted — a visible vertical jump on every frame where scrollTop moves."*
+> **Original source comment**: *"Without atomicity the outer terminal renders the intermediate state — region scrolled, edge rows not yet painted — a visible vertical jump on every frame where scrollTop moves."*
 
-## 机制 4：双缓冲
+## Mechanism 4: Double Buffering
 
-源码: `ink/ink.tsx#L99-100, #L593-595`
+Source: `ink/ink.tsx#L99-100, #L593-595`
 
 ```typescript
-private frontFrame: Frame;   // 当前可见帧（diff 基准）
-private backFrame: Frame;    // 上一帧（复用为渲染目标）
+private frontFrame: Frame;   // current visible frame (diff baseline)
+private backFrame: Frame;    // previous frame (reused as render target)
 ```
 
-每帧 diff 后交换：`backFrame = frontFrame; frontFrame = frame`。
+After each frame diff, they are swapped: `backFrame = frontFrame; frontFrame = frame`.
 
-**`prevFrameContaminated` 标志**（源码: `ink.tsx#L739-743`）：当选区覆盖（selection overlay）或搜索高亮（search highlight）在 screen buffer 上原地修改了 cell styleId 时，上一帧被"污染"（`selActive || hlActive`）——下一帧必须强制全量 diff，避免 blit 出反色/高亮的陈旧 cell。
+**`prevFrameContaminated` flag** (Source: `ink.tsx#L739-743`): when a selection overlay or search highlight modifies cell styleIds in place on the screen buffer, the previous frame is "contaminated" (`selActive || hlActive`). The next frame must force a full diff to avoid blitting stale cells with inverse video/highlight styles.
 
-## 机制 5：损伤追踪（Damage Tracking）
+## Mechanism 5: Damage Tracking
 
-源码: `ink/output.ts#L268-305, #L522-528`
+Source: `ink/output.ts#L268-305, #L522-528`
 
-损伤矩形记录哪些区域有变化，diff 引擎只扫描脏区域：
+The damage rectangle records which areas have changed, and the diff engine scans only dirty regions:
 
-- **稳态帧**（spinner 旋转、文本追加）：窄损伤 → O(变化 cell) diff
-- **布局变化**（`layoutShifted`）：全损伤 → 防止兄弟组件边界处残影
-- **blit 优化**：父节点递归 blit 未变化的子树，避免 O(children) 重绘
+- **Steady-state frames** (spinner rotation, text append): narrow damage → O(changed cells) diff
+- **Layout changes** (`layoutShifted`): full damage → prevents ghosting at sibling component boundaries
+- **blit optimization**: parent nodes recursively blit unchanged subtrees to avoid O(children) redraws
 
 ```typescript
-// 源码: render-node-to-output.ts#L28-42
-// layoutShifted: 任何 yoga 节点位置/尺寸变化时设置
-// → 触发全损伤兜底（PR #20120 修复兄弟 resize 边界伪影）
+// Source: render-node-to-output.ts#L28-42
+// layoutShifted: set when any yoga node's position/size changes
+// → triggers full-damage fallback (PR #20120 fixes sibling resize boundary artifacts)
 ```
 
-## 机制 6：缓存池化
+## Mechanism 6: Cache Pooling
 
-源码: `ink/output.ts`, `ink/screen.ts`
+Source: `ink/output.ts`, `ink/screen.ts`
 
-### CharCache（output.ts#L178, #L198-205）
+### CharCache (output.ts#L178, #L198-205)
 
-文本字符串 → 字素簇（`ClusteredChar[]`，含宽度、styleId、hyperlinkId）的缓存。大多数行跨帧不变，命中率极高。上限 16k 条目，超出时清空。
+Cache from text strings to grapheme clusters (`ClusteredChar[]`, including width, styleId, and hyperlinkId). Most lines are unchanged across frames, so the hit rate is extremely high. The limit is 16k entries; the cache is cleared when it exceeds that.
 
-### StylePool（screen.ts#L112-163）
+### StylePool (screen.ts#L112-163)
 
-ANSI 样式序列驻留池：
-- 以 stylecode 字符串为 key 驻留
-- 缓存样式转换：`transition(fromId, toId)` → 预序列化 ANSI 字符串
-- 预热后零分配：样式转换变为 Map 查找 + 字符串拼接
-- styleId 的 bit 0 编码"空格是否可见"（背景色、反色），用于优化空格 cell 的跳过
+Resident pool for ANSI style sequences:
+- Interns by stylecode string key
+- Caches style transitions: `transition(fromId, toId)` → pre-serialized ANSI string
+- Zero allocations after warm-up: style transitions become Map lookup + string concatenation
+- Bit 0 of styleId encodes whether a space is visible (background color, inverse video), used to optimize skipping space cells
 
 ### CharPool / HyperlinkPool
 
-字符串 → ID 映射，blit 时直接复制 ID（O(1) 比较），无需重新 intern。会话级生命周期。
+String → ID mapping. IDs are copied directly during blit (O(1) comparison), with no need to re-intern. Session-level lifetime.
 
-### 池重置（ink.tsx#L597-603）
+### Pool Reset (ink.tsx#L597-603)
 
-每 5 分钟重置一次，防止长会话内存膨胀。O(cells) 迁移成本在 5 分钟间隔下可忽略。
+Reset once every 5 minutes to prevent memory growth in long sessions. The O(cells) migration cost is negligible at 5-minute intervals.
 
-## 机制 7：渲染节流（60fps 上限）
+## Mechanism 7: Render Throttling (60fps Limit)
 
-源码: `ink/ink.tsx#L205-216`
+Source: `ink/ink.tsx#L205-216`
 
 ```typescript
 const FRAME_INTERVAL_MS = 16  // 60fps
@@ -265,73 +265,73 @@ this.scheduleRender = throttle(deferredRender, FRAME_INTERVAL_MS, {
 })
 ```
 
-- **微任务延迟**：`queueMicrotask` 确保 React `useLayoutEffect`（如 `useDeclaredCursor`）先提交，光标位置不会滞后一帧
-- **同一事件循环**：不影响吞吐量
-- **ScrollBox drain timer**：硬件滚动后，以 `FRAME_INTERVAL_MS >> 2`（4ms）间隔快速排空积压帧（源码: `ink.tsx#L756-758`），而非持续高帧率渲染
+- **Microtask delay**: `queueMicrotask` ensures React `useLayoutEffect` calls (such as `useDeclaredCursor`) commit first, so the cursor position does not lag by one frame
+- **Same event loop**: does not affect throughput
+- **ScrollBox drain timer**: after hardware scrolling, backlog frames are drained quickly at intervals of `FRAME_INTERVAL_MS >> 2` (4ms) (Source: `ink.tsx#L756-758`), rather than rendering continuously at a high frame rate
 
-## 机制 8：光标隐藏与定位
+## Mechanism 8: Cursor Hiding and Positioning
 
-源码: `ink/renderer.ts#L170-175`, `ink/ink.tsx#L653-734`
+Source: `ink/renderer.ts#L170-175`, `ink/ink.tsx#L653-734`
 
-- **初始光标状态**：非 TTY 模式或屏幕高度为 0 时隐藏（源码: `renderer.ts#L173`）
-- **渲染期间隐藏**：alt-screen TTY 模式下，通过 BSU 内 `HIDE_CURSOR`/`SHOW_CURSOR` 包裹渲染过程，防止光标在帧更新时闪烁
-- `useDeclaredCursor()` 将终端光标停放在输入框位置，支持 IME 预编辑内联渲染
-- 每帧开头 `CSI H` 锚定光标到 (0,0)——自愈 tmux 状态栏、pane 刷新等造成的光标漂移
-- 每帧结尾停放光标到 prompt 行——防止 iTerm2 cursor guide 随光标位置逐帧跳动
+- **Initial cursor state**: hidden in non-TTY mode or when screen height is 0 (Source: `renderer.ts#L173`)
+- **Hidden during rendering**: in alt-screen TTY mode, the rendering process is wrapped with `HIDE_CURSOR`/`SHOW_CURSOR` inside BSU to prevent the cursor from flickering during frame updates
+- `useDeclaredCursor()` parks the terminal cursor at the input box position and supports inline rendering for IME pre-edit text
+- At the beginning of each frame, `CSI H` anchors the cursor at (0,0), self-healing cursor drift caused by tmux status bars, pane refreshes, and similar effects
+- At the end of each frame, the cursor is parked on the prompt line to prevent the iTerm2 cursor guide from jumping frame by frame with cursor position
 
-> **源码注释原文**：*"BSU/ESU protects content atomicity but iTerm2's guide tracks cursor position independently. Parking at bottom (not 0,0) keeps the guide where the user's attention is."*（源码: `ink.tsx#L631-634`）
+> **Original source comment**: *"BSU/ESU protects content atomicity but iTerm2's guide tracks cursor position independently. Parking at bottom (not 0,0) keeps the guide where the user's attention is."* (Source: `ink.tsx#L631-634`)
 
-## 机制 9：宽字符补偿
+## Mechanism 9: Wide-Character Compensation
 
-源码: `ink/log-update.ts#L638-750`
+Source: `ink/log-update.ts#L638-750`
 
-终端对 emoji/CJK 字符宽度的判断可能与 Unicode 标准不一致：
+Terminals may judge the width of emoji/CJK characters differently from the Unicode standard:
 
-| 问题类别 | 说明 |
+| Issue Type | Description |
 |----------|------|
-| Unicode 12.0+ emoji | 新版 emoji 在旧终端显示为窄字符 |
-| 带 VS16（U+FE0F）的文本默认 emoji | 是否渲染为宽取决于终端实现 |
+| Unicode 12.0+ emoji | Newer emoji display as narrow characters in older terminals |
+| Text-default emoji with VS16 (U+FE0F) | Whether they render as wide depends on the terminal implementation |
 
-检测到宽度不匹配时，发送 CHA（Cursor Horizontal Absolute）跳过补偿列。正确终端上 emoji glyph 自然覆写；旧终端上填充间隙。
+When a width mismatch is detected, CHA (Cursor Horizontal Absolute) is sent to skip the compensation columns. On correct terminals, the emoji glyph naturally overwrites the area; on older terminals, the gap is filled.
 
-## 机制 10：批量写入（BufferedWriter）
+## Mechanism 10: Batched Writes (BufferedWriter)
 
-源码: `utils/bufferedWriter.ts`（100 行）
+Source: `utils/bufferedWriter.ts` (100 lines)
 
-`BufferedWriter` 用于错误日志（`errorLogSink.ts`）、asciicast 录像（`asciicast.ts`）和调试日志（`debug.ts`）的批量写入，避免高频小写入阻塞磁盘 I/O：
+`BufferedWriter` is used for batched writes of error logs (`errorLogSink.ts`), asciicast recordings (`asciicast.ts`), and debug logs (`debug.ts`), avoiding disk I/O blocking caused by frequent small writes:
 
-- 缓冲上限：100 条目
-- 定时刷新：1000ms 间隔
-- 溢出处理：`setImmediate` 延迟（不阻塞按键输入）
-- 保序写入：即使溢出也保持顺序
+- Buffer limit: 100 entries
+- Timed flush: 1000ms interval
+- Overflow handling: `setImmediate` deferral (does not block key input)
+- Ordered writes: order is preserved even on overflow
 
-> **注意**：Assistant 回复的流式渲染不经过 `BufferedWriter`，而是通过 React → Ink → screen buffer → diff → `writeDiffToTerminal()` 的渲染管线完成。每个 chunk 写入 screen buffer 后，damage 标记变化行，下一帧 diff 只更新新增/变化的行。
+> **Note**: Streaming rendering of assistant responses does not go through `BufferedWriter`; it is completed through the React → Ink → screen buffer → diff → `writeDiffToTerminal()` rendering pipeline. After each chunk is written into the screen buffer, damage marks the changed lines, and the next frame's diff updates only newly added/changed lines.
 
-## 机制 11：Alt-Screen 特化
+## Mechanism 11: Alt-Screen Specialization
 
-源码: `ink/ink.tsx#L568-651`
+Source: `ink/ink.tsx#L568-651`
 
-Alt-screen（备用屏幕缓冲区）有专门优化：
+Alt-screen (the alternate screen buffer) has dedicated optimizations:
 
-- 每帧开头 `CSI H` 锚定光标到 (0,0)，自愈外部光标漂移
-- `cursor.y` 钳制到视口范围，防止 LF 导致意外滚动
-- resize 后的 `ERASE_SCREEN` 放在 BSU/ESU **内部**——旧内容保持可见直到新帧就绪
+- At the beginning of each frame, `CSI H` anchors the cursor at (0,0), self-healing external cursor drift
+- `cursor.y` is clamped to the viewport range to prevent unexpected scrolling caused by LF
+- `ERASE_SCREEN` after resize is placed **inside** BSU/ESU: old content remains visible until the new frame is ready
 
 ```typescript
-// 源码: ink.tsx#L644-646
+// Source: ink.tsx#L644-646
 if (this.needsEraseBeforePaint) {
   this.needsEraseBeforePaint = false
-  optimized.unshift(ERASE_THEN_HOME_PATCH)  // 擦除 + 重绘在同一个 BSU 块内
+  optimized.unshift(ERASE_THEN_HOME_PATCH)  // erase + redraw within the same BSU block
 }
 ```
 
-> **对比**：如果在 `handleResize` 中同步写入 `ERASE_SCREEN`，屏幕会空白 ~80ms（render() 耗时），用户可见闪烁。
+> **Comparison**: If `ERASE_SCREEN` is written synchronously in `handleResize`, the screen stays blank for ~80ms (the time spent in render()), causing visible flicker.
 
-## 机制 12：闪烁原因追踪（调试用）
+## Mechanism 12: Flicker-Cause Tracking (for Debugging)
 
-源码: `ink/ink.tsx#L604-617`
+Source: `ink/ink.tsx#L604-617`
 
-当全量重绘不可避免时，系统记录闪烁元数据用于调试：
+When a full redraw is unavoidable, the system records flicker metadata for debugging:
 
 ```typescript
 if (isDebugRepaintsEnabled() && patch.debug) {
@@ -345,38 +345,38 @@ if (isDebugRepaintsEnabled() && patch.debug) {
 }
 ```
 
-记录：闪烁原因（resize/offscreen/clear）、触发行号、前后帧内容差异、导致重绘的 React 组件链。
+Recorded fields: flicker cause (resize/offscreen/clear), trigger row number, content differences between previous and current frames, and the React component chain responsible for the redraw.
 
-## 机制 13：Windows/WSL 特殊处理
+## Mechanism 13: Special Handling for Windows/WSL
 
-源码: `ink/terminal.ts#L171-179`
+Source: `ink/terminal.ts#L171-179`
 
-Windows conhost 的 `SetConsoleCursorPosition` 在流式输出中会将视口拉回滚动缓冲区（viewport yank bug），通过 `process.platform === 'win32'` 或 `WT_SESSION` 检测。
+Windows conhost's `SetConsoleCursorPosition` pulls the viewport back into the scrollback buffer during streaming output (the viewport yank bug). It is detected through `process.platform === 'win32'` or `WT_SESSION`.
 
-此外，据官方 CHANGELOG（外部来源: [github.com/anthropics/claude-code/CHANGELOG.md](https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md) v2.1.81 条目），v2.1.81 禁用了 Windows（含 WSL in Windows Terminal）的逐行流式渲染，因为渲染问题导致视觉异常。
+In addition, according to the official CHANGELOG (external source: [github.com/anthropics/claude-code/CHANGELOG.md](https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md), v2.1.81 entry), v2.1.81 disabled line-by-line streaming rendering on Windows (including WSL in Windows Terminal), because rendering issues caused visual anomalies.
 
-## 设计权衡
+## Design Trade-offs
 
-| 决策 | 权衡 | 理由 |
+| Decision | Trade-off | Rationale |
 |------|------|------|
-| 单次 `stdout.write()` 而非多次小写入 | 内存拼接 vs I/O 次数 | 单次写入避免终端在 write 间隙渲染中间状态 |
-| 差分渲染而非全屏重绘 | diff 复杂度 vs 输出字节数 | 稳态帧只写少量 cell，带宽/延迟大幅降低 |
-| 硬件滚动 + BSU/ESU 依赖 | 需要终端支持 | 不支持时回退到逐行重写，多字节但无闪烁 |
-| 池化 5 分钟重置 | 偶尔 O(cells) 迁移 vs 内存膨胀 | 长会话（数小时）不重置会导致 Map 无限增长 |
-| `queueMicrotask` 延迟渲染 | 微量延迟 vs 光标同步 | 确保 layout effects 先提交，IME/光标不滞后 |
-| Alt-screen 内擦除而非同步擦除 | 需要 BSU/ESU | 避免 resize 时 ~80ms 空白屏 |
-| `fullResetSequence_CAUSES_FLICKER` 命名 | — | 函数名本身是对开发者的"闪烁预警" |
+| Single `stdout.write()` instead of multiple small writes | Memory concatenation vs I/O count | A single write prevents the terminal from rendering intermediate states between writes |
+| Differential rendering instead of full-screen redraw | Diff complexity vs output bytes | Steady-state frames write only a small number of cells, greatly reducing bandwidth/latency |
+| Hardware scrolling + BSU/ESU dependency | Requires terminal support | When unsupported, falls back to line-by-line rewriting: more bytes but no flicker |
+| Pool reset every 5 minutes | Occasional O(cells) migration vs memory growth | Without resets, long sessions (several hours) would cause unbounded Map growth |
+| `queueMicrotask` delayed rendering | Tiny delay vs cursor synchronization | Ensures layout effects commit first, so IME/cursor do not lag |
+| Erase inside alt-screen instead of synchronous erase | Requires BSU/ESU | Avoids a ~80ms blank screen during resize |
+| `fullResetSequence_CAUSES_FLICKER` naming | — | The function name itself is a "flicker warning" for developers |
 
-## 源码文件索引
+## Source File Index
 
-| 文件 | LOC | 关键函数/类 |
+| File | LOC | Key Functions/Classes |
 |------|-----|-------------|
-| `ink/ink.tsx` | 1,722 | `Ink` 类、`onRender()`、`scheduleRender`、双缓冲交换 |
-| `ink/log-update.ts` | 773 | `logUpdate()`、`fullResetSequence_CAUSES_FLICKER()`、DECSTBM 滚动 |
-| `ink/output.ts` | 797 | `renderNodeToOutput()`、CharCache、损伤追踪 |
-| `ink/screen.ts` | 1,486 | `Screen`、`StylePool`、`CharPool`、`HyperlinkPool` |
-| `ink/render-node-to-output.ts` | 1,462 | `renderNodeToOutput()`、`layoutShifted`、blit 优化 |
-| `ink/terminal.ts` | 248 | `isSynchronizedOutputSupported()`、`writeDiffToTerminal()` |
-| `ink/optimizer.ts` | 93 | `optimize()` 补丁优化：合并光标移动、消除冗余样式 |
-| `ink/renderer.ts` | 178 | `createRenderer()`、光标可见性管理 |
-| `utils/bufferedWriter.ts` | 100 | `BufferedWriter` 类、定时刷新 |
+| `ink/ink.tsx` | 1,722 | `Ink` class, `onRender()`, `scheduleRender`, double-buffer swap |
+| `ink/log-update.ts` | 773 | `logUpdate()`, `fullResetSequence_CAUSES_FLICKER()`, DECSTBM scrolling |
+| `ink/output.ts` | 797 | `renderNodeToOutput()`, CharCache, damage tracking |
+| `ink/screen.ts` | 1,486 | `Screen`, `StylePool`, `CharPool`, `HyperlinkPool` |
+| `ink/render-node-to-output.ts` | 1,462 | `renderNodeToOutput()`, `layoutShifted`, blit optimization |
+| `ink/terminal.ts` | 248 | `isSynchronizedOutputSupported()`, `writeDiffToTerminal()` |
+| `ink/optimizer.ts` | 93 | `optimize()` patch optimization: merge cursor moves, remove redundant styles |
+| `ink/renderer.ts` | 178 | `createRenderer()`, cursor visibility management |
+| `utils/bufferedWriter.ts` | 100 | `BufferedWriter` class, timed flush |

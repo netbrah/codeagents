@@ -1,92 +1,92 @@
-# 14. MCP 集成——开发者参考
+# 14. MCP Integration — Developer Reference
 
-> MCP (Model Context Protocol) 是 Code Agent 连接外部工具和数据源的通用协议。Claude Code 的 MCP 实现是三个主要 Agent 中最完整的——23 个文件、~12,000 行、6 种传输类型、OAuth + XAA 认证、Channel 消息推送。
+> MCP (Model Context Protocol) is the general protocol for connecting Code Agents to external tools and data sources. Claude Code's MCP implementation is the most complete among the three major Agents: 23 files, ~12,000 lines, 6 transport types, OAuth + XAA authentication, and Channel message push.
 >
-> **Qwen Code 对标**：Qwen Code 已有 MCP 基础实现（~4,300 行），包括 OAuth token 存储抽象和 Google 认证。差距主要在 Channel 消息推送、资源订阅、断线重连策略。
+> **Qwen Code comparison**: Qwen Code already has a basic MCP implementation (~4,300 lines), including OAuth token storage abstraction and Google authentication. The main gaps are Channel message push, resource subscriptions, and reconnection strategy.
 >
-> **v2.1.82 → v2.1.132 增量**（详见 [§23 §八](./23-recent-updates.md)）：
-> - **Per-tool MCP result-size override**（Week 14）：可设单 tool output 上限到 **500K**，覆盖默认上限
-> - **Plugin executables on Bash `PATH`**（Week 14）：plugin 可注入 binary 到 shell 环境
-> - **MCP server OAuth 改进**（v2.1.126）：浏览器 callback 不可达时手动粘贴 OAuth code
-> - **MCP retry logic 改进**（v2.1.132）：连接失败的 status 更清楚
-> - **stdio MCP memory leak 修复**（v2.1.132）：长跑 RSS 无界增长（10GB+）问题修了——daemon 长跑场景的关键 fix
+> **v2.1.82 → v2.1.132 delta** (see [§23 §8](./23-recent-updates.md) for details):
+> - **Per-tool MCP result-size override** (Week 14): can set a single tool output limit up to **500K**, overriding the default limit
+> - **Plugin executables on Bash `PATH`** (Week 14): plugins can inject binaries into the shell environment
+> - **MCP server OAuth improvements** (v2.1.126): manually paste the OAuth code when the browser callback is unreachable
+> - **MCP retry logic improvements** (v2.1.132): clearer status for connection failures
+> - **stdio MCP memory leak fix** (v2.1.132): fixed unbounded RSS growth (10GB+) in long-running scenarios — a critical fix for long-running daemons
 
-## 一、为什么 MCP 集成是 Agent 的关键基础设施
+## 1. Why MCP Integration Is Critical Agent Infrastructure
 
-### 问题定义
+### Problem Definition
 
-Code Agent 的内置工具（Read/Write/Edit/Bash）覆盖了核心编程操作，但开发者的工作流远不止这些：
+A Code Agent's built-in tools (Read/Write/Edit/Bash) cover core programming operations, but developer workflows go far beyond that:
 
-| 需求 | 内置工具能做？ | 需要 MCP？ |
+| Need | Can built-in tools do it? | Need MCP? |
 |------|-------------|-----------|
-| 读写本地文件 | ✓ | — |
-| 执行 shell 命令 | ✓ | — |
-| 查询 Jira/Linear 任务 | — | ✓ |
-| 发 Slack 消息通知团队 | — | ✓ |
-| 操作 Docker 容器 | — | ✓ |
-| 查询数据库 | — | ✓ |
-| 访问 GitHub API | — | ✓ |
+| Read/write local files | ✓ | — |
+| Execute shell commands | ✓ | — |
+| Query Jira/Linear tasks | — | ✓ |
+| Send Slack messages to notify the team | — | ✓ |
+| Operate Docker containers | — | ✓ |
+| Query databases | — | ✓ |
+| Access GitHub API | — | ✓ |
 
-MCP 让 Agent 的能力从"本地文件系统"扩展到"任意外部系统"，而不需要为每个系统写内置工具。
+MCP extends an Agent's capabilities from the "local file system" to "any external system" without requiring a built-in tool for every system.
 
-### 架构核心：工具命名空间
+### Architectural Core: Tool Namespace
 
-MCP 工具以 `mcp__<serverName>__<toolName>` 格式注册，与内置工具共享同一个工具注册表：
+MCP tools are registered in the `mcp__<serverName>__<toolName>` format and share the same tool registry as built-in tools:
 
 ```
-Agent 可用工具：
-├─ Read           (内置)
-├─ Write          (内置)
-├─ Bash           (内置)
+Tools available to the Agent:
+├─ Read           (built-in)
+├─ Write          (built-in)
+├─ Bash           (built-in)
 ├─ mcp__github__get_issue       (MCP: GitHub server)
 ├─ mcp__github__create_pr       (MCP: GitHub server)
 ├─ mcp__slack__send_message     (MCP: Slack server)
 └─ mcp__postgres__run_query     (MCP: PostgreSQL server)
 ```
 
-对模型来说，MCP 工具和内置工具没有区别——都是可调用的函数。
+To the model, MCP tools and built-in tools are the same: callable functions.
 
-## 二、三个 Agent 的 MCP 实现对比
+## 2. MCP Implementation Comparison Across Three Agents
 
-| 维度 | Claude Code | Gemini CLI | Qwen Code |
+| Dimension | Claude Code | Gemini CLI | Qwen Code |
 |------|-------------|-----------|-----------|
-| **文件数 / LOC** | 23 文件 / ~12,000 行 | 4 文件 / ~8,400 行 | 21 文件 / ~4,300 行 |
-| **传输类型** | 6 种（stdio/sse/http/ws/sdk/sse-ide） | 3 种（stdio/sse/streamableHttp） | 3 种（stdio/sse/streamableHttp） |
-| **OAuth** | ✓ + XAA（跨应用认证） | ✓ + Google 认证 | ✓ + Google 认证 + 文件加密存储 |
-| **资源 (Resources)** | ✓ 支持订阅 | ✓ 支持 listChanged | — |
-| **Prompt (MCP Prompts)** | ✓ 支持 listChanged | ✓ 支持 listChanged | — |
-| **进度追踪** | ✓ MCPProgress | ✓ McpProgressReporter | ✓ onprogress 回调 |
-| **Channel 消息** | ✓ 完整实现（7 层门控） | — | — |
-| **断线重连** | ✓ 缓存清除 + 会话恢复 | — | — |
-| **配置格式** | `.mcp.json`（7 种 scope） | mcp-config.json | mcp 配置 |
-| **特殊传输** | SdkControlTransport（进程内） | XcodeMcpBridgeFixTransport | SdkControlClientTransport |
+| **Files / LOC** | 23 files / ~12,000 lines | 4 files / ~8,400 lines | 21 files / ~4,300 lines |
+| **Transport types** | 6 types (stdio/sse/http/ws/sdk/sse-ide) | 3 types (stdio/sse/streamableHttp) | 3 types (stdio/sse/streamableHttp) |
+| **OAuth** | ✓ + XAA (cross-application authentication) | ✓ + Google authentication | ✓ + Google authentication + encrypted file storage |
+| **Resources** | ✓ supports subscriptions | ✓ supports listChanged | — |
+| **Prompt (MCP Prompts)** | ✓ supports listChanged | ✓ supports listChanged | — |
+| **Progress tracking** | ✓ MCPProgress | ✓ McpProgressReporter | ✓ onprogress callback |
+| **Channel messages** | ✓ complete implementation (7-layer gating) | — | — |
+| **Reconnection** | ✓ cache clearing + session recovery | — | — |
+| **Configuration format** | `.mcp.json` (7 scopes) | mcp-config.json | mcp configuration |
+| **Special transports** | SdkControlTransport (in-process) | XcodeMcpBridgeFixTransport | SdkControlClientTransport |
 
-### Claude Code 独有能力
+### Capabilities Unique to Claude Code
 
-**1. Channel 消息推送**：MCP 服务器可以通过 `notifications/claude/channel` 方法向 Agent 会话推送消息（如 Slack 新消息、GitHub PR 评论）。有 7 层门控确保安全：
+**1. Channel message push**: MCP servers can push messages into Agent sessions through the `notifications/claude/channel` method (for example, new Slack messages or GitHub PR comments). Seven layers of gating ensure safety:
 
 ```
-Channel 启用条件（全部满足才激活）：
-1. 服务器声明 capabilities.experimental['claude/channel']
-2. 运行时 isChannelsEnabled()
-3. Claude.ai OAuth 认证（API key 用户不支持）
-4. 组织策略 channelsEnabled: true
-5. --channels 启动参数包含该服务器
-6. Marketplace 来源验证
-7. 审批 allowlist
+Channel enablement conditions (all must be satisfied):
+1. Server declares capabilities.experimental['claude/channel']
+2. Runtime isChannelsEnabled()
+3. Claude.ai OAuth authentication (API key users are not supported)
+4. Organization policy channelsEnabled: true
+5. --channels startup argument includes this server
+6. Marketplace source verification
+7. Approval allowlist
 ```
 
-**2. XAA（跨应用认证）**：基于 IETF draft Identity Assertion Authorization Grant 的企业级认证，支持 IdP → JWT → Token Exchange 链路。
+**2. XAA (cross-application authentication)**: enterprise authentication based on the IETF draft Identity Assertion Authorization Grant, supporting the IdP → JWT → Token Exchange flow.
 
-**3. 6 种传输**：除标准 3 种外，还有 WebSocket（ws）、进程内 SDK（sdk）、IDE 专用 SSE（sse-ide）。
+**3. Six transports**: in addition to the standard three, it includes WebSocket (ws), in-process SDK (sdk), and IDE-specific SSE (sse-ide).
 
-### Qwen Code 独有优势
+### Qwen Code's Unique Advantage
 
-**Token 存储抽象**：Qwen Code 有最完善的 token 持久化层——FileTokenStorage（AES-256-GCM 加密）、KeychainTokenStorage、HybridTokenStorage 三种实现。Claude Code 和 Gemini CLI 的 token 存储相对简单。
+**Token storage abstraction**: Qwen Code has the most complete token persistence layer: FileTokenStorage (AES-256-GCM encryption), KeychainTokenStorage, and HybridTokenStorage. Claude Code and Gemini CLI have comparatively simpler token storage.
 
-## 三、MCP 配置格式
+## 3. MCP Configuration Format
 
-### Claude Code 的 `.mcp.json`
+### Claude Code's `.mcp.json`
 
 ```json
 {
@@ -109,95 +109,95 @@ Channel 启用条件（全部满足才激活）：
     "database": {
       "type": "http",
       "url": "https://db-mcp.internal/api",
-      "headers": { "Authorization": "Bearer $DB_TOKEN" }
+      "headers": { "Authorization": "******" }
     }
   }
 }
 ```
 
-**7 种配置作用域**：local → user → project → dynamic → enterprise → claudeai → managed
+**Seven configuration scopes**: local → user → project → dynamic → enterprise → claudeai → managed
 
-### 与 Qwen Code/Gemini CLI 的配置差异
+### Configuration Differences from Qwen Code/Gemini CLI
 
-| 特性 | Claude Code | Gemini CLI | Qwen Code |
+| Feature | Claude Code | Gemini CLI | Qwen Code |
 |------|-------------|-----------|-----------|
-| 配置文件 | `.mcp.json` | `mcp-config.json` 或 settings | settings.json 中 |
-| 作用域 | 7 种 | 3 种（user/project/extension） | 2 种（user/project） |
-| 环境变量 | `$VAR` 语法 | env 字段 | env 字段 |
-| OAuth 内联 | ✓ | ✓ | ✓ |
-| 企业管控 | ✓ managed-mcp.json | ✓ admin policy | — |
+| Configuration file | `.mcp.json` | `mcp-config.json` or settings | in settings.json |
+| Scopes | 7 types | 3 types (user/project/extension) | 2 types (user/project) |
+| Environment variables | `$VAR` syntax | env field | env field |
+| Inline OAuth | ✓ | ✓ | ✓ |
+| Enterprise control | ✓ managed-mcp.json | ✓ admin policy | — |
 
-## 四、工具注册与执行
+## 4. Tool Registration and Execution
 
-### 注册流程
-
-```
-MCP 服务器连接
-  │
-  ├─ transport.connect()        ← 建立通信通道
-  │
-  ├─ client.initialize()        ← 协商 capabilities
-  │
-  ├─ tools/list                 ← 获取工具列表
-  │     └─ 每个工具 → mcp__server__tool 格式注册
-  │
-  ├─ prompts/list              ← 获取 prompt 列表（可选）
-  │
-  ├─ resources/list            ← 获取资源列表（可选）
-  │
-  └─ 监听 listChanged 通知     ← 工具/资源动态更新
-```
-
-### 执行流程
+### Registration Flow
 
 ```
-模型调用 mcp__github__get_issue({"number": 42})
+MCP server connection
   │
-  ├─ 验证输入（JSON Schema / AJV）
+  ├─ transport.connect()        ← Establish communication channel
+  │
+  ├─ client.initialize()        ← Negotiate capabilities
+  │
+  ├─ tools/list                 ← Get tool list
+  │     └─ Each tool → registered as mcp__server__tool
+  │
+  ├─ prompts/list              ← Get prompt list (optional)
+  │
+  ├─ resources/list            ← Get resource list (optional)
+  │
+  └─ Listen for listChanged notifications     ← Dynamic tool/resource updates
+```
+
+### Execution Flow
+
+```
+Model calls mcp__github__get_issue({"number": 42})
+  │
+  ├─ Validate input (JSON Schema / AJV)
   │
   ├─ client.callTool("get_issue", {"number": 42})
-  │     ├─ OAuth 401 → 触发认证流程 → 重试
-  │     ├─ 会话过期（404 -32001）→ 重连 → 重试
-  │     └─ 成功 → 返回结果
+  │     ├─ OAuth 401 → Trigger authentication flow → retry
+  │     ├─ Session expired (404 -32001) → reconnect → retry
+  │     └─ Success → return result
   │
-  ├─ 转换结果（text/image/PDF）
+  ├─ Convert result (text/image/PDF)
   │
-  ├─ 截断检查（>8KB → 截断 + 提示）
+  ├─ Truncation check (>8KB → truncate + hint)
   │
-  └─ 返回给模型
+  └─ Return to model
 ```
 
-## 五、断线重连策略
+## 5. Reconnection Strategy
 
-Claude Code 的重连策略：
+Claude Code's reconnection strategy:
 
-| 错误类型 | 检测方式 | 恢复动作 |
+| Error Type | Detection Method | Recovery Action |
 |---------|---------|---------|
-| 会话过期 | HTTP 404 + JSON-RPC -32001 | 清除 memoization 缓存 + 下次操作自动重连 |
-| SSE 连接中断 | SDK 默认：2 次重试 | 指数退避重连 |
-| 连续失败 | 失败计数器 | 关闭 transport + 触发显式重连 |
-| OAuth token 过期 | 401 响应 | 自动 refresh → 重试原始请求 |
+| Session expired | HTTP 404 + JSON-RPC -32001 | Clear memoization cache + automatically reconnect on next operation |
+| SSE connection interrupted | SDK default: 2 retries | Exponential-backoff reconnect |
+| Consecutive failures | Failure counter | Close transport + trigger explicit reconnect |
+| OAuth token expired | 401 response | Automatic refresh → retry original request |
 
-**与 Gemini CLI 的差异**：Gemini CLI 有 `MCP Auto-Reconnect`（连续 3 次错误自动重连），Claude Code 的重连更精细（区分会话过期 vs 连接中断 vs 认证过期）。
+**Difference from Gemini CLI**: Gemini CLI has `MCP Auto-Reconnect` (automatically reconnects after 3 consecutive errors), while Claude Code's reconnection is more granular (distinguishes session expiration vs connection interruption vs authentication expiration).
 
-## 六、Qwen Code MCP 改进建议
+## 6. Qwen Code MCP Improvement Suggestions
 
-### P1：资源 (Resources) 支持
+### P1: Resources Support
 
-MCP 资源允许服务器暴露结构化数据（如数据库 schema、API 文档），Agent 可以按需读取。当前 Qwen Code 仅支持工具调用，不支持资源发现和读取。
+MCP resources allow servers to expose structured data (such as database schemas and API documentation), which Agents can read on demand. Qwen Code currently supports only tool calls, not resource discovery and reading.
 
-### P1：断线重连
+### P1: Reconnection
 
-当前 MCP 服务器断开后需要手动重启。建议参考 Claude Code 的 memoization 缓存清除 + 自动重连模式。
+Currently, MCP servers must be restarted manually after disconnection. Consider Claude Code's memoization cache clearing + automatic reconnection pattern.
 
-### P2：MCP Prompt 支持
+### P2: MCP Prompt Support
 
-MCP 服务器可以暴露 prompt 模板（如"总结这个 PR"），作为斜杠命令注册。当前 Qwen Code 不支持 MCP prompts。
+MCP servers can expose prompt templates (for example, "summarize this PR") and register them as slash commands. Qwen Code currently does not support MCP prompts.
 
-### P2：Channel 消息推送
+### P2: Channel Message Push
 
-允许 MCP 服务器向 Agent 会话推送消息——这是实现 Slack/Discord 集成的基础。但实现复杂度高（7 层门控），建议作为中长期目标。
+Allow MCP servers to push messages into Agent sessions. This is the foundation for Slack/Discord integrations. However, implementation complexity is high (7-layer gating), so it is recommended as a medium- to long-term goal.
 
-### P3：WebSocket 传输
+### P3: WebSocket Transport
 
-当前仅支持 stdio/sse/http。WebSocket 在需要双向实时通信的场景（如实时协作工具）更高效。
+Currently only stdio/sse/http are supported. WebSocket is more efficient for scenarios requiring bidirectional real-time communication, such as real-time collaboration tools.

@@ -1,348 +1,348 @@
-# 18. Qwen Code vs Claude Code：深度对比
+# 18. Qwen Code vs Claude Code: In-Depth Comparison
 
-> Qwen Code（开源，Gemini CLI 分叉）vs Claude Code（闭源，Rust 原生）——两个头部 AI 编程代理的全面对比
+> Qwen Code (open source, Gemini CLI fork) vs Claude Code (closed source, native Rust) -- a comprehensive comparison of two leading AI coding agents.
 
-## 定位对比
+## Positioning Comparison
 
-| 维度 | Claude Code | Qwen Code |
+| Dimension | Claude Code | Qwen Code |
 |------|------------|-----------|
-| **开发者** | Anthropic | 阿里云 |
-| **定位** | Anthropic 官方终端代理 | 阿里云开源终端代理 |
-| **语言** | Rust（闭源） | TypeScript（开源，Gemini CLI 分叉） |
-| **许可证** | 专有 | Apache-2.0 |
-| **模型** | Claude 系列（锁定） | Qwen OAuth + DashScope + ModelScope + Anthropic + Google + 自定义（6+ 提供商） |
-| **上下文** | 100 万 token（Opus 4.6） | 100 万 token（Qwen3 商用版） |
-| **计费** | Claude Pro/Max 订阅内含 | 软件开源免费；模型自付（OAuth 免费层 2026-04-15 已停，需 Coding Plan 订阅或 BYOK） |
-| **插件仓库** | 13 个官方插件 | 扩展系统 + Claude/Gemini 格式转换 |
+| **Developer** | Anthropic | Alibaba Cloud |
+| **Positioning** | Anthropic's official terminal agent | Alibaba Cloud open-source terminal agent |
+| **Language** | Rust (closed source) | TypeScript (open source, Gemini CLI fork) |
+| **License** | Proprietary | Apache-2.0 |
+| **Models** | Claude series (locked) | Qwen OAuth + DashScope + ModelScope + Anthropic + Google + custom (6+ providers) |
+| **Context** | 1M tokens (Opus 4.6) | 1M tokens (Qwen3 commercial edition) |
+| **Billing** | Included in Claude Pro/Max subscriptions | Open-source software is free; pay for models yourself (OAuth free tier ended 2026-04-15; requires a Coding Plan subscription or BYOK) |
+| **Plugin repository** | 13 official plugins | Extension system + Claude/Gemini format conversion |
 
 ---
 
-## 1. 代理循环
+## 1. Agent Loop
 
 ### Claude Code
 
 ```
-用户输入
-  → 系统提示 + CLAUDE.md 项目指令
-  → Claude LLM（流式）
-  → 工具调用解析
-  → PreToolUse Hook（验证/修改）
-  → 权限检查（allow/ask/deny）
-  → 工具执行（可能沙箱）
-  → PostToolUse Hook（反馈）
-  → 结果回传 LLM
-  → 重复直到完成
-  → Stop Hook（验证完成合理性）
+User input
+  -> System prompt + CLAUDE.md project instructions
+  -> Claude LLM (streaming)
+  -> Tool-call parsing
+  -> PreToolUse Hook (validation/modification)
+  -> Permission check (allow/ask/deny)
+  -> Tool execution (possibly sandboxed)
+  -> PostToolUse Hook (feedback)
+  -> Results returned to LLM
+  -> Repeat until complete
+  -> Stop Hook (validate completion reasonableness)
 ```
 
-- **REPL 模式**：交互式会话，流式响应
-- **子代理**：通过 `Task` 工具生成自主代理
-- **计划模式**：用户请求后逐步规划再执行
-- **自动记忆**：跨会话学习用户偏好
+- **REPL mode**: interactive sessions with streaming responses
+- **Subagents**: spawn autonomous agents through the `Task` tool
+- **Plan mode**: plan step by step after the user request, then execute
+- **Automatic memory**: learns user preferences across sessions
 
 ### Qwen Code
 
 ```
-用户输入
-  → 系统提示 + system.md 项目指令
-  → ContentGenerator（多提供商）
-  → CoreToolScheduler 调度
-  → Hook 触发（PreToolUse）
-  → PermissionManager 检查
-  → 工具执行（可能沙箱）
-  → Hook 触发（PostToolUse）
-  → 结果回传 LLM
-  → Loop 检测（Levenshtein）
-  → 重复，最多 100 轮
+User input
+  -> System prompt + system.md project instructions
+  -> ContentGenerator (multi-provider)
+  -> CoreToolScheduler scheduling
+  -> Hook trigger (PreToolUse)
+  -> PermissionManager check
+  -> Tool execution (possibly sandboxed)
+  -> Hook trigger (PostToolUse)
+  -> Results returned to LLM
+  -> Loop detection (Levenshtein)
+  -> Repeat, up to 100 turns
 ```
 
-- **MAX_TURNS = 100**：硬性轮次上限
-- **Arena 模式**：多代理竞争/协作
-- **Token 限制**：Session 级 Token 预算
-- **会话录制**：JSONL 持久化
+- **MAX_TURNS = 100**: hard turn limit
+- **Arena mode**: multi-agent competition/collaboration
+- **Token limit**: session-level token budget
+- **Session recording**: JSONL persistence
 
-### 关键差异
+### Key Differences
 
-| 维度 | Claude Code | Qwen Code |
+| Dimension | Claude Code | Qwen Code |
 |------|------------|-----------|
-| 轮次上限 | 无明确上限 | 100 轮 |
-| 循环检测 | Stop Hook 验证 | Levenshtein 距离检测 |
-| 子代理 | Task 工具 + Agent 定义 | 子代理管理器 + Arena |
-| 计划模式 | 用户触发 | Plan 模式 + 审批工作流 |
-| 项目指令 | CLAUDE.md | system.md |
-| 会话恢复 | `--resume` 标志 | `getResumedSessionData()` |
+| Turn limit | No explicit limit | 100 turns |
+| Loop detection | Stop Hook validation | Levenshtein distance detection |
+| Subagents | Task tool + Agent definitions | Subagent manager + Arena |
+| Plan mode | User-triggered | Plan mode + approval workflow |
+| Project instructions | CLAUDE.md | system.md |
+| Session resume | `--resume` flag | `getResumedSessionData()` |
 
 ---
 
-## 2. 工具系统
+## 2. Tool System
 
-### Claude Code 内置工具
+### Claude Code Built-in Tools
 
-| Agent | 说明 | 权限默认 |
+| Agent | Description | Default permission |
 |------|------|---------|
-| **Read** | 读取文件 | allow |
-| **Write** | 创建/写入文件 | ask |
-| **Edit** | 修改文件（差异预览） | ask |
-| **Bash** | 执行 Shell 命令 | ask |
-| **Glob** | 文件模式匹配 | allow |
-| **Grep** | 正则内容搜索 | allow |
-| **WebFetch** | 抓取 URL 内容 | ask |
-| **WebSearch** | 网络搜索 | ask |
-| **AskUserQuestion** | 向用户提问 | allow |
-| **Task** | 生成子代理 | allow |
-| **Skill** | 加载技能 | allow |
-| **TodoWrite** | 任务管理 | allow |
+| **Read** | Read files | allow |
+| **Write** | Create/write files | ask |
+| **Edit** | Modify files (diff preview) | ask |
+| **Bash** | Execute Shell commands | ask |
+| **Glob** | File pattern matching | allow |
+| **Grep** | Regex content search | allow |
+| **WebFetch** | Fetch URL content | ask |
+| **WebSearch** | Web search | ask |
+| **AskUserQuestion** | Ask the user a question | allow |
+| **Task** | Spawn subagents | allow |
+| **Skill** | Load skills | allow |
+| **TodoWrite** | Task management | allow |
 | **NotebookEdit** | Jupyter Notebook | ask |
-| **MCP 工具** | 外部 MCP 服务器 | 可配置 |
+| **MCP tools** | External MCP servers | Configurable |
 
-### Qwen Code 内置工具
+### Qwen Code Built-in Tools
 
-| Agent | 说明 | 权限默认 |
+| Agent | Description | Default permission |
 |------|------|---------|
-| **edit** | 多部分文件编辑（diff） | ask |
-| **write_file** | 创建/覆盖文件 | ask |
-| **read_file** | 读取文件 | allow |
-| **run_shell_command** | Shell 执行 | ask |
-| **grep_search** | 全文搜索（ripgrep） | allow |
-| **glob** | 文件模式匹配 | allow |
-| **list_directory** | 目录列表 | allow |
-| **web_fetch** | HTTP GET 请求 | ask |
-| **web_search** | 网络搜索（Tavily/Google/DashScope） | ask |
-| **agent** | 子代理生成 | allow |
-| **skill** | 技能调用 | allow |
-| **todo_write** | 任务管理 | allow |
-| **save_memory** | 持久化记忆到 MD | allow |
-| **exit_plan_mode** | 退出规划模式 | allow |
-| **ask_user_question** | 用户交互 | allow |
-| **lsp** | 语言服务器操作 | allow |
-| **MCP 工具** | 外部 MCP 服务器 | 可配置 |
+| **edit** | Multi-part file editing (diff) | ask |
+| **write_file** | Create/overwrite files | ask |
+| **read_file** | Read files | allow |
+| **run_shell_command** | Shell execution | ask |
+| **grep_search** | Full-text search (ripgrep) | allow |
+| **glob** | File pattern matching | allow |
+| **list_directory** | Directory listing | allow |
+| **web_fetch** | HTTP GET requests | ask |
+| **web_search** | Web search (Tavily/Google/DashScope) | ask |
+| **agent** | Spawn subagents | allow |
+| **skill** | Skill invocation | allow |
+| **todo_write** | Task management | allow |
+| **save_memory** | Persist memory to Markdown | allow |
+| **exit_plan_mode** | Exit planning mode | allow |
+| **ask_user_question** | User interaction | allow |
+| **lsp** | Language server operations | allow |
+| **MCP tools** | External MCP servers | Configurable |
 
-### 工具实现对比
+### Tool Implementation Comparison
 
-| 维度 | Claude Code | Qwen Code |
+| Dimension | Claude Code | Qwen Code |
 |------|------------|-----------|
-| **编辑工具** | Edit（old_string/new_string） | edit（多部分 diff + 编码检测 + BOM） |
-| **Shell** | Bash（4 模式：normal/sandbox/pipeline/interactive） | run_shell_command（AST 分析 + Tmux/iTerm2） |
-| **搜索** | Grep（ripgrep 语法） | grep_search（ripgrep + gitignore） |
-| **Web 搜索后端** | 内置 | Tavily/Google/DashScope（多后端） |
-| **独有工具** | NotebookEdit | save_memory, exit_plan_mode, lsp |
-| **工具定义** | Rust 内置（闭源） | DeclarativeTool 抽象类（TypeScript） |
-| **输出流式** | 内置支持 | `updateOutput` 回调 |
-| **工具发现** | 仅内置 + MCP | 命令行发现 + MCP + 扩展 |
+| **Editing tool** | Edit (`old_string`/`new_string`) | edit (multi-part diff + encoding detection + BOM) |
+| **Shell** | Bash (4 modes: normal/sandbox/pipeline/interactive) | run_shell_command (AST analysis + Tmux/iTerm2) |
+| **Search** | Grep (ripgrep syntax) | grep_search (ripgrep + gitignore) |
+| **Web search backend** | Built-in | Tavily/Google/DashScope (multi-backend) |
+| **Unique tools** | NotebookEdit | save_memory, exit_plan_mode, lsp |
+| **Tool definition** | Rust built-in (closed source) | DeclarativeTool abstract class (TypeScript) |
+| **Streaming output** | Built-in support | `updateOutput` callback |
+| **Tool discovery** | Built-ins + MCP only | Command-line discovery + MCP + extensions |
 
-### Edit 工具深度对比
+### Edit Tool Deep Comparison
 
-**Claude Code Edit**：
-- `old_string` / `new_string` 搜索替换
-- `replace_all` 可选全局替换
-- 差异预览，用户可修改后确认
+**Claude Code Edit**:
+- `old_string` / `new_string` search-and-replace
+- Optional global replacement with `replace_all`
+- Diff preview; user can modify before confirming
 
-**Qwen Code edit**：
-- 同样的 `old_string` / `new_string` 模式
-- 编码自动检测 + BOM 处理
-- `safeLiteralReplace()` 安全处理 `$` 序列
-- CRLF → LF 标准化
-- 出现次数验证（确保唯一性）
-- `modifyWithEditor()` 允许中间编辑
+**Qwen Code edit**:
+- Same `old_string` / `new_string` pattern
+- Automatic encoding detection + BOM handling
+- `safeLiteralReplace()` safely handles `$` sequences
+- CRLF -> LF normalization
+- Occurrence count validation (ensures uniqueness)
+- `modifyWithEditor()` allows intermediate editing
 
-### Shell 工具深度对比
+### Shell Tool Deep Comparison
 
-**Claude Code Bash**：
-- 4 种执行模式：normal、sandbox、pipeline、interactive
-- 沙箱模式：文件系统限制 + 网络隔离 + 进程隔离
-- 受保护目录：`.git`、`.claude` 等
+**Claude Code Bash**:
+- 4 execution modes: normal, sandbox, pipeline, interactive
+- Sandbox mode: filesystem restrictions + network isolation + process isolation
+- Protected directories: `.git`, `.claude`, etc.
 
-**Qwen Code run_shell_command**：
-- AST 语义分析（`isShellCommandReadOnlyAST()`）
-- 命令替换检测（`$()`、反引号）→ 自动拒绝
-- 只读命令检测 → 自动允许
-- 后台执行支持（`is_background`）
-- Git commit 自动添加 co-author
+**Qwen Code run_shell_command**:
+- AST semantic analysis (`isShellCommandReadOnlyAST()`)
+- Command substitution detection (`$()`, backticks) -> automatically denied
+- Read-only command detection -> automatically allowed
+- Background execution support (`is_background`)
+- Automatically adds co-author to Git commits
 
 ---
 
-## 3. 权限系统
+## 3. Permission System
 
-### Claude Code：多层级精细权限
-
-```
-优先级（高→低）：
-1. CLI 标志（--settings）
-2. 项目本地（.claude/settings.local.json）
-3. 项目级（.claude/settings.json）
-4. 用户级（~/.claude/settings.json）
-5. 组织级
-6. 企业级（managed-settings.json）
-7. 默认值
-
-每个工具：allow | ask | deny
-沙箱：文件系统 + 网络 + 进程隔离
-绕过：--dangerously-skip-permissions（可被企业禁用）
-```
-
-### Qwen Code：配置驱动权限
+### Claude Code: Multi-level Granular Permissions
 
 ```
-优先级：deny(3) > ask(2) > default(1) > allow(0)
+Priority (high -> low):
+1. CLI flags (--settings)
+2. Project local (.claude/settings.local.json)
+3. Project level (.claude/settings.json)
+4. User level (~/.claude/settings.json)
+5. Organization level
+6. Enterprise level (managed-settings.json)
+7. Defaults
 
-规则类型：
-- persistentRules（设置文件持久化）
-- sessionRules（会话级临时）
-
-Shell 分析：
-- 虚拟操作提取（文件/网络）
-- 复合命令拆分
-- 相对路径解析
+Per tool: allow | ask | deny
+Sandbox: filesystem + network + process isolation
+Bypass: --dangerously-skip-permissions (can be disabled by enterprise policy)
 ```
 
-### 对比
+### Qwen Code: Configuration-driven Permissions
 
-| 维度 | Claude Code | Qwen Code |
+```
+Priority: deny(3) > ask(2) > default(1) > allow(0)
+
+Rule types:
+- persistentRules (persisted in settings files)
+- sessionRules (session-level temporary rules)
+
+Shell analysis:
+- Virtual operation extraction (file/network)
+- Compound command splitting
+- Relative path resolution
+```
+
+### Comparison
+
+| Dimension | Claude Code | Qwen Code |
 |------|------------|-----------|
-| **层级数** | 5 层（Managed→用户） | 2 层（持久 + 会话） |
-| **沙箱** | ✓（文件/网络/进程） | ✓（Docker/Podman） |
-| **企业管控** | ✓（managed-settings） | ✗ |
-| **权限绕过** | ✓（可禁用） | ✓（yolo_mode） |
-| **Shell 分析** | 沙箱隔离 | AST 语义分析 |
-| **MCP 工具权限** | `mcp__plugin__tool` 格式 | 与内置工具同等 |
-| **受保护路径** | .git, .claude | .env* 文件需确认 |
+| **Number of levels** | 5 levels (Managed -> user) | 2 levels (persistent + session) |
+| **Sandbox** | Yes (file/network/process) | Yes (Docker/Podman) |
+| **Enterprise control** | Yes (managed-settings) | No |
+| **Permission bypass** | Yes (can be disabled) | Yes (yolo_mode) |
+| **Shell analysis** | Sandbox isolation | AST semantic analysis |
+| **MCP tool permissions** | `mcp__plugin__tool` format | Same as built-in tools |
+| **Protected paths** | .git, .claude | .env* files require confirmation |
 
 ---
 
-## 4. Hook 系统
+## 4. Hook System
 
-### Claude Code Hook 事件（24 个）
+### Claude Code Hook Events (24)
 
-| 事件 | 触发时机 |
+| Event | Trigger timing |
 |------|---------|
-| **PreToolUse** | 工具执行前 |
-| **PostToolUse** | 执行成功后 |
-| **PostToolUseFailure** | 执行失败后 |
-| **UserPromptSubmit** | 用户提交输入 |
-| **Stop** | 代理尝试停止 |
-| **StopFailure** | API 错误终止 |
-| **SubagentStart** | 子代理启动 |
-| **SubagentStop** | 子代理停止 |
-| **SessionStart** | 会话开始 |
-| **SessionEnd** | 会话结束 |
-| **PermissionRequest** | 权限请求 |
-| **Notification** | 通知发送 |
-| **PreCompact** | 上下文压缩前 |
-| **PostCompact** | 上下文压缩后 |
-| **TaskCompleted** | 任务完成 |
-| **TeammateIdle** | Teammate 空闲 |
-| **InstructionsLoaded** | 指令加载完成 |
-| **ConfigChange** | 配置变更 |
-| **WorktreeCreate** | Worktree 创建 |
-| **WorktreeRemove** | Worktree 移除 |
-| **Elicitation** | 向用户提问 |
-| **ElicitationResult** | 用户回答结果 |
-| **CwdChanged** | 工作目录变更（v2.1.83 新增） |
-| **FileChanged** | 文件变更检测（v2.1.83 新增） |
+| **PreToolUse** | Before tool execution |
+| **PostToolUse** | After successful execution |
+| **PostToolUseFailure** | After execution failure |
+| **UserPromptSubmit** | When user submits input |
+| **Stop** | When the agent attempts to stop |
+| **StopFailure** | Termination due to API error |
+| **SubagentStart** | Subagent starts |
+| **SubagentStop** | Subagent stops |
+| **SessionStart** | Session starts |
+| **SessionEnd** | Session ends |
+| **PermissionRequest** | Permission request |
+| **Notification** | Notification sent |
+| **PreCompact** | Before context compaction |
+| **PostCompact** | After context compaction |
+| **TaskCompleted** | Task completed |
+| **TeammateIdle** | Teammate idle |
+| **InstructionsLoaded** | Instructions finished loading |
+| **ConfigChange** | Configuration change |
+| **WorktreeCreate** | Worktree created |
+| **WorktreeRemove** | Worktree removed |
+| **Elicitation** | Asking the user a question |
+| **ElicitationResult** | User answer result |
+| **CwdChanged** | Working directory changed (added in v2.1.83) |
+| **FileChanged** | File-change detection (added in v2.1.83) |
 
-### Qwen Code Hook 事件
+### Qwen Code Hook Events
 
-| 事件 | 触发时机 |
+| Event | Trigger timing |
 |------|---------|
-| **PreToolUse** | 工具执行前 |
-| **PostToolUse** | 执行成功后 |
-| **PostToolUseFailure** | 执行失败后 |
-| **UserPromptSubmit** | 用户提交输入 |
-| **SessionStart** | 会话开始 |
-| **SessionEnd** | 会话结束 |
-| **SubagentStart** | 子代理启动 |
-| **SubagentStop** | 子代理停止 |
-| **PreCompact** | 上下文压缩前 |
-| **Stop** | 代理停止 |
-| **Notification** | 通知发送 |
-| **PermissionRequest** | 权限请求 |
+| **PreToolUse** | Before tool execution |
+| **PostToolUse** | After successful execution |
+| **PostToolUseFailure** | After execution failure |
+| **UserPromptSubmit** | When user submits input |
+| **SessionStart** | Session starts |
+| **SessionEnd** | Session ends |
+| **SubagentStart** | Subagent starts |
+| **SubagentStop** | Subagent stops |
+| **PreCompact** | Before context compaction |
+| **Stop** | Agent stops |
+| **Notification** | Notification sent |
+| **PermissionRequest** | Permission request |
 
-### Hook 实现对比
+### Hook Implementation Comparison
 
-| 维度 | Claude Code | Qwen Code |
+| Dimension | Claude Code | Qwen Code |
 |------|------------|-----------|
-| **事件数** | **24** | 12 |
-| **Claude 独有事件（12 个）** | StopFailure, PostCompact, TaskCompleted, TeammateIdle, InstructionsLoaded, ConfigChange, WorktreeCreate, WorktreeRemove, Elicitation, ElicitationResult, **CwdChanged**, **FileChanged** | — |
-| **共有事件（12 个）** | PreToolUse, PostToolUse, PostToolUseFailure, UserPromptSubmit, Stop, SubagentStart, SubagentStop, SessionStart, SessionEnd, PreCompact, Notification, PermissionRequest | 全部 12 个 |
-| **Hook 类型** | Prompt（LLM 驱动）+ Command（脚本） | Command（脚本） |
-| **执行方式** | 子进程 JSON stdin/stdout | 子进程 JSON stdin/stdout |
-| **超时** | 可配置 | 可配置 |
-| **企业管控** | ✓（allowManagedHooksOnly） | ✗ |
-| **Prompt Hook** | ✓（LLM 推理决策） | ✗ |
+| **Number of events** | **24** | 12 |
+| **Claude-only events (12)** | StopFailure, PostCompact, TaskCompleted, TeammateIdle, InstructionsLoaded, ConfigChange, WorktreeCreate, WorktreeRemove, Elicitation, ElicitationResult, **CwdChanged**, **FileChanged** | -- |
+| **Shared events (12)** | PreToolUse, PostToolUse, PostToolUseFailure, UserPromptSubmit, Stop, SubagentStart, SubagentStop, SessionStart, SessionEnd, PreCompact, Notification, PermissionRequest | All 12 |
+| **Hook types** | Prompt (LLM-driven) + Command (script) | Command (script) |
+| **Execution method** | Subprocess JSON stdin/stdout | Subprocess JSON stdin/stdout |
+| **Timeout** | Configurable | Configurable |
+| **Enterprise control** | Yes (allowManagedHooksOnly) | No |
+| **Prompt Hook** | Yes (LLM reasoning decisions) | No |
 
-**Claude Code 独有的 Prompt Hook**：
+**Claude Code's unique Prompt Hook**:
 ```json
 {
   "hooks": {
     "PreToolUse": [{
       "matcher": "Write|Edit",
       "hooks": [
-        {"type": "prompt", "prompt": "检查这次编辑是否引入安全漏洞..."}
+        {"type": "prompt", "prompt": "Check whether this edit introduces a security vulnerability..."}
       ]
     }]
   }
 }
 ```
-Prompt Hook 用 LLM 推理来决策，比纯脚本更灵活但更慢。Qwen Code 没有这个概念。
+Prompt Hooks use LLM reasoning to make decisions. They are more flexible than pure scripts, but slower. Qwen Code has no equivalent concept.
 
 ---
 
-## 5. 插件/扩展系统
+## 5. Plugin/Extension System
 
-### Claude Code：插件架构
+### Claude Code: Plugin Architecture
 
 ```
 plugin-name/
-├── .claude-plugin/plugin.json   # 元数据
-├── commands/                    # 斜杠命令（*.md）
-├── agents/                      # 子代理定义（*.md）
-├── skills/                      # 技能知识（*.md）
-├── hooks/                       # 事件处理
-└── .mcp.json                    # MCP 服务器
+├── .claude-plugin/plugin.json   # Metadata
+├── commands/                    # Slash commands (*.md)
+├── agents/                      # Subagent definitions (*.md)
+├── skills/                      # Skill knowledge (*.md)
+├── hooks/                       # Event handlers
+└── .mcp.json                    # MCP servers
 ```
 
-**13 个官方插件**：
+**13 official plugins**:
 
-| 插件 | 说明 |
+| Plugin | Description |
 |------|------|
-| code-review | 4 个并行代理审查 PR，置信度评分 |
-| feature-dev | 7 阶段特性开发流程 |
-| commit-commands | `/commit`、`/commit-push-pr` 等 Git 工作流 |
-| pr-review-toolkit | 6 个专用代理（注释/测试/错误/类型/质量/简化） |
-| security-guidance | PreToolUse Hook 警告注入/XSS/eval |
-| hookify | 对话式创建 Hook 规则 |
-| agent-sdk-dev | Agent SDK 开发脚手架 |
-| ralph-wiggum | 自引用迭代循环（写→测→调试） |
-| plugin-dev | 插件开发工具包（7 个技能） |
-| explanatory-output-style | 教育性实现解释 |
-| learning-output-style | 交互式学习模式 |
-| frontend-design | 高质量 UI/UX 实现 |
-| claude-opus-4-5-migration | Opus 4.5 迁移 |
+| code-review | 4 parallel agents review PRs with confidence scoring |
+| feature-dev | 7-stage feature development workflow |
+| commit-commands | Git workflows such as `/commit` and `/commit-push-pr` |
+| pr-review-toolkit | 6 specialized agents (comments/tests/errors/types/quality/simplification) |
+| security-guidance | PreToolUse Hook warns about injection/XSS/eval |
+| hookify | Conversational Hook rule creation |
+| agent-sdk-dev | Agent SDK development scaffolding |
+| ralph-wiggum | Self-referential iteration loop (write -> test -> debug) |
+| plugin-dev | Plugin development toolkit (7 skills) |
+| explanatory-output-style | Educational implementation explanations |
+| learning-output-style | Interactive learning mode |
+| frontend-design | High-quality UI/UX implementation |
+| claude-opus-4-5-migration | Opus 4.5 migration |
 
-### Qwen Code：扩展系统
+### Qwen Code: Extension System
 
 ```
-扩展支持三种格式：
-├── Qwen Code 原生扩展（Git clone/Release）
-├── Claude 插件转换（claude-converter.ts）
-└── Gemini 扩展转换（gemini-converter.ts）
+Extensions support three formats:
+├── Qwen Code native extensions (Git clone/Release)
+├── Claude plugin conversion (claude-converter.ts)
+└── Gemini extension conversion (gemini-converter.ts)
 ```
 
-**扩展组件**：MCP 服务器、Skills、Subagents、Hooks
+**Extension components**: MCP servers, Skills, Subagents, Hooks
 
-### 对比
+### Comparison
 
-| 维度 | Claude Code | Qwen Code |
+| Dimension | Claude Code | Qwen Code |
 |------|------------|-----------|
-| **插件数量** | 13 个官方 | 社区为主 |
-| **插件格式** | Markdown + JSON | Markdown + JSON |
-| **跨工具兼容** | 仅 Claude Code | ✓ 转换 Claude/Gemini 格式 |
-| **安装方式** | 插件市场 / 手动 | Git clone / Release |
-| **企业管控** | ✓（strictKnownMarketplaces） | ✗ |
+| **Number of plugins** | 13 official | Community-first |
+| **Plugin format** | Markdown + JSON | Markdown + JSON |
+| **Cross-tool compatibility** | Claude Code only | Yes, converts Claude/Gemini formats |
+| **Installation method** | Plugin marketplace / manual | Git clone / Release |
+| **Enterprise control** | Yes (strictKnownMarketplaces) | No |
 
 ---
 
-## 6. 技能系统
+## 6. Skill System
 
 ### Claude Code Skills
 
@@ -350,16 +350,16 @@ plugin-name/
 <!-- skills/my-skill/SKILL.md -->
 ---
 name: my-skill
-description: 触发条件描述
+description: Trigger-condition description
 allowed-tools: [Read, Edit, Bash]
 ---
 
-技能内容，Markdown 格式...
+Skill content, in Markdown format...
 ```
 
-- 自动加载：基于触发条件自然语言匹配
-- 通过 `Skill` 工具调用
-- 支持在插件中分发
+- Automatic loading: natural-language matching based on trigger conditions
+- Invoked through the `Skill` tool
+- Supports distribution in plugins
 
 ### Qwen Code Skills
 
@@ -367,43 +367,43 @@ allowed-tools: [Read, Edit, Bash]
 # skills/my-skill/SKILL.md
 ---
 name: my-skill
-description: 技能描述
+description: Skill description
 tools: [bash, grep, read_file]
-extends: bundled  # 可选：扩展内置技能
+extends: bundled  # Optional: extend built-in skills
 ---
 
-技能内容，Markdown 格式...
+Skill content, in Markdown format...
 ```
 
-- 4 个级别：project / user / extension / bundled
-- 支持 `extends: bundled` 扩展内置技能
-- 动态 XML 列表注入到工具描述中
+- 4 levels: project / user / extension / bundled
+- Supports `extends: bundled` to extend built-in skills
+- Dynamically injects an XML list into tool descriptions
 
-### 对比
+### Comparison
 
-| 维度 | Claude Code | Qwen Code |
+| Dimension | Claude Code | Qwen Code |
 |------|------------|-----------|
-| **触发方式** | 自然语言条件 | 显式调用 |
-| **级别** | 插件内 | project/user/extension/bundled |
-| **技能组合** | 通过插件 | `extends: bundled` |
-| **分发** | 插件市场 | Git / 扩展 |
+| **Trigger method** | Natural-language conditions | Explicit invocation |
+| **Levels** | Inside plugins | project/user/extension/bundled |
+| **Skill composition** | Through plugins | `extends: bundled` |
+| **Distribution** | Plugin marketplace | Git / extensions |
 
 ---
 
-## 7. MCP 支持
+## 7. MCP Support
 
-| 维度 | Claude Code | Qwen Code |
+| Dimension | Claude Code | Qwen Code |
 |------|------------|-----------|
-| **传输方式** | stdio, SSE, HTTP, WebSocket | stdio, SSE |
-| **OAuth** | ✓（SSE 服务器） | ✓ |
-| **配置方式** | `.mcp.json` 或 `plugin.json` | `settings.json` |
-| **工具命名** | `mcp__plugin_name_server__tool` | 与内置工具平级 |
-| **环境变量** | `${CLAUDE_PLUGIN_ROOT}` 等 | `${HOME}` 等 |
-| **服务器管理** | 插件级别 | 全局配置 |
+| **Transports** | stdio, SSE, HTTP, WebSocket | stdio, SSE |
+| **OAuth** | Yes (SSE servers) | Yes |
+| **Configuration** | `.mcp.json` or `plugin.json` | `settings.json` |
+| **Tool naming** | `mcp__plugin_name_server__tool` | Same level as built-in tools |
+| **Environment variables** | `${CLAUDE_PLUGIN_ROOT}`, etc. | `${HOME}`, etc. |
+| **Server management** | Plugin level | Global configuration |
 
 ---
 
-## 8. 子代理/多代理
+## 8. Subagents/Multi-agent
 
 ### Claude Code
 
@@ -411,19 +411,19 @@ extends: bundled  # 可选：扩展内置技能
 <!-- agents/code-explorer.md -->
 ---
 name: code-explorer
-description: 探索代码库结构
-  <example>用户要求理解项目架构时触发</example>
+description: Explore codebase structure
+  <example>Triggered when the user asks to understand the project architecture</example>
 model: sonnet
 tools: [Read, Grep, Glob]
 ---
 
-你是代码探索专家...
+You are a code exploration expert...
 ```
 
-- **自然语言触发**：description 中的 `<example>` 标签教 Claude 何时触发
-- **模型选择**：sonnet / opus / haiku / inherit
-- **工具限制**：明确列出可用工具
-- **颜色标识**：blue / yellow / green / red
+- **Natural-language triggering**: `<example>` tags in `description` teach Claude when to trigger the agent
+- **Model selection**: sonnet / opus / haiku / inherit
+- **Tool restrictions**: explicitly list available tools
+- **Color labels**: blue / yellow / green / red
 
 ### Qwen Code
 
@@ -439,129 +439,129 @@ interface SubagentConfig {
 }
 ```
 
-- **5 个级别**：session / project / user / extension / builtin
-- **Arena 模式**：Team / Swarm / Arena 三种协作模式
-- **多终端后端**：Tmux / iTerm2 / 进程内
-- **独立模型**：每个子代理可配置不同模型
+- **5 levels**: session / project / user / extension / builtin
+- **Arena mode**: three collaboration modes: Team / Swarm / Arena
+- **Multiple terminal backends**: Tmux / iTerm2 / in-process
+- **Independent models**: each subagent can configure a different model
 
-### 对比
+### Comparison
 
-| 维度 | Claude Code | Qwen Code |
+| Dimension | Claude Code | Qwen Code |
 |------|------------|-----------|
-| **触发方式** | 自然语言 + 手动 | 手动 / agent 工具 |
-| **代理定义** | Markdown | TypeScript / TOML |
-| **Arena** | ✗ | ✓（Team/Swarm/Arena） |
-| **可视化并行** | ✗ | ✓（Tmux/iTerm2 分屏） |
-| **模型选择** | sonnet/opus/haiku/inherit | 任意配置的模型 |
-| **官方代理** | 13 插件中的多个代理 | 内置 builtin |
+| **Trigger method** | Natural language + manual | Manual / agent tool |
+| **Agent definition** | Markdown | TypeScript / TOML |
+| **Arena** | No | Yes (Team/Swarm/Arena) |
+| **Visual parallelism** | No | Yes (Tmux/iTerm2 panes) |
+| **Model selection** | sonnet/opus/haiku/inherit | Any configured model |
+| **Official agents** | Multiple agents across 13 plugins | Built-in builtin agents |
 
 ---
 
-## 9. 配置系统
+## 9. Configuration System
 
 ### Claude Code
 
 ```
 ~/.claude/
-├── settings.json          # 用户全局设置
-├── CLAUDE.md              # 用户级指令
-└── 插件数据
+├── settings.json          # User global settings
+├── CLAUDE.md              # User-level instructions
+└── Plugin data
 
 .claude/
-├── settings.json          # 项目设置
-├── settings.local.json    # 本地设置（不提交）
-├── CLAUDE.md              # 项目指令
-├── commands/              # 自定义命令
-└── 插件数据
+├── settings.json          # Project settings
+├── settings.local.json    # Local settings (not committed)
+├── CLAUDE.md              # Project instructions
+├── commands/              # Custom commands
+└── Plugin data
 
-5 层优先级：企业 → 组织 → 用户 → 项目 → 本地 → CLI 标志
+5-level priority: enterprise -> organization -> user -> project -> local -> CLI flags
 ```
 
 ### Qwen Code
 
 ```
 ~/.qwen/
-├── settings.json          # 全局设置
-├── locales/               # 6 种语言包
-├── skills/                # 用户技能
-├── agents/                # 用户代理
-└── tmp/<hash>/chats/      # 会话存储
+├── settings.json          # Global settings
+├── locales/               # 6 language packs
+├── skills/                # User skills
+├── agents/                # User agents
+└── tmp/<hash>/chats/      # Session storage
 
 .qwen/
-├── settings.json          # 项目设置
-├── system.md              # 项目指令
-├── skills/                # 项目技能
-└── agents/                # 项目代理
+├── settings.json          # Project settings
+├── system.md              # Project instructions
+├── skills/                # Project skills
+└── agents/                # Project agents
 
-4 层优先级：默认 → 全局 → 项目 → 环境变量 → CLI
+4-level priority: defaults -> global -> project -> environment variables -> CLI
 ```
 
 ---
 
-## 10. 独有特性
+## 10. Unique Features
 
-### 仅 Claude Code 有
+### Only Claude Code Has
 
-| 特性 | 说明 |
+| Feature | Description |
 |------|------|
-| **Prompt Hook** | LLM 推理驱动的 Hook 决策 |
-| **5 层设置优先级** | 企业→组织→用户→项目→本地→CLI |
-| **Bash 沙箱** | 文件系统+网络+进程隔离（4 种模式） |
-| **13 个官方插件** | code-review、feature-dev、security 等 |
-| **自然语言代理触发** | `<example>` 标签教 LLM 何时触发 |
-| **ralph-wiggum 迭代** | Stop Hook 阻止退出，自动重复 |
-| **hookify 对话式规则** | 聊天创建 Hook 规则 |
-| **企业管控** | managed-settings、strictKnownMarketplaces |
-| **Git Worktree** | 隔离分支并行工作 |
-| **自动记忆** | 跨会话学习用户偏好 |
-| **NotebookEdit** | Jupyter Notebook 编辑 |
-| **StopFailure 事件** | API 错误特殊处理 |
+| **Prompt Hook** | Hook decisions driven by LLM reasoning |
+| **5-level settings priority** | Enterprise -> organization -> user -> project -> local -> CLI |
+| **Bash sandbox** | Filesystem + network + process isolation (4 modes) |
+| **13 official plugins** | code-review, feature-dev, security, etc. |
+| **Natural-language agent triggering** | `<example>` tags teach the LLM when to trigger agents |
+| **ralph-wiggum iteration** | Stop Hook prevents exit and repeats automatically |
+| **hookify conversational rules** | Create Hook rules through chat |
+| **Enterprise control** | managed-settings, strictKnownMarketplaces |
+| **Git Worktree** | Isolated branches for parallel work |
+| **Automatic memory** | Learns user preferences across sessions |
+| **NotebookEdit** | Jupyter Notebook editing |
+| **StopFailure event** | Special handling for API errors |
 
-### 仅 Qwen Code 有
+### Only Qwen Code Has
 
-| 特性 | 说明 |
+| Feature | Description |
 |------|------|
-| **开源 + BYOK** | Apache-2.0 软件免费，模型可接任意 provider |
-| **6+ 提供商** | Qwen OAuth + DashScope + ModelScope + Anthropic + Google + 自定义 |
-| **Arena 模式** | 多代理竞争/协作（Team/Swarm/Arena） |
-| **Tmux/iTerm2 分屏** | 可视化并行代理 |
-| **6 语言 UI** | 中/英/日/德/俄/葡 |
-| **扩展格式转换** | Claude/Gemini 扩展自动转换 |
-| **Loop 检测** | Levenshtein 距离检测重复调用 |
-| **save_memory** | 持久化记忆到 Markdown |
-| **LSP 工具** | 语言服务器协议操作 |
-| **Session Token 限制** | 硬性 Token 预算 |
-| **Shell AST 分析** | 命令语义级安全检查 |
-| **PostToolUseFailure** | 工具失败专用 Hook |
-| **PermissionRequest 事件** | 权限对话框 Hook |
+| **Open source + BYOK** | Apache-2.0 software is free; models can connect to any provider |
+| **6+ providers** | Qwen OAuth + DashScope + ModelScope + Anthropic + Google + custom |
+| **Arena mode** | Multi-agent competition/collaboration (Team/Swarm/Arena) |
+| **Tmux/iTerm2 panes** | Visual parallel agents |
+| **6-language UI** | Chinese/English/Japanese/German/Russian/Portuguese |
+| **Extension format conversion** | Automatic conversion of Claude/Gemini extensions |
+| **Loop detection** | Levenshtein-distance repeated-call detection |
+| **save_memory** | Persist memory to Markdown |
+| **LSP tools** | Language Server Protocol operations |
+| **Session Token limit** | Hard token budget |
+| **Shell AST analysis** | Command semantic-level security checks |
+| **PostToolUseFailure** | Dedicated Hook for tool failure |
+| **PermissionRequest event** | Hook for permission dialogs |
 
 ---
 
-## 11. 适用场景
+## 11. Suitable Scenarios
 
-| 场景 | 推荐 | 原因 |
+| Scenario | Recommendation | Reason |
 |------|------|------|
-| **复杂推理** | Claude Code | Claude 模型推理能力最强 |
-| **企业部署** | Claude Code | 5 层设置 + 企业管控 + 沙箱 |
-| **低成本/自托管** | Qwen Code | 开源免费 + BYOK 可接 DeepSeek 等低价 provider |
-| **多模型切换** | Qwen Code | 6+ 提供商灵活切换 |
-| **中文开发** | Qwen Code | 6 语言 UI + Qwen 模型中文能力 |
-| **代码审查** | Claude Code | code-review 插件（4 并行代理） |
-| **多代理协作** | Qwen Code | Arena + Tmux 可视化 |
-| **安全敏感** | Claude Code | 沙箱 + Prompt Hook + 企业管控 |
-| **开源定制** | Qwen Code | 完整源码 + Apache-2.0 |
-| **插件生态** | Claude Code | 13 官方插件 + 市场 |
+| **Complex reasoning** | Claude Code | Claude models have the strongest reasoning capability |
+| **Enterprise deployment** | Claude Code | 5-level settings + enterprise control + sandbox |
+| **Low cost/self-hosting** | Qwen Code | Open source and free + BYOK can connect to low-cost providers such as DeepSeek |
+| **Multi-model switching** | Qwen Code | Flexible switching across 6+ providers |
+| **Chinese-language development** | Qwen Code | 6-language UI + strong Chinese capability in Qwen models |
+| **Code review** | Claude Code | code-review plugin (4 parallel agents) |
+| **Multi-agent collaboration** | Qwen Code | Arena + Tmux visualization |
+| **Security-sensitive** | Claude Code | Sandbox + Prompt Hook + enterprise control |
+| **Open-source customization** | Qwen Code | Full source code + Apache-2.0 |
+| **Plugin ecosystem** | Claude Code | 13 official plugins + marketplace |
 
 ---
 
-## 12. 总结
+## 12. Summary
 
-**Claude Code** 是闭源但功能最完善的商业代理——Rust 原生性能、Prompt Hook 的 LLM 驱动决策、5 层企业管控、13 个官方插件构成了最成熟的生态。但模型锁定和付费门槛是限制。
+**Claude Code** is a closed-source but highly complete commercial agent: native Rust performance, LLM-driven Prompt Hook decisions, 5-level enterprise control, and 13 official plugins form the most mature ecosystem. The limits are model lock-in and the paid entry barrier.
 
-**Qwen Code** 是功能最丰富的开源代理——Apache-2.0 开源 + BYOK 任意 provider（可接 DeepSeek 等低价选项）、6+ 提供商灵活接入、Arena 多代理框架、6 语言国际化构成了最有吸引力的开源方案。但作为 Gemini CLI 分叉，部分代码仍带上游痕迹；模型调用需 Coding Plan 订阅或 BYOK（OAuth 免费层 2026-04-15 已停）。
+**Qwen Code** is the most feature-rich open-source agent: Apache-2.0 open source + BYOK with any provider (including low-cost options such as DeepSeek), flexible access to 6+ providers, an Arena multi-agent framework, and a 6-language internationalized UI make it the most attractive open-source option. However, as a Gemini CLI fork, some code still carries upstream traces; model calls require a Coding Plan subscription or BYOK (OAuth free tier ended 2026-04-15).
 
-两者在工具系统、Hook 架构、技能系统上有**高度相似性**（均为声明式工具 + 事件 Hook + Markdown 技能），说明业界正在收敛到一套共同的代理架构模式。
+The two have **high similarity** in their tool systems, Hook architecture, and skill systems (both use declarative tools + event Hooks + Markdown skills), indicating that the industry is converging on a shared agent-architecture pattern.
 
 ---
 
-*分析基于 Claude Code 插件仓库（v2.1.81）和 Qwen Code 本地源码，截至 2026 年 3 月。*
+*Analysis based on the Claude Code plugin repository (v2.1.81) and local Qwen Code source, as of March 2026.*

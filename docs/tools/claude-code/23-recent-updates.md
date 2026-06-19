@@ -1,169 +1,169 @@
-# 23. 近期更新（v2.1.82 → v2.1.132）
+# 23. Recent Updates (v2.1.82 → v2.1.132)
 
-> 本系列主体基于 **v2.1.81 二进制逆向分析**（2026-03-25）。本文档汇总 2026-03-26 到 **2026-05-06（v2.1.132）** 期间的关键增量更新，为 Code Agent 开发者提供新功能借鉴。
+> The main body of this series is based on **v2.1.81 binary reverse engineering** (2026-03-25). This document summarizes key incremental updates from 2026-03-26 through **2026-05-06 (v2.1.132)**, providing new-feature references for Code Agent developers.
 
-> **数据来源**：[Claude Code 官方 changelog](https://code.claude.com/docs/en/changelog) + [What's New](https://code.claude.com/docs/en/whats-new) + GitHub releases。本系列其他章节未深度逆向 v2.1.132，下面的实现细节可能不全。
+> **Data sources**: [Claude Code official changelog](https://code.claude.com/docs/en/changelog) + [What's New](https://code.claude.com/docs/en/whats-new) + GitHub releases. Other chapters in this series have not deeply reverse-engineered v2.1.132, so the implementation details below may be incomplete.
 
-## 一、版本一览
+## 1. Version Overview
 
-| 范围 | 周期 | 关键节点 |
+| Scope | Period | Key Point |
 |---|---|---|
-| 文档基线 | v2.1.81（2026-03-25）| 系列主体内容 |
-| 当前 latest | **v2.1.132**（2026-05-06）| 本文覆盖的更新 |
-| 版本节奏 | 双周特性 drop（Week 13-17）| 每周日发版 |
+| Documentation baseline | v2.1.81 (2026-03-25) | Main content of the series |
+| Current latest | **v2.1.132** (2026-05-06) | Updates covered in this document |
+| Release cadence | Biweekly feature drops (Week 13-17) | Released every Sunday |
 
-## 二、5 个 Cloud-Connected 大特性（最重要）
+## 2. Five Major Cloud-Connected Features (Most Important)
 
-### 2.1 Computer Use in CLI（research preview）
+### 2.1 Computer Use in CLI (research preview)
 
-**Week 14（2026-03-30 → 04-03）发布**。
+**Released in Week 14 (2026-03-30 → 04-03)**.
 
-| 维度 | 说明 |
+| Dimension | Description |
 |---|---|
-| 触发 | Claude 在 CLI 内调用 `computer_use` tool |
-| 能力 | 打开本地 GUI 应用、点击 UI、视觉验证 |
-| 价值 | 把"代码改动"和"实际运行效果验证"接到一起；headless automation 之外补 GUI 检查的循环 |
-| 与 Computer Use API 的关系 | CLI 层封装，底层是 Anthropic Computer Use API |
-| 风险 | 需明确 permission；Auto Mode 下默认走严格审批 |
+| Trigger | Claude calls the `computer_use` tool inside the CLI |
+| Capability | Open local GUI applications, click UI, and perform visual verification |
+| Value | Connects "code changes" with "verification of actual runtime behavior"; adds a GUI-check loop beyond headless automation |
+| Relationship to the Computer Use API | CLI-layer wrapper over the Anthropic Computer Use API |
+| Risk | Requires explicit permission; Auto Mode defaults to strict approval |
 
-**对 Code Agent 开发者的借鉴**：
-- 把 LLM 的修改 → 跑 → 看 UI 验证形成闭环（与传统 read/edit/bash 工具组互补）
-- 多模态视觉做 visual regression testing 思路
-- 对 Qwen Code 是 ❌ 没有等价能力，可作差异化点
+**Takeaways for Code Agent developers**:
+- Close the loop from LLM edits → run → observe UI verification (complementing the traditional read/edit/bash toolset)
+- Use multimodal vision for visual regression testing
+- Qwen Code has ❌ no equivalent capability, making this a potential differentiation point
 
-### 2.2 Auto Mode（research preview）
+### 2.2 Auto Mode (research preview)
 
-**Week 13（2026-03-23 → 27）发布**。
+**Released in Week 13 (2026-03-23 → 27)**.
 
 ```
 Manual mode (default):
-  每次 permission_request → 用户审批
+  Every permission_request → user approval
 
 --dangerously-skip-permissions:
-  全部跳过 ⚠ 危险
+  Skip everything ⚠ dangerous
 
-Auto Mode (新):
-  Permission classifier 模型 → 安全的自动 approve / 危险的拦截
-  介于上面两个极端之间
+Auto Mode (new):
+  Permission classifier model → automatically approve safe actions / block dangerous ones
+  Sits between the two extremes above
 ```
 
-**Classifier 大概工作方式**（推测）：
-- 输入：当前 tool call + 参数 + 上下文
-- 输出：safe / risky / requires-confirmation
-- 学习信号：用户历史审批选择
+**Approximate classifier behavior** (inferred):
+- Input: current tool call + parameters + context
+- Output: safe / risky / requires-confirmation
+- Learning signal: user's historical approval choices
 
-**对 Code Agent 开发者的借鉴**：
-- 比单纯 allowlist 更智能（基于上下文，不只是 pattern match）
-- 与 Qwen Code daemon 的 [§05 permission flow 4 mode](../../comparison/qwen-code-daemon-design/05-permission-auth.md) 互补 —— 可作为第 5 mode "auto-classified"
+**Takeaways for Code Agent developers**:
+- Smarter than a simple allowlist (context-aware, not just pattern matching)
+- Complements Qwen Code daemon's [§05 permission flow 4 modes](../../comparison/qwen-code-daemon-design/05-permission-auth.md) — could become a fifth "auto-classified" mode
 
-### 2.3 Ultraplan（early preview）
+### 2.3 Ultraplan (early preview)
 
-**Week 15（2026-04-06 → 10）发布**。
-
-```
-本地 CLI 起草 plan
-    ↓
-推送到 Anthropic 云端 web editor
-    ↓
-非作者（团队成员）评审 / 评论
-    ↓
-回到 CLI 执行（本地或云端跑）
-```
-
-**关键架构点**：
-- Plan 不是普通文本，而是结构化（步骤 / dependencies / artifacts）
-- 云端 web 编辑器与 CLI 双向同步
-- 自动创建云端环境（首次使用）
-
-### 2.4 Ultrareview（public research preview）
-
-**Week 17（2026-04-20 → 24）发布**。
+**Released in Week 15 (2026-04-06 → 10)**.
 
 ```
-Trigger: /ultrareview <PR#> 或 /ultrareview（当前分支）
+Local CLI drafts a plan
     ↓
-云端 fleet 并行 spawn 多个 review agents（不同 perspective）
+Pushes it to Anthropic cloud web editor
     ↓
-聚合 findings → 推回本地 CLI / Desktop
+Non-authors (team members) review / comment
+    ↓
+Returns to CLI for execution (run locally or in the cloud)
 ```
 
-**估计的 fleet 组成**（推测，基于公开行为）：
+**Key architectural points**:
+- A Plan is not plain text; it is structured (steps / dependencies / artifacts)
+- Cloud web editor and CLI synchronize bidirectionally
+- Cloud environments are created automatically (on first use)
+
+### 2.4 Ultrareview (public research preview)
+
+**Released in Week 17 (2026-04-20 → 24)**.
+
+```
+Trigger: /ultrareview <PR#> or /ultrareview (current branch)
+    ↓
+Cloud fleet spawns multiple review agents in parallel (different perspectives)
+    ↓
+Aggregates findings → pushes them back to local CLI / Desktop
+```
+
+**Estimated fleet composition** (inferred from public behavior):
 - security agent
 - correctness agent
 - style / convention agent
 - performance agent
 - test coverage agent
 
-**对 Code Agent 开发者的借鉴**：
-- 多 agent 并行做 review 是 single-agent 力不从心场景的解
-- 与 Qwen Code [§subagent-display 4 kinds](../../comparison/subagent-display-deep-dive.md) 类似但走云端
-- "Ultraplan / Ultrareview" 命名模式：cloud-augmented CLI
+**Takeaways for Code Agent developers**:
+- Parallel multi-agent review is a solution for scenarios where a single agent struggles
+- Similar to Qwen Code [§subagent-display 4 kinds](../../comparison/subagent-display-deep-dive.md), but cloud-based
+- The "Ultraplan / Ultrareview" naming pattern indicates a cloud-augmented CLI
 
-### 2.5 Routines on Web（Week 16）
+### 2.5 Routines on Web (Week 16)
 
-**Week 16（2026-04-13 → 17）发布**。
+**Released in Week 16 (2026-04-13 → 17)**.
 
 ```
-Web 控制台:
+Web console:
   cron / GitHub event / API call
     ↓ schedule
-  Routine（templated cloud agent）
+  Routine (templated cloud agent)
     ↓ execute
-  结果 → 回 web / CLI 通知
+  Results → back to web / CLI notifications
 ```
 
-**新增 `/usage` 命令**（同周）：查看 token burn / API call / compute 使用情况。
+**New `/usage` command** (same week): view token burn / API call / compute usage.
 
-## 三、模型与 Reasoning（Week 16）
+## 3. Models and Reasoning (Week 16)
 
-| 变化 | 说明 |
+| Change | Description |
 |---|---|
-| **默认模型** | Max / Team Premium 默认从 Opus 4.6 升 **Opus 4.7** |
-| **新 effort level** | `xhigh`（介于 `high` 和 `max` 之间）|
-| **`/effort` 滑块** | 交互式 visual tuning 替代命令行 args |
+| **Default model** | Max / Team Premium default upgraded from Opus 4.6 to **Opus 4.7** |
+| **New effort level** | `xhigh` (between `high` and `max`) |
+| **`/effort` slider** | Interactive visual tuning instead of command-line args |
 
-旧文档（[§03-architecture](./03-architecture.md)）的 Opus 4.6 默认表述需更新为 4.7。定价结构应保持类似。
+Older documentation ([§03-architecture](./03-architecture.md)) should update the default Opus 4.6 wording to 4.7. The pricing structure should remain similar.
 
-## 四、CLI / Environment（v2.1.126-132）
+## 4. CLI / Environment (v2.1.126-132)
 
-### 4.1 新增 / 改进
+### 4.1 Additions / Improvements
 
-| 类型 | 项 | 版本 | 说明 |
+| Type | Item | Version | Description |
 |---|---|---|---|
-| ✨ | Native binaries 发布 | Week 16 | 启动速度提升（之前是 Bun 打包 JS）|
-| ✨ | `--plugin-url` flag | v2.1.129 | 从 URL fetch plugin 包，不再仅本地 fs |
-| ✨ | `CLAUDE_CODE_SESSION_ID` env | v2.1.132 | Bash 子进程能拿到 session 上下文 |
-| ✨ | `CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN` env | v2.1.132 | 不切 fullscreen 渲染，保留 terminal scrollback |
-| ✨ | `CLAUDE_CODE_FORCE_SYNC_OUTPUT` env | v2.1.129 | debug 用强制同步输出 |
-| 🔧 | Gateway model discovery | v2.1.126 | `/model` picker 从 gateway `/v1/models` 读模型列表（opt-in：`CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY`）|
+| ✨ | Native binaries released | Week 16 | Faster startup (previously Bun-packaged JS) |
+| ✨ | `--plugin-url` flag | v2.1.129 | Fetch plugin packages from URLs, no longer local fs only |
+| ✨ | `CLAUDE_CODE_SESSION_ID` env | v2.1.132 | Bash subprocesses can access session context |
+| ✨ | `CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN` env | v2.1.132 | Do not switch to fullscreen rendering; preserve terminal scrollback |
+| ✨ | `CLAUDE_CODE_FORCE_SYNC_OUTPUT` env | v2.1.129 | Force synchronous output for debugging |
+| 🔧 | Gateway model discovery | v2.1.126 | `/model` picker reads model list from gateway `/v1/models` (opt-in: `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY`) |
 
-### 4.2 OAuth / 认证
+### 4.2 OAuth / Authentication
 
-| 改进 | 版本 | 说明 |
+| Improvement | Version | Description |
 |---|---|---|
-| MCP server OAuth：粘贴 code | v2.1.126 | 浏览器 callback 不可达时手动粘贴 |
-| `--dangerously-skip-permissions` 范围扩大 | v2.1.126 | 现在也跳过 protected-path prompts |
-| `--permission-mode` resume 修复 | v2.1.132 | `--permission-mode` 在 `--resume` 时被忽略的 bug 修了 |
+| MCP server OAuth: paste code | v2.1.126 | Manually paste code when browser callback is unreachable |
+| Expanded scope for `--dangerously-skip-permissions` | v2.1.126 | Now also skips protected-path prompts |
+| `--permission-mode` resume fix | v2.1.132 | Fixed bug where `--permission-mode` was ignored during `--resume` |
 
-## 五、新斜杠命令（Week 13-17）
+## 5. New Slash Commands (Week 13-17)
 
-| 命令 | 周期 | 说明 |
+| Command | Period | Description |
 |---|---|---|
-| `/ultrareview` | Week 17 | 云端 fleet 并行 review（见 §2.4）|
-| `/ultraplan` | Week 15 | 云端协作 plan（见 §2.3）|
-| `/autofix-pr` | Week 15 | 触发 PR auto-fix 从 terminal（web 等价）|
-| `/usage` | Week 16 | 查看 token / API / compute 用量 |
-| `/team-onboarding` | Week 15 | 把当前 setup 打包成 replayable guide |
-| `/theme` | Week 17 | 自定义颜色主题（也支持 plugin 提供）|
-| `/loop` 行为变更 | Week 15 | 不带 interval 时变 self-pacing 而非 busy-loop |
+| `/ultrareview` | Week 17 | Cloud fleet parallel review (see §2.4) |
+| `/ultraplan` | Week 15 | Cloud-collaborative plan (see §2.3) |
+| `/autofix-pr` | Week 15 | Trigger PR auto-fix from terminal (web equivalent) |
+| `/usage` | Week 16 | View token / API / compute usage |
+| `/team-onboarding` | Week 15 | Package the current setup into a replayable guide |
+| `/theme` | Week 17 | Customize color themes (also supported from plugins) |
+| `/loop` behavior change | Week 15 | Without an interval, becomes self-pacing instead of busy-looping |
 
-需要更新 [§02-commands](./02-commands.md) 的命令清单（当前是 79 命令 v2.1.81 基线，需加上面这些）。
+The command list in [§02-commands](./02-commands.md) needs updating (currently 79 commands at the v2.1.81 baseline; add the items above).
 
-## 六、Hooks 系统增强
+## 6. Hooks System Enhancements
 
-### 6.1 Conditional `if` Hooks（Week 13）
+### 6.1 Conditional `if` Hooks (Week 13)
 
-之前 hooks 只能无条件执行。现在支持：
+Previously, hooks could only run unconditionally. They now support:
 
 ```jsonc
 {
@@ -177,121 +177,121 @@ Web 控制台:
 }
 ```
 
-**意义**：从 "all-or-nothing 拦截" 进化为 "条件拦截"。降低误拦截率。
+**Significance**: Evolves from "all-or-nothing blocking" to "conditional blocking," reducing false positives.
 
-需要更新 [§12-hooks](./12-hooks.md) 加 `if` 字段说明。
+[§12-hooks](./12-hooks.md) needs an explanation of the `if` field.
 
-### 6.2 Monitor Tool（Week 15）
+### 6.2 Monitor Tool (Week 15)
 
-后台事件流入对话——logs / webhooks / file changes 实时进入 Claude 上下文。
+Background events flow into the conversation — logs / webhooks / file changes enter Claude context in real time.
 
 ```bash
 claude monitor --logs /var/log/app.log --webhook https://...
-# Claude 看到日志变化时自动反应
+# Claude automatically reacts when it sees log changes
 ```
 
-类似 Qwen Code [PR#3684 / PR#3791 monitor task kind](../../comparison/subagent-display-deep-dive.md)，两边设计趋同。
+Similar to Qwen Code [PR#3684 / PR#3791 monitor task kind](../../comparison/subagent-display-deep-dive.md); the two designs are converging.
 
-## 七、IDE / Terminal
+## 7. IDE / Terminal
 
-| 项 | 说明 |
+| Item | Description |
 |---|---|
-| ✨ VS Code 原生 extension | 高亮代码块 / inline 调用 Claude / 修改建议直接在编辑器看 |
-| ✨ Tool Search / Lazy Loading | 工具按需激活，启动开销下降（v2.1.76）|
-| ✨ Flicker-free alt-screen | `/tui fullscreen` 稳定性提升（睡眠唤醒后不空白）|
-| ✨ Custom themes | `/theme` 或 plugin 提供 |
-| ✨ Session Recap | 终端失焦期间发生了什么的 summary |
-| 🔧 Native PowerShell tool | Windows opt-in `CLAUDE_CODE_USE_POWERSHELL_TOOL` |
+| ✨ Native VS Code extension | Highlight code blocks / invoke Claude inline / view modification suggestions directly in the editor |
+| ✨ Tool Search / Lazy Loading | Tools activate on demand, reducing startup overhead (v2.1.76) |
+| ✨ Flicker-free alt-screen | Improved `/tui fullscreen` stability (no blank screen after sleep/wake) |
+| ✨ Custom themes | Provided by `/theme` or plugins |
+| ✨ Session Recap | Summary of what happened while the terminal was unfocused |
+| 🔧 Native PowerShell tool | Windows opt-in via `CLAUDE_CODE_USE_POWERSHELL_TOOL` |
 
-## 八、MCP / 插件
+## 8. MCP / Plugins
 
-| 项 | 说明 |
+| Item | Description |
 |---|---|
-| 🔧 Per-tool MCP result-size override | 可设单 tool output 上限到 **500K** |
-| ✨ Plugin executables on Bash `PATH` | plugin 可注入 binary 到 shell 环境 |
-| 🔧 MCP retry logic 改进 | 连接失败的 status 更清楚（v2.1.132）|
+| 🔧 Per-tool MCP result-size override | Can set a single tool output limit up to **500K** |
+| ✨ Plugin executables on Bash `PATH` | Plugins can inject binaries into the shell environment |
+| 🔧 Improved MCP retry logic | Clearer connection-failure status (v2.1.132) |
 
-需要更新 [§14-mcp](./14-mcp.md) 加 result-size override 说明。
+[§14-mcp](./14-mcp.md) needs result-size override details.
 
-## 九、Stability / 修复
+## 9. Stability / Fixes
 
-### 9.1 关键 bug 修
+### 9.1 Key Bug Fixes
 
-| 项 | 版本 | 说明 |
+| Item | Version | Description |
 |---|---|---|
-| 🔧 Vim mode 文本破坏 | v2.1.132 | NFD（decomposed）accented chars 被 operators 破坏 |
-| 🔧 paste `/` 开头被吞 | v2.1.132 | 粘贴以 `/` 开头的文本被静默丢弃 |
-| 🔧 stdio MCP memory leak | v2.1.132 | RSS 长跑无界增长（10GB+）|
-| 🔧 Bedrock / Vertex prompt caching | v2.1.132 | 400 错误修复 |
-| 🔧 Terminal emoji 渲染 | v2.1.132 | ZWJ 序列 + Indic scripts |
+| 🔧 Vim mode text corruption | v2.1.132 | NFD (decomposed) accented chars were corrupted by operators |
+| 🔧 Pasted text starting with `/` swallowed | v2.1.132 | Pasted text beginning with `/` was silently dropped |
+| 🔧 stdio MCP memory leak | v2.1.132 | RSS grew without bound in long-running sessions (10GB+) |
+| 🔧 Bedrock / Vertex prompt caching | v2.1.132 | Fixed 400 errors |
+| 🔧 Terminal emoji rendering | v2.1.132 | ZWJ sequences + Indic scripts |
 
-### 9.2 ⚠ 唯一 Breaking Change
+### 9.2 ⚠ Only Breaking Change
 
-**`Ctrl+O` 行为改变**（v2.1.110）：
-- 之前：modal-toggle（切换不同模态）
-- 之后：normal/verbose transcript view 切换
+**`Ctrl+O` behavior changed** (v2.1.110):
+- Before: modal-toggle (switch between modes)
+- After: toggle normal/verbose transcript view
 
-影响小（罕用快捷键），但用户脚本若依赖旧行为需调整。
+Impact is small (rare shortcut), but user scripts that depend on the old behavior need adjustment.
 
-## 十、与本系列其他章节的更新关联
+## 10. Update Relationships with Other Chapters in This Series
 
-下面是本系列哪些章节需要相应更新：
+The following chapters in this series need corresponding updates:
 
-| 章节 | 更新点 |
+| Chapter | Update Point |
 |---|---|
-| [§01-overview](./01-overview.md) | 能力矩阵加 Computer Use / Auto Mode / Ultraplan / Ultrareview |
-| [§02-commands](./02-commands.md) | 加 7 个新斜杠命令（§五）|
-| [§03-architecture](./03-architecture.md) | 默认模型 Opus 4.6 → 4.7；新 `xhigh` effort level；native binaries |
-| [§06-settings](./06-settings.md) | 新 env vars（§4.1）|
-| [§12-hooks](./12-hooks.md) | Conditional `if` hooks（§6.1）|
-| [§14-mcp](./14-mcp.md) | Per-tool result-size override（§八）|
-| [§15-telemetry](./15-telemetry-feature-flags.md) | 新 feature flags（gateway model discovery 等）|
+| [§01-overview](./01-overview.md) | Add Computer Use / Auto Mode / Ultraplan / Ultrareview to the capability matrix |
+| [§02-commands](./02-commands.md) | Add 7 new slash commands (§5) |
+| [§03-architecture](./03-architecture.md) | Default model Opus 4.6 → 4.7; new `xhigh` effort level; native binaries |
+| [§06-settings](./06-settings.md) | New env vars (§4.1) |
+| [§12-hooks](./12-hooks.md) | Conditional `if` hooks (§6.1) |
+| [§14-mcp](./14-mcp.md) | Per-tool result-size override (§8) |
+| [§15-telemetry](./15-telemetry-feature-flags.md) | New feature flags (gateway model discovery, etc.) |
 
-## 十、补：Session fork 模式 vs Qwen `/branch`（2026-05-08 更新）
+## 10. Addendum: Session Fork Mode vs Qwen `/branch` (2026-05-08 Update)
 
-Claude Code 的 session "branch off" 通过 **`--fork-session` CLI flag** 实现（v2.1.133 binary 实测）：
+Claude Code's session "branch off" is implemented via the **`--fork-session` CLI flag** (verified against v2.1.133 binary):
 
 ```bash
-claude --resume --fork-session             # 恢复 + fork（picker 选 session）
-claude --resume <session-id> --fork-session # 复制指定 session
-claude --continue --fork-session            # 续上一个但 fork
+claude --resume --fork-session             # Resume + fork (choose session in picker)
+claude --resume <session-id> --fork-session # Copy specified session
+claude --continue --fork-session            # Continue previous session but fork
 ```
 
-错误约束："`--session-id` can only be used with `--continue` or `--resume` if `--fork-session` is also specified."
+Error constraint: "`--session-id` can only be used with `--continue` or `--resume` if `--fork-session` is also specified."
 
-**Qwen Code 同期实现**（[PR#3539](https://github.com/QwenLM/qwen-code/pull/3539) ✓ 2026-05-08 MERGED，+1538/-18）：
+**Qwen Code implementation from the same period** ([PR#3539](https://github.com/QwenLM/qwen-code/pull/3539) ✓ 2026-05-08 MERGED, +1538/-18):
 
-| 维度 | Claude `--fork-session` | Qwen `/branch` (`/fork` alias) |
+| Dimension | Claude `--fork-session` | Qwen `/branch` (`/fork` alias) |
 |---|---|---|
-| 入口 | CLI flag（启动时）| slash 命令（运行中）|
-| 自述对标 | — | "Mirrors Claude Code's `/branch`" |
-| 持久化（公开）| 未公开 | JSONL 完整复制 + per-record `forkedFrom: {sessionId, messageUuid}` |
-| 原子创建 | 未公开 | `fs.openSync 'wx' 0o600`（无 TOCTOU）|
-| Rollback safe | 未公开 | "core first, UI last" 顺序：finalize → forkSession → loadSession → config.startNewSession → init → UI swap |
-| Hook 区分 | 未公开 | `SessionStartSource.Branch` 独立 enum（不复用 `Resume`）|
-| 标题 collision | 未公开 | `(Branch N)` cap 99 → timestamp fallback |
-| 用户体验 | 启动时 flag | 运行中即时（更顺手）|
+| Entry point | CLI flag (at startup) | Slash command (during runtime) |
+| Self-described comparison | — | "Mirrors Claude Code's `/branch`" |
+| Persistence (public) | Not public | Full JSONL copy + per-record `forkedFrom: {sessionId, messageUuid}` |
+| Atomic creation | Not public | `fs.openSync 'wx' 0o600` (no TOCTOU) |
+| Rollback safe | Not public | "core first, UI last" sequence: finalize → forkSession → loadSession → config.startNewSession → init → UI swap |
+| Hook distinction | Not public | Separate `SessionStartSource.Branch` enum (does not reuse `Resume`) |
+| Title collision | Not public | `(Branch N)` cap 99 → timestamp fallback |
+| User experience | Startup flag | Instant during runtime (more convenient) |
 
-**对比启发**：Claude 用 CLI flag 模式（启动时一次性决定），Qwen 用 slash 命令模式（运行中即时 fork）——两种模式各有适用场景。Qwen 选择更顺手的 slash 但工程实现质量更高（atomic create / rollback-safe / hook 独立 enum 都是 Qwen 加的语义边界）。
+**Comparative insight**: Claude uses a CLI flag model (one-time decision at startup), while Qwen uses a slash command model (instant fork during runtime). Both patterns have suitable scenarios. Qwen chose the more convenient slash command, but its engineering implementation quality is higher: atomic creation, rollback safety, and a dedicated hook enum are all semantic boundaries added by Qwen.
 
-详见 [SubAgent §六.11](../../comparison/subagent-display-deep-dive.md#已落地-11branch-alias-fork-session-分支pr3539)。
+See [SubAgent §6.11](../../comparison/subagent-display-deep-dive.md#%E5%B7%B2%E8%90%BD%E5%9C%B0-11branch-alias-fork-session-%E5%88%86%E6%94%AFpr3539) for details.
 
-## 十一、对 Qwen Code daemon 设计的启发
+## 11. Implications for Qwen Code Daemon Design
 
-| Claude Code 新特性 | 对应 Qwen daemon 设计的位置 / 借鉴 |
+| New Claude Code Feature | Corresponding Position / Takeaway for Qwen daemon Design |
 |---|---|
-| Computer Use in CLI | ❌ Qwen 无等价；可作差异化考虑 |
-| Auto Mode | [§05 permission flow](../../comparison/qwen-code-daemon-design/05-permission-auth.md) 可加第 5 mode "auto-classified" |
-| Ultraplan / Ultrareview（云端 fleet）| [§06 §七 vs Anthropic Managed Agents](../../comparison/qwen-code-daemon-design/06-roadmap.md) 同方向；External Reference Architecture 可包装类似产品 |
-| Routines on Web | [§06 §五 External Reference 多租户](../../comparison/qwen-code-daemon-design/06-roadmap.md) 集群部署的应用层场景 |
-| Monitor tool（背景事件流入对话）| Qwen 已有 [PR#3684/3791 monitor task kind](../../comparison/subagent-display-deep-dive.md)，趋同设计 |
-| Native binaries | 启动优化方向；Qwen daemon 设计 [§06 §五 External Reference 长跑稳定性](../../comparison/qwen-code-daemon-design/06-roadmap.md) 与之协同 |
-| Conditional `if` hooks | Qwen Code hooks 系统是否引入此机制可参考 |
+| Computer Use in CLI | ❌ Qwen has no equivalent; worth considering as differentiation |
+| Auto Mode | [§05 permission flow](../../comparison/qwen-code-daemon-design/05-permission-auth.md) could add a fifth "auto-classified" mode |
+| Ultraplan / Ultrareview (cloud fleet) | Same direction as [§06 §7 vs Anthropic Managed Agents](../../comparison/qwen-code-daemon-design/06-roadmap.md); External Reference Architecture can package similar products |
+| Routines on Web | Application-layer scenario for clustered deployment in [§06 §5 External Reference multi-tenancy](../../comparison/qwen-code-daemon-design/06-roadmap.md) |
+| Monitor tool (background events flow into conversation) | Qwen already has [PR#3684/3791 monitor task kind](../../comparison/subagent-display-deep-dive.md), indicating convergent design |
+| Native binaries | Startup optimization direction; synergizes with [§06 §5 External Reference long-running stability](../../comparison/qwen-code-daemon-design/06-roadmap.md) in the Qwen daemon design |
+| Conditional `if` hooks | Worth referencing when deciding whether Qwen Code hooks should introduce this mechanism |
 
-## 十二、一句话总结
+## 12. One-Sentence Summary
 
-**Claude Code 在 v2.1.81 → v2.1.132 的 ~6 周内重点投入云端协作（Computer Use / Auto Mode / Ultraplan / Ultrareview / Routines）+ 默认模型升 Opus 4.7 + Hooks 条件化 + 启动优化（native binaries / tool lazy loading）+ MCP 强化（per-tool size override / plugin binaries on PATH）+ 大量长跑 bug 修复（stdio MCP leak 10GB+ / vim NFD / paste `/` swallow）。唯一 breaking change 是 Ctrl+O 行为变更（影响小）。设计趋势：CLI 工具 + 云端 augmentation 并存（fleet of agents / cloud routines / web review）—— 与 Anthropic Managed Agents 路径同源，但保留本地 CLI 主战场。**
+**Across the ~6 weeks from v2.1.81 to v2.1.132, Claude Code focused on cloud collaboration (Computer Use / Auto Mode / Ultraplan / Ultrareview / Routines) + default model upgrade to Opus 4.7 + conditional Hooks + startup optimization (native binaries / tool lazy loading) + MCP enhancements (per-tool size override / plugin binaries on PATH) + many long-running bug fixes (stdio MCP leak 10GB+ / vim NFD / paste `/` swallow). The only breaking change is the Ctrl+O behavior change (minor impact). Design trend: CLI tools and cloud augmentation coexist (fleet of agents / cloud routines / web review) — sharing the same lineage as Anthropic Managed Agents while preserving the local CLI as the primary workspace.**
 
 ---
 
-[← 返回 README](./README.md)
+[← Back to README](./README.md)
