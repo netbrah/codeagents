@@ -1,90 +1,90 @@
-# 13. 系统提示构建——开发者参考
+# 13. System Prompt Construction -- Developer Reference
 
-> Claude Code 的系统提示不是一段静态文本——它是由 20+ 个动态段落、Feature Flag 条件分支、Prompt Cache 分区标记组成的**运行时拼装系统**。理解这套机制对优化 Qwen Code 的 prompt 效率至关重要。
+> Claude Code's system prompt is not a static block of text. It is a **runtime assembly system** composed of 20+ dynamic sections, Feature Flag conditional branches, and Prompt Cache partition markers. Understanding this mechanism is essential for optimizing Qwen Code's prompt efficiency.
 >
-> **Qwen Code 对标**：Qwen Code 的系统提示相对简单（`prompts.ts` ~1000 行 vs Claude Code ~56,000 行）。Claude Code 的 Prompt Cache 分区、动态段落缓存、`<system-reminder>` 注入模式是主要参考。
+> **Qwen Code benchmark**: Qwen Code's system prompt is relatively simple (`prompts.ts` ~1000 lines vs Claude Code ~56,000 lines). Claude Code's Prompt Cache partitioning, dynamic section caching, and `<system-reminder>` injection pattern are the main references.
 
-## 一、为什么系统提示构建这么复杂
+## I. Why System Prompt Construction Is So Complex
 
-### 问题定义
+### Problem Definition
 
-系统提示占 Code Agent 每次 API 调用 token 的 **20-40%**。一个典型的系统提示包含：
+The system prompt accounts for **20-40%** of the tokens in each Code Agent API call. A typical system prompt contains:
 
-| 组成部分 | 大小 | 变化频率 |
+| Component | Size | Change frequency |
 |---------|------|---------|
-| 行为指令（角色/规则/语气） | ~3K token | 从不变 |
-| 工具 Schema（42 个工具） | ~10K token | 工具动态加载时变 |
-| CLAUDE.md 项目指令 | ~2K token | 项目切换时变 |
-| Git 上下文（分支/状态/提交） | ~500 token | 每轮变 |
-| 记忆（MEMORY.md） | ~1K token | 会话间变 |
-| 环境信息（平台/shell/日期） | ~200 token | 每轮变 |
+| Behavioral instructions (role/rules/tone) | ~3K tokens | Never changes |
+| Tool Schema (42 tools) | ~10K tokens | Changes when tools are dynamically loaded |
+| CLAUDE.md project instructions | ~2K tokens | Changes when switching projects |
+| Git context (branch/status/commits) | ~500 tokens | Changes every turn |
+| Memory (MEMORY.md) | ~1K tokens | Changes across sessions |
+| Environment information (platform/shell/date) | ~200 tokens | Changes every turn |
 
-**核心矛盾**：系统提示的大部分内容**不变**（行为指令、工具 Schema），但 Anthropic API 的 Prompt Cache 只有当前缀完全匹配时才命中。一旦 Git 状态变了（前缀不同），**整个系统提示的缓存都失效**。
+**Core tension**: Most of the system prompt **does not change** (behavioral instructions and Tool Schema), but Anthropic API's Prompt Cache only hits when the prefix matches exactly. Once the Git status changes (different prefix), **the entire system prompt cache is invalidated**.
 
-### Claude Code 的解决方案：静态/动态分区
+### Claude Code's Solution: Static/Dynamic Partitioning
 
 ```
 ┌─────────────────────────────────────────────┐
-│  静态前缀（Cache Scope: global）            │
-│  行为指令 + 工具描述 + 通用规则              │
-│  ────── 跨组织共享，所有用户命中同一缓存 ──── │
+│  Static prefix (Cache Scope: global)        │
+│  Behavioral instructions + tool descriptions + general rules │
+│  ────── Shared across organizations; all users hit the same cache ──── │
 ├─ SYSTEM_PROMPT_DYNAMIC_BOUNDARY ────────────┤
-│  动态后缀（Cache Scope: org 或无缓存）       │
-│  Git 状态 + CLAUDE.md + 记忆 + 环境 + 语言   │
-│  ────── 每轮可能变化，不影响静态前缀缓存 ──── │
+│  Dynamic suffix (Cache Scope: org or uncached) │
+│  Git status + CLAUDE.md + memory + environment + language │
+│  ────── May change every turn; does not affect static-prefix cache ──── │
 └─────────────────────────────────────────────┘
 ```
 
-**效果**：静态前缀（~13K token）的缓存**永远不被动态内容打破**。API 成本降低 50-80%（缓存 token 价格为正常价格的 1/10）。
+**Effect**: The cache for the static prefix (~13K tokens) is **never broken by dynamic content**. API cost is reduced by 50-80% (cached tokens cost 1/10 of the normal price).
 
-## 二、构建流程
+## II. Construction Flow
 
-### 2.1 主入口
+### 2.1 Main Entry Point
 
-源码: `constants/prompts.ts`，核心函数 `getSystemPrompt()`
+Source: `constants/prompts.ts`, core function `getSystemPrompt()`
 
 ```
 getSystemPrompt(tools, model, additionalDirs, mcpClients)
   │
-  ├─ 静态段落（缓存到 /clear 或 /compact）
-  │   ├─ 角色定义（"You are Claude Code..."）
-  │   ├─ 行为规则（任务执行、安全、代码风格）
-  │   ├─ 工具使用指南
-  │   ├─ 语气风格
-  │   └─ 输出效率
+  ├─ Static sections (cached until /clear or /compact)
+  │   ├─ Role definition ("You are Claude Code...")
+  │   ├─ Behavioral rules (task execution, security, code style)
+  │   ├─ Tool usage guide
+  │   ├─ Tone and style
+  │   └─ Output efficiency
   │
   ├─ ── SYSTEM_PROMPT_DYNAMIC_BOUNDARY ──
   │
-  ├─ 动态段落（每轮可能变化）
-  │   ├─ 会话特定指导
-  │   ├─ 记忆提示（MEMORY.md）
-  │   ├─ 环境信息（平台/shell/日期）
-  │   ├─ 语言设置
-  │   ├─ 输出风格
-  │   ├─ MCP 指令
+  ├─ Dynamic sections (may change every turn)
+  │   ├─ Session-specific guidance
+  │   ├─ Memory prompt (MEMORY.md)
+  │   ├─ Environment information (platform/shell/date)
+  │   ├─ Language settings
+  │   ├─ Output style
+  │   ├─ MCP instructions
   │   ├─ Scratchpad
   │   ├─ Function result clearing
-  │   └─ Token 预算
+  │   └─ Token budget
   │
-  └─ 返回 string[]
+  └─ Returns string[]
 ```
 
-### 2.2 段落缓存机制
+### 2.2 Section Caching Mechanism
 
-源码: `constants/systemPromptSections.ts`
+Source: `constants/systemPromptSections.ts`
 
-两种段落类型：
+Two section types:
 
-| 类型 | 缓存 | 使用场景 |
+| Type | Cache | Use case |
 |------|------|---------|
-| `systemPromptSection(name, compute)` | 缓存直到 `/clear` 或 `/compact` | 大部分段落 |
-| `DANGEROUS_uncachedSystemPromptSection(name, compute, reason)` | **每轮重算**，可能破坏缓存 | Git 状态等极易变化的内容 |
+| `systemPromptSection(name, compute)` | Cached until `/clear` or `/compact` | Most sections |
+| `DANGEROUS_uncachedSystemPromptSection(name, compute, reason)` | **Recomputed every turn**, may break cache | Highly volatile content such as Git status |
 
-**开发者启示**：Qwen Code 当前没有段落级缓存。每轮 API 调用都重新构建完整系统提示。引入段落缓存（`useMemo` 语义）可以减少 prompt 构建的 CPU 和 GC 开销。
+**Developer takeaway**: Qwen Code currently has no section-level caching. Every API call rebuilds the full system prompt. Introducing section caching (`useMemo` semantics) can reduce CPU and GC overhead during prompt construction.
 
-### 2.3 CLAUDE.md 注入方式
+### 2.3 CLAUDE.md Injection Method
 
-**关键设计**：CLAUDE.md 内容**不在系统提示中**，而是作为**第一条用户消息**注入，包裹在 `<system-reminder>` 标签中：
+**Key design**: CLAUDE.md content is **not in the system prompt**. Instead, it is injected as the **first user message**, wrapped in `<system-reminder>` tags:
 
 ```typescript
 // api.ts: prependUserContext()
@@ -98,21 +98,21 @@ Today's date is ${date}.
 
 IMPORTANT: this context may or may not be relevant...
 </system-reminder>`,
-  isMeta: true,  // UI 不显示
+  isMeta: true,  // Not shown in the UI
 })
 ```
 
-**为什么不放在系统提示中？**
-1. 系统提示的静态前缀需要跨用户共享缓存——CLAUDE.md 是项目特定的，会打破缓存
-2. 用户消息的缓存粒度更细（org-level），不影响全局缓存
-3. `isMeta: true` 确保这条消息不在对话 UI 中显示
+**Why not put it in the system prompt?**
+1. The static prefix of the system prompt needs shared cross-user caching; CLAUDE.md is project-specific and would break the cache
+2. User messages have finer cache granularity (org-level), so they do not affect the global cache
+3. `isMeta: true` ensures this message is not displayed in the conversation UI
 
-### 2.4 Git 上下文注入
+### 2.4 Git Context Injection
 
-源码: `context.ts`，函数 `getGitStatus()`
+Source: `context.ts`, function `getGitStatus()`
 
 ```typescript
-// 并行执行 5 个 git 命令：
+// Run five git commands in parallel:
 const [branch, mainBranch, status, log, userName] = await Promise.all([
   getBranch(),
   getDefaultBranch(),
@@ -122,103 +122,103 @@ const [branch, mainBranch, status, log, userName] = await Promise.all([
 ])
 ```
 
-**注入位置**：系统提示的末尾（动态区域），通过 `appendSystemContext()` 追加。
+**Injection location**: appended to the end of the system prompt (the dynamic region) via `appendSystemContext()`.
 
-**`--no-optional-locks` 的原因**：避免 `git status` 获取仓库锁（防止阻塞其他 git 操作）。
+**Reason for `--no-optional-locks`**: prevents `git status` from acquiring repository locks (avoids blocking other git operations).
 
-### 2.5 Feature Flag 条件段落
+### 2.5 Feature Flag Conditional Sections
 
 ```typescript
-// prompts.ts - 编译时条件（build-time DCE）
+// prompts.ts - compile-time condition (build-time DCE)
 ...(feature('PROACTIVE') || feature('KAIROS')
   ? [getProactiveSection()]
   : [])
 
-// 运行时条件
+// Runtime condition
 ...(process.env.USER_TYPE === 'ant'
   ? [getAntModelOverrideSection()]
   : [])
 ```
 
-22 个 Feature Flag 控制系统提示的不同段落——外部构建中，Kairos/Proactive 相关的提示段落被完全移除。
+Twenty-two Feature Flags control different system-prompt sections. In external builds, Kairos/Proactive-related prompt sections are completely removed.
 
-## 三、Prompt Cache 优化详解
+## III. Prompt Cache Optimization Details
 
-### 3.1 三种缓存模式
+### 3.1 Three Cache Modes
 
-源码: `utils/api.ts`，函数 `splitSysPromptPrefix()`
+Source: `utils/api.ts`, function `splitSysPromptPrefix()`
 
-| 模式 | 使用条件 | 静态前缀缓存 | 动态内容缓存 |
+| Mode | Usage condition | Static prefix cache | Dynamic content cache |
 |------|---------|------------|------------|
-| Global Cache | 1P（Anthropic API 直连） | `scope: 'global'`（跨组织共享） | `scope: null`（不缓存） |
-| Org Cache | 有 MCP 工具时 | `scope: 'org'`（组织级） | `scope: 'org'` |
+| Global Cache | 1P (direct Anthropic API access) | `scope: 'global'` (shared across organizations) | `scope: null` (uncached) |
+| Org Cache | When MCP tools are present | `scope: 'org'` (organization-level) | `scope: 'org'` |
 | Default Org | 3P Provider | `scope: 'org'` | `scope: 'org'` |
 
-### 3.2 工具 Schema 的缓存策略
+### 3.2 Tool Schema Caching Strategy
 
-工具 Schema 通过 `toolToAPISchema()` 构建，支持 `cache_control` 标记：
+Tool Schema is constructed through `toolToAPISchema()` and supports `cache_control` markers:
 
-- 核心工具的 Schema 带 `cache_control`（缓存命中率高）
-- 动态加载的工具（ToolSearch 激活的）不带 `cache_control`（避免污染缓存）
-- MCP 工具的 Schema 在 `defer_loading` 模式下不发送
+- Core tool Schemas include `cache_control` (high cache hit rate)
+- Dynamically loaded tools (activated by ToolSearch) do not include `cache_control` (to avoid polluting the cache)
+- MCP tool Schemas are not sent in `defer_loading` mode
 
-### 3.3 缓存命中率的实际影响
+### 3.3 Practical Impact of Cache Hit Rate
 
 ```
-每次 API 调用的 token 成本构成：
+Token cost composition for each API call:
 ┌──────────────────────────┬─────────┬──────────┐
-│ 组件                      │ Token   │ 缓存状态  │
+│ Component                │ Token   │ Cache status │
 ├──────────────────────────┼─────────┼──────────┤
-│ 系统提示（静态前缀）       │ ~13,000 │ ✓ 全局缓存 │
-│ 系统提示（动态后缀）       │ ~2,000  │ × 不缓存   │
-│ 工具 Schema              │ ~8,000  │ ✓ 组织缓存 │
-│ CLAUDE.md（用户消息）     │ ~2,000  │ ✓ 组织缓存 │
-│ 对话历史                  │ 变化    │ 部分缓存   │
+│ System prompt (static prefix) │ ~13,000 │ ✓ global cache │
+│ System prompt (dynamic suffix) │ ~2,000  │ × uncached     │
+│ Tool Schema              │ ~8,000  │ ✓ org cache    │
+│ CLAUDE.md (user message) │ ~2,000  │ ✓ org cache    │
+│ Conversation history     │ varies  │ partially cached │
 ├──────────────────────────┼─────────┼──────────┤
-│ 缓存命中的 token           │ ~23,000 │ 1/10 价格  │
-│ 未缓存的 token             │ ~2,000  │ 全价       │
+│ Cache-hit tokens         │ ~23,000 │ 1/10 price     │
+│ Uncached tokens          │ ~2,000  │ full price     │
 └──────────────────────────┴─────────┴──────────┘
 ```
 
-## 四、竞品系统提示对比
+## IV. Competitor System Prompt Comparison
 
-| Agent | 系统提示构建 | Prompt Cache | CLAUDE.md 等价物 |
+| Agent | System prompt construction | Prompt Cache | CLAUDE.md equivalent |
 |-------|-------------|-------------|-----------------|
-| **Claude Code** | 动态拼装（~56K 行代码） | 静态/动态分区 + global/org 缓存 | CLAUDE.md（用户消息注入） |
-| **Gemini CLI** | `PromptProvider.getCoreSystemPrompt()` | 无显式 Prompt Cache 管理 | GEMINI.md |
-| **Qwen Code** | `prompts.ts`（~1K 行） | 基础缓存 | QWEN.md |
-| **Copilot CLI** | agent YAML 定义 | 依赖 API 端缓存 | copilot-instructions.md |
+| **Claude Code** | Dynamic assembly (~56K lines of code) | Static/dynamic partitioning + global/org cache | CLAUDE.md (user-message injection) |
+| **Gemini CLI** | `PromptProvider.getCoreSystemPrompt()` | No explicit Prompt Cache management | GEMINI.md |
+| **Qwen Code** | `prompts.ts` (~1K lines) | Basic cache | QWEN.md |
+| **Copilot CLI** | agent YAML definition | Relies on API-side cache | copilot-instructions.md |
 
-## 五、Qwen Code 改进建议
+## V. Qwen Code Improvement Recommendations
 
-### P0：系统提示静态/动态分区
+### P0: Static/Dynamic Partitioning for the System Prompt
 
-将不变的行为指令和工具 Schema 放在前缀，Git 状态等易变内容放在后缀。确保前缀内容的字节序列稳定→缓存命中率最大化。
+Put stable behavioral instructions and Tool Schema in the prefix, and volatile content such as Git status in the suffix. Ensure the byte sequence of the prefix is stable to maximize the cache hit rate.
 
-### P1：段落级缓存
+### P1: Section-Level Caching
 
-对不频繁变化的段落（工具 Schema、行为规则）使用 `useMemo` 语义缓存，避免每轮重新序列化。
+Use `useMemo`-style caching for sections that change infrequently (Tool Schema and behavioral rules), avoiding reserialization every turn.
 
-### P1：CLAUDE.md → QWEN.md 用户消息注入
+### P1: CLAUDE.md -> QWEN.md User-Message Injection
 
-将 QWEN.md 内容从系统提示移到第一条用户消息（`<system-reminder>` 标签），避免项目特定内容打破系统提示缓存。
+Move QWEN.md content from the system prompt into the first user message (`<system-reminder>` tag), avoiding project-specific content that breaks the system prompt cache.
 
-### P2：Git 上下文并行获取
+### P2: Parallel Git Context Fetching
 
-参考 Claude Code 的 `Promise.all()` 并行执行 5 个 git 命令模式，减少上下文收集延迟。
+Follow Claude Code's pattern of using `Promise.all()` to run five git commands in parallel, reducing context collection latency.
 
-## 六、补充：CLI vs Agent SDK 的系统提示差异
+## VI. Supplement: System Prompt Differences Between CLI and Agent SDK
 
-> 参考：[claude-code-best-practice](https://github.com/shanraisshan/claude-code-best-practice) 的 SDK vs CLI 系统提示对比报告
+> Reference: SDK vs CLI system prompt comparison report from [claude-code-best-practice](https://github.com/shanraisshan/claude-code-best-practice)
 
-Claude Code CLI 和 Agent SDK 发送给 API 的系统提示**完全不同**：
+The system prompts sent to the API by Claude Code CLI and Agent SDK are **completely different**:
 
-| 维度 | Claude CLI（Claude Code） | Agent SDK（默认） | Agent SDK（`claude_code` preset） |
+| Dimension | Claude CLI (Claude Code) | Agent SDK (default) | Agent SDK (`claude_code` preset) |
 |------|-------------------------|------------------|----------------------------------|
-| 基础 prompt | ~269 token（模块化） | 最小 prompt | 复用 CLI 的 prompt |
-| 工具定义 | 18+ 内置工具 | 用户自定义 | 复用 CLI 的工具 |
-| 条件加载 | 110+ 系统提示字符串按 feature 条件加载 | 无条件加载 | 部分条件加载 |
-| 安全审查 | ~2,610 token 扩展安全指令（条件） | 无 | 有 |
-| 项目上下文 | CLAUDE.md + settings + hooks | 无 | 用户注入 |
+| Base prompt | ~269 tokens (modular) | Minimal prompt | Reuses the CLI prompt |
+| Tool definitions | 18+ built-in tools | User-defined | Reuses the CLI tools |
+| Conditional loading | 110+ system-prompt strings loaded by feature conditions | Unconditional loading | Partial conditional loading |
+| Security review | ~2,610-token extended security instructions (conditional) | None | Present |
+| Project context | CLAUDE.md + settings + hooks | None | User-injected |
 
-**对 Qwen Code 的启发**：如果 Qwen Code 未来提供 SDK 模式（如 `@qwen-code/sdk`），需要决定是否复用 CLI 的完整系统提示还是提供精简版。Claude Code 的经验是：SDK 默认精简，但提供 `claude_code` preset 让用户选择完整模式。
+**Implication for Qwen Code**: If Qwen Code provides an SDK mode in the future (such as `@qwen-code/sdk`), it needs to decide whether to reuse the full CLI system prompt or provide a reduced version. Claude Code's experience is: the SDK is minimal by default, but provides a `claude_code` preset so users can choose the full mode.

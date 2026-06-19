@@ -1,181 +1,181 @@
-# Claude Code 能力借鉴对比：Qwen Code vs Qoder CLI
+# Claude Code Capability Borrowing Comparison: Qwen Code vs Qoder CLI
 
-> **问题**：Qwen Code 与 Qoder CLI 都是 **Gemini CLI 的兄弟 fork**，却又都在向 **Claude Code** 看齐。本文以 [Qwen Code 改进建议报告（对标 Claude Code，275 项）](./qwen-code-improvement-report.md) 为参照骨架，逐类对比**两个产品各自从 Claude Code 借鉴了什么、借到多深**。
+> **Question**: Qwen Code and Qoder CLI are both **sibling forks of Gemini CLI**, yet both are converging toward **Claude Code**. Using the [Qwen Code improvement proposal report (benchmarked against Claude Code, 275 items)](./qwen-code-improvement-report.md) as the reference framework, this article compares category by category **what each product borrowed from Claude Code, and how deeply**.
 >
-> **一句话结论**：**两家从不同角度收敛到 Claude Code**——**Qwen Code 借的是"引擎/深度"**（subagent 编排、fork、hooks 多类型、tool_search、结构化输出、压缩、记忆、Computer Use……多以源码 PR 落地）；**Qoder CLI 借的是"表面/兼容"**（CLI 参数命名、hook 事件命名、agent 定义文案逐字、工具命名 `Bash/Read/Edit`、`migrate --from-claude`、`.claude-plugin` 市场……为降低 Claude Code 用户迁移成本）。
+> **One-sentence conclusion**: **Both products converge toward Claude Code from different angles**—**Qwen Code borrows the "engine/depth"** (subagent orchestration, fork, multiple Hook types, `tool_search`, structured output, compression, memory, Computer Use... mostly implemented through source-code PRs); **Qoder CLI borrows the "surface/compatibility"** (CLI parameter names, Hook event names, verbatim agent definition text, tool names such as `Bash/Read/Edit`, `migrate --from-claude`, the `.claude-plugin` marketplace... to reduce migration cost for Claude Code users).
 >
-> **证据**：Qwen 侧以 [改进报告](./qwen-code-improvement-report.md)（PR 级追踪）为准；Qoder 侧基于 v1.0.18 bundle 解码（`_$d()` 反混淆，确定性可复现，详 [EVIDENCE](../tools/qoder-cli/EVIDENCE.md)）。截至 2026-06-14。
+> **Evidence**: The Qwen side follows the [improvement report](./qwen-code-improvement-report.md) (PR-level tracking); the Qoder side is based on decoding the v1.0.18 bundle (`_$d()` deobfuscation, deterministic and reproducible; see [EVIDENCE](../tools/qoder-cli/EVIDENCE.md)). As of 2026-06-14.
 >
-> **相关**：[Qwen Code vs Qoder CLI 对称对比](./qwen-code-vs-qoder-cli.md) · [Qwen × Qoder 整合能力对照](./qwen-code-qoder-integration.md)
+> **Related**: [Symmetric comparison of Qwen Code vs Qoder CLI](./qwen-code-vs-qoder-cli.md) · [Qwen × Qoder integration capability comparison](./qwen-code-qoder-integration.md)
 
 ---
 
-## 〇、为什么两家都借 Claude Code
+## 0. Why Both Borrow from Claude Code
 
-两者基座（Gemini CLI）本身**不含** Claude Code 的若干招牌设计——逐一 grep 上游 gemini-cli 确认：**无** subagent 体系（`tools/agent/`、`subagents/`、`subagent_type`/fork、内置 agent 注册表）、**无** Claude 命名的 hook 事件、**无** `tool_search`。这些在两家 fork 里却都存在，证明**都是各自在 Gemini 基座上"补"了 Claude Code 的设计**。
+The shared base (Gemini CLI) itself **does not include** several signature Claude Code designs—confirmed by grepping upstream gemini-cli one by one: **no** subagent system (`tools/agent/`, `subagents/`, `subagent_type`/fork, built-in agent registry), **no** Claude-named Hook events, and **no** `tool_search`. Yet these exist in both forks, proving that **each added Claude Code designs on top of the Gemini base**.
 
-差别在补的**层次**：
+The difference lies in the **layer** they added:
 
 | | Qwen Code | Qoder CLI v1.0 |
 |---|---|---|
-| 借鉴角度 | **引擎/运行时深度** | **表面/迁移兼容** |
-| 典型动作 | 把 Claude 的能力**重新实现进引擎**（PR 级，开源可追）| 把 Claude 的**接口/命名/文案对齐**（bundle 解码可见）|
-| 目的 | 做成开源 runtime 平台 | 降低 Claude Code 用户切换成本 |
-| 深度信号 | Agent Team、Computer Use、Tool Search、结构化输出、三档压缩…… | CLI 参数面、hook 事件名、agent 文案逐字、`migrate --from-claude` |
+| Borrowing angle | **Engine/runtime depth** | **Surface/migration compatibility** |
+| Typical action | **Reimplement Claude capabilities inside the engine** (PR-level, open-source and traceable) | **Align with Claude interfaces/names/text** (visible through bundle decoding) |
+| Goal | Become an open-source runtime platform | Reduce switching cost for Claude Code users |
+| Depth signals | Agent Team, Computer Use, Tool Search, structured output, three-tier compression... | CLI parameter surface, Hook event names, verbatim agent text, `migrate --from-claude` |
 
 ---
 
-## 一、SubAgent 体系（两家都重度借鉴，深度不同）
+## 1. SubAgent System (Both Borrow Heavily, but at Different Depths)
 
-Claude Code 的 subagent 系统是两家**共同**借鉴的最大块——内置 agent 描述文案在 Qwen 源码与 Qoder bundle 中**逐字相同**，且都是 Claude Code 原文。
+Claude Code's subagent system is the largest area **both** products borrowed—the built-in agent description text is **verbatim identical** in Qwen source and the Qoder bundle, and both match the original Claude Code text.
 
-| Claude Code 能力 | Qwen Code 借鉴 | Qoder CLI 借鉴 |
+| Claude Code capability | Qwen Code borrowing | Qoder CLI borrowing |
 |---|---|---|
-| `subagent_type` 工具参数 | ✅ 源码 `tools/agent/agent.ts` | ✅ TaskTool（解码触发逻辑逐字相同）|
-| 内置 `general-purpose`/`Explore` agent | ✅（文案逐字）| ✅（文案逐字）|
-| 内置 `Plan` 架构师 agent | —（Qwen 未内置 Plan agent，有 `enter_plan_mode`）| ✅ `Plan`（"Software architect agent…"）|
-| 内置 `statusline-setup` agent | ✅ | ✅ |
-| **Fork Subagent**（省略 type=隐式 fork，继承全上下文）| ✅ FORK_AGENT（[报告 item-2](./qwen-code-improvement-report.md)，PR#2936）| ✅ **同款**（描述+触发逻辑逐字相同）|
-| `isolation: worktree` 字段 | ✅ | ✅ `enum[default,worktree]` |
-| `/agents` 管理 UI | ✅（create/manage 向导）| ✅（create/list）|
-| **Coordinator/Swarm 多 Agent 编排** | ✅ **完整 Agent Team**（生命周期事件 + broadcast + 共享任务板，[报告 item-14/25](./qwen-code-improvement-report.md)）| ⚠️ **仅 `teammate_mailbox` 结果聚合**（无编排）|
-| agent 细粒度工具访问控制 | ✅（3 层 allowlist，PR#3064/#3066）| ✅ + **规则按 `subagent_type` 维度匹配** |
-| Agent 恢复与续行 | ✅（PR#3739）| 未见 |
+| `subagent_type` tool parameter | ✅ Source `tools/agent/agent.ts` | ✅ TaskTool (decoded trigger logic is verbatim identical) |
+| Built-in `general-purpose`/`Explore` agent | ✅ (verbatim text) | ✅ (verbatim text) |
+| Built-in `Plan` architect agent | — (Qwen does not include a built-in Plan agent; it has `enter_plan_mode`) | ✅ `Plan` ("Software architect agent...") |
+| Built-in `statusline-setup` agent | ✅ | ✅ |
+| **Fork Subagent** (omitting type = implicit fork, inherits full context) | ✅ FORK_AGENT ([report item-2](./qwen-code-improvement-report.md), PR#2936) | ✅ **Same design** (description + trigger logic are verbatim identical) |
+| `isolation: worktree` field | ✅ | ✅ `enum[default,worktree]` |
+| `/agents` management UI | ✅ (create/manage wizard) | ✅ (create/list) |
+| **Coordinator/Swarm multi-agent orchestration** | ✅ **Complete Agent Team** (lifecycle events + broadcast + shared task board, [report item-14/25](./qwen-code-improvement-report.md)) | ⚠️ **Only `teammate_mailbox` result aggregation** (no orchestration) |
+| Fine-grained agent tool access control | ✅ (3-layer allowlist, PR#3064/#3066) | ✅ + **rules match by `subagent_type` dimension** |
+| Agent recovery and continuation | ✅ (PR#3739) | Not seen |
 
-**判读**：subagent 的**定义与基本调用**两家借得一样深（文案都直接搬 Claude）。但 Claude 的**多 Agent 编排深层**（Coordinator/Swarm）——Qwen 重新实现成完整 Agent Team，Qoder 止步结果聚合。Qoder 反而内置了**更多** Claude agent（多 `Plan`/`SaveMemory`/`skill-extractor`）。
+**Interpretation**: Both borrow the **definition and basic invocation** of subagents to the same depth (both directly copy Claude text). But for Claude's **deeper multi-agent orchestration** (Coordinator/Swarm), Qwen reimplemented a complete Agent Team, while Qoder stops at result aggregation. Conversely, Qoder includes **more** Claude agents by default (additional `Plan`/`SaveMemory`/`skill-extractor`).
 
 ---
 
-## 二、Hooks（两家都改用 Claude 事件命名）
+## 2. Hooks (Both Switch to Claude Event Names)
 
-Gemini CLI 上游 hooks 用自有命名（`BeforeTool`/`AfterAgent`…），并提供 `hooks migrate` 把 Claude 配置**转换**成自有名。**两个阿里 fork 却都直接采用了 Claude Code 的事件命名**（上游命名在两者中均为 0）。
+Upstream Gemini CLI Hooks use their own names (`BeforeTool`/`AfterAgent`...) and provide `hooks migrate` to **convert** Claude configurations into those names. **Both Alibaba forks instead directly adopt Claude Code's event names** (the upstream names count as 0 in both).
 
-| Claude Code Hook 能力 | Qwen Code | Qoder CLI |
+| Claude Code Hook capability | Qwen Code | Qoder CLI |
 |---|---|---|
-| 10 事件命名（`PreToolUse`/`PostToolUse`/`PostToolUseFailure`/`UserPromptSubmit`/`SessionStart`·`End`/`PreCompact`/`Stop`·`SubagentStop`/`Notification`）| ✅ 全套 | ✅ 全套（计数 24~55×）|
-| **HTTP Hooks**（POST JSON）| ✅（[报告，PR#2827](./qwen-code-improvement-report.md)）| ❌ 仅 command + `/hook-config` |
+| 10 event names (`PreToolUse`/`PostToolUse`/`PostToolUseFailure`/`UserPromptSubmit`/`SessionStart`·`End`/`PreCompact`/`Stop`·`SubagentStop`/`Notification`) | ✅ Full set | ✅ Full set (counts 24~55×) |
+| **HTTP Hooks** (POST JSON) | ✅ ([report, PR#2827](./qwen-code-improvement-report.md)) | ❌ Command only + `/hook-config` |
 | Function Hook / Async Hook | ✅ | ❌ |
-| SSRF 防护 | ✅（`ssrfGuard.ts`）| ❌ |
-| `CLAUDE_PROJECT_DIR`/`CLAUDE_PLUGIN_ROOT` 环境变量 | 部分 | ✅（Claude 插件兼容）|
+| SSRF protection | ✅ (`ssrfGuard.ts`) | ❌ |
+| `CLAUDE_PROJECT_DIR`/`CLAUDE_PLUGIN_ROOT` environment variables | Partial | ✅ (Claude plugin compatibility) |
 
-**判读**：**事件命名两家都借**（配置可互用）；但 Claude hook 的**类型扩展**（HTTP/Function/Async）只有 Qwen 重新实现，Qoder 停在 command。
+**Interpretation**: **Both borrow the event names** (configurations can be shared); but only Qwen reimplements Claude Hook **type extensions** (HTTP/Function/Async), while Qoder stops at commands.
 
 ---
 
-## 三、CLI 表面 / 参数命名（Qoder 借得远比 Qwen 多）
+## 3. CLI Surface / Parameter Naming (Qoder Borrows Far More Than Qwen)
 
-这是 **Qoder 借鉴 Claude Code 最显著**的一块——Qoder v1.0 的 CLI 参数面大面积对齐 Claude Code，上游 Gemini CLI 与 Qwen Code 均无这些命名。
+This is the area where **Qoder's borrowing from Claude Code is most visible**—the CLI parameter surface of Qoder v1.0 is broadly aligned with Claude Code, while upstream Gemini CLI and Qwen Code do not have these names.
 
-| Claude Code CLI 参数/概念 | Qwen Code | Qoder CLI |
+| Claude Code CLI parameter/concept | Qwen Code | Qoder CLI |
 |---|---|---|
-| `--permission-mode` | ❌（用 `--approval-mode`）| ✅ |
-| `--output-style` / Output Styles | ❌ | ✅（`outputStyle` 4×）|
-| `--add-dir` | ❌（用 `--include-directories`）| ✅ |
+| `--permission-mode` | ❌ (uses `--approval-mode`) | ✅ |
+| `--output-style` / Output Styles | ❌ | ✅ (`outputStyle` 4×) |
+| `--add-dir` | ❌ (uses `--include-directories`) | ✅ |
 | `--settings` / `--setting-sources` | ❌ | ✅ |
 | `--strict-mcp-config` | ❌ | ✅ |
 | `--agents <json>` | ❌ | ✅ |
-| `--allowed-tools`/`--append-system-prompt`/`--fork-session` | ✅ 部分 | ✅ |
-| 工具命名 `Bash`/`Read`/`Write`/`Edit`/`Glob`/`Grep`/`WebSearch`/`WebFetch` | ❌（保留 Gemini 系 `run_shell_command`/`read_file`）| ✅ **全套 Claude 命名** |
+| `--allowed-tools`/`--append-system-prompt`/`--fork-session` | ✅ Partial | ✅ |
+| Tool names `Bash`/`Read`/`Write`/`Edit`/`Glob`/`Grep`/`WebSearch`/`WebFetch` | ❌ (keeps Gemini-style `run_shell_command`/`read_file`) | ✅ **Full Claude naming set** |
 
-**判读**：**Qoder 把 Claude Code 的用户界面几乎照搬**（参数 + 工具命名），目的是让 Claude Code 用户"零学习"上手；Qwen 保留 Gemini 系命名，只借少量参数。这是两家借鉴角度差异最直白的体现。
-
----
-
-## 四、迁移与生态兼容（Qoder 独有的 Claude 借鉴）
-
-| Claude Code 兼容能力 | Qwen Code | Qoder CLI |
-|---|---|---|
-| **一键迁移** `migrate --from-claude` | ❌ | ✅（一次性迁移 MCP/hooks/commands/subagents）|
-| `.claude-plugin` 插件格式 | ❌ | ✅（marketplace 识别）|
-| `claude-plugins-official` 市场源 | ❌ | ✅ 预置 |
-| 上下文用量 UI 标 `claudeMd` 类型 | — | ✅ |
-| 读取 `CLAUDE.md`（运行时）| ✅（读取）| v0.x 有 `--with-claude-config`，**v1.0 移除**，改迁移命令 |
-
-**判读**：**迁移工具链是 Qoder 几乎独占的 Claude 借鉴**——服务"从 Claude Code 切过来"的用户。Qwen 仅做到 hook 命名兼容，无迁移命令。
+**Interpretation**: **Qoder almost copies Claude Code's user interface** (parameters + tool names) so Claude Code users can start with "zero learning"; Qwen keeps Gemini-style names and borrows only a small number of parameters. This is the clearest expression of the difference in borrowing angle.
 
 ---
 
-## 五、引擎/运行时能力（Qwen 借得远比 Qoder 深）
+## 4. Migration and Ecosystem Compatibility (Claude Borrowing Unique to Qoder)
 
-Claude Code 的这些**引擎级**能力，Qwen 多数已重新实现（报告里 PR 级追踪），Qoder 基本未投入。
-
-| Claude Code 能力 | Qwen Code | Qoder CLI |
+| Claude Code compatibility capability | Qwen Code | Qoder CLI |
 |---|---|---|
-| **Computer Use**（GUI 自动化）| ✅ 9 工具（默认开 + deferred）| ❌（bundle 全量核查无）|
-| **Tool Search / 延迟工具加载** | ✅ `tool_search`（[报告，PR#3589](./qwen-code-improvement-report.md)）| ❌（仅 `deferred_tools_delta` 通知）|
-| **Structured Output**（`--json-schema`）| ✅（PR#3598）| ❌ |
-| **多层上下文压缩** | ✅ 三档梯度（PR#4345）| `/compact`（单档）|
-| **会话记忆 + Auto Dream** | ✅（PR#3087 托管记忆）| `/memory` + `SaveMemory`（无 auto-dream）|
-| **Follow-up / Prompt Suggestion**（轮后建议下一步 prompt）| ✅ `followup_suggestion`(42×)/`prompt_suggestion`(15×)/`PromptSuggestion`(32×) | ✅ **同款，同名**——`PromptSuggestion` 子系统（模型生成 + accept/reject 校验）+ 事件 `{type:"prompt_suggestion",suggestion,uuid,sessionId}`；另有 `awareness_nudge`/`generate_session_title` fast-model 辅助生成 |
-| **Speculation 预测+预执行**（Tab 接受零延迟）| ✅（PR#2525，建议 + 投机预执行）| ⚠️ **仅建议半，无预执行**（`speculat`/`ghostText`/`Tab to accept` 全 0）|
-| **Mid-Turn Queue Drain（中途注入）** | ✅ `drainQueue`（32×，[报告 item-6](./qwen-code-improvement-report.md)，PR#2854）| ✅ **同款，叫 steering**——`InjectionService.addInjection(input,"user_steering")` 排队 + `getInjectionsAfter(startIndex,"user_steering")` 轮内消费 + 包 `<user_input>` 注入（"User steering update" / `steering-ack`）|
-| **Notebook Edit** | ✅（PR#3900）| ❌ |
-| **FileIndex 模糊搜索** | ✅（fzf 风格）| 未见 |
-| **Fast Model / Advisor 顾问模型** | ✅ 多场景 | ❌（`fastModel`/`advisor` 0）|
-| Commit Attribution（AI 贡献统计）| ✅ 独家超 Claude（git notes）| ✅ `commit` 子命令（AI 占比）|
-| Plan 模式 + Approval Gate | ✅ `enter_plan_mode`（PR#4853）| ✅ `/plan`（Toggle Plan Mode）|
-| Thinking 块渲染/折叠 | ✅（web-shell #4977）| ⚠️ 有 `thinking`/`reasoning` 渲染，折叠未确认 |
+| **One-click migration** `migrate --from-claude` | ❌ | ✅ (one-time migration of MCP/hooks/commands/subagents) |
+| `.claude-plugin` plugin format | ❌ | ✅ (marketplace recognition) |
+| `claude-plugins-official` marketplace source | ❌ | ✅ Preconfigured |
+| Context-usage UI labels `claudeMd` type | — | ✅ |
+| Reads `CLAUDE.md` (runtime) | ✅ (reads it) | v0.x had `--with-claude-config`; **v1.0 removed it** and replaced it with a migration command |
 
-**判读**：Claude Code 的**重型运行时能力**（Computer Use / Tool Search / 结构化输出 / 分层压缩 / Speculation **预执行**）多数是 Qwen 单方面在追。但**交互体验类**运行时能力两家都借——中途注入（Qwen `drainQueue` / Qoder `user_steering`）、Follow-up Suggestion（两家都叫 `prompt_suggestion`/`PromptSuggestion`，源自 Claude）。规律：**面向用户交互的运行时能力 Qoder 也补，面向平台化/自动化的重型能力 Qoder 不投入**。
+**Interpretation**: **The migration toolchain is a Claude borrowing almost exclusive to Qoder**—serving users who are "switching over from Claude Code." Qwen only achieves Hook-name compatibility and has no migration command.
 
 ---
 
-## 六、被集成 / 北向接口（Claude Code 的平台能力）
+## 5. Engine/Runtime Capabilities (Qwen Borrows Far More Deeply Than Qoder)
 
-Claude Code 有 SDK、Bridge、daemon-style 控制面。两家借鉴差距巨大。
+For these **engine-level** Claude Code capabilities, Qwen has reimplemented most of them (PR-level tracking in the report), while Qoder has invested little.
 
-| Claude Code 平台能力 | Qwen Code | Qoder CLI |
+| Claude Code capability | Qwen Code | Qoder CLI |
 |---|---|---|
-| SDK（程序化嵌入）| ✅ TS/Python/Java | ❌ 无公开 SDK |
-| 作为 MCP server 被调 | ✅ `qwen-serve-bridge` | ❌ 仅 MCP 客户端 |
-| Remote Control Bridge（手机/浏览器驱动）| ✅ Channels + daemon | ✅ `--remote`/`/qr-code`（绑 Qoder 云）|
-| ACP HTTP/WS | ✅ | ⚠️ 仅 stdio |
-| `/teleport` 跨端迁移 | 开发中 | ✅ `--teleport`（Qoder 云）|
+| **Computer Use** (GUI automation) | ✅ 9 tools (enabled by default + deferred) | ❌ (full bundle audit found none) |
+| **Tool Search / deferred tool loading** | ✅ `tool_search` ([report, PR#3589](./qwen-code-improvement-report.md)) | ❌ (only `deferred_tools_delta` notification) |
+| **Structured Output** (`--json-schema`) | ✅ (PR#3598) | ❌ |
+| **Multi-layer context compression** | ✅ Three-tier gradient (PR#4345) | `/compact` (single tier) |
+| **Session memory + Auto Dream** | ✅ (PR#3087 managed memory) | `/memory` + `SaveMemory` (no auto-dream) |
+| **Follow-up / Prompt Suggestion** (suggest next prompt after a turn) | ✅ `followup_suggestion`(42×)/`prompt_suggestion`(15×)/`PromptSuggestion`(32×) | ✅ **Same design, same name**—`PromptSuggestion` subsystem (model generation + accept/reject validation) + event `{type:"prompt_suggestion",suggestion,uuid,sessionId}`; also `awareness_nudge`/`generate_session_title` fast-model assisted generation |
+| **Speculation prediction + pre-execution** (zero-latency Tab acceptance) | ✅ (PR#2525, suggestion + speculative pre-execution) | ⚠️ **Only the suggestion half, no pre-execution** (`speculat`/`ghostText`/`Tab to accept` all 0) |
+| **Mid-Turn Queue Drain (mid-turn injection)** | ✅ `drainQueue` (32×, [report item-6](./qwen-code-improvement-report.md), PR#2854) | ✅ **Same pattern, called steering**—`InjectionService.addInjection(input,"user_steering")` queues + `getInjectionsAfter(startIndex,"user_steering")` consumes within the turn + wraps injection in `<user_input>` ("User steering update" / `steering-ack`) |
+| **Notebook Edit** | ✅ (PR#3900) | ❌ |
+| **FileIndex fuzzy search** | ✅ (fzf-style) | Not seen |
+| **Fast Model / Advisor model** | ✅ Multiple scenarios | ❌ (`fastModel`/`advisor` 0) |
+| Commit Attribution (AI contribution statistics) | ✅ Uniquely exceeds Claude (git notes) | ✅ `commit` subcommand (AI percentage) |
+| Plan mode + Approval Gate | ✅ `enter_plan_mode` (PR#4853) | ✅ `/plan` (Toggle Plan Mode) |
+| Thinking block rendering/collapsing | ✅ (web-shell #4977) | ⚠️ Has `thinking`/`reasoning` rendering; collapsing unconfirmed |
 
-**判读**：Claude 的**开放平台能力**仍是 Qwen 在系统性借鉴（SDK/MCP-server/ACP HTTP-WS）；Qoder 的远程是绑定自家云的闭环。详 [被集成对比](./qwen-code-vs-qoder-cli.md#七被集成能力作为服务端--可嵌入对象)。
+**Interpretation**: Claude Code's **heavy runtime capabilities** (Computer Use / Tool Search / structured output / layered compression / Speculation **pre-execution**) are mostly pursued by Qwen alone. But **interaction-experience runtime capabilities** are borrowed by both—mid-turn injection (Qwen `drainQueue` / Qoder `user_steering`) and Follow-up Suggestion (both call it `prompt_suggestion`/`PromptSuggestion`, derived from Claude). Pattern: **Qoder also fills in runtime capabilities aimed at user interaction, but does not invest in heavy platform/automation-oriented capabilities**.
 
 ---
 
-## 七、命令与 meta-skill（两家都借 Claude 命令习惯）
+## 6. Being Integrated / Northbound Interfaces (Claude Code's Platform Capabilities)
 
-Claude Code 的若干招牌命令/skill 两家都搬了，Qoder 在 meta-skill 上更全。
+Claude Code has an SDK, Bridge, and daemon-style control plane. The borrowing gap between the two products is huge.
 
-| Claude Code 命令/skill | Qwen Code | Qoder CLI |
+| Claude Code platform capability | Qwen Code | Qoder CLI |
 |---|---|---|
-| `/rewind`（时间线回滚）| ✅ | ✅（别名 `checkpoint`）|
-| `/statusline`（自定义状态栏，用 sub-agent）| ✅ | ✅（"Uses a sub-agent…"）|
-| `/security-review` | ✅（bundled skill）| ✅（bundled skill）|
-| `/context`（上下文可视化）| ✅ | ✅ |
+| SDK (programmatic embedding) | ✅ TS/Python/Java | ❌ No public SDK |
+| Invoked as an MCP server | ✅ `qwen-serve-bridge` | ❌ MCP client only |
+| Remote Control Bridge (phone/browser-driven) | ✅ Channels + daemon | ✅ `--remote`/`/qr-code` (tied to Qoder Cloud) |
+| ACP HTTP/WS | ✅ | ⚠️ stdio only |
+| `/teleport` cross-device migration | In development | ✅ `--teleport` (Qoder Cloud) |
+
+**Interpretation**: Claude's **open platform capabilities** are still being systematically borrowed by Qwen (SDK/MCP-server/ACP HTTP-WS); Qoder's remote feature is a closed loop tied to its own cloud. See [integration comparison](./qwen-code-vs-qoder-cli.md#%E4%B8%83%E8%A2%AB%E9%9B%86%E6%88%90%E8%83%BD%E5%8A%9B%E4%BD%9C%E4%B8%BA%E6%9C%8D%E5%8A%A1%E7%AB%AF--%E5%8F%AF%E5%B5%8C%E5%85%A5%E5%AF%B9%E8%B1%A1).
+
+---
+
+## 7. Commands and Meta-Skills (Both Borrow Claude Command Habits)
+
+Both products have copied several signature Claude Code commands/skills, and Qoder is more complete on meta-skills.
+
+| Claude Code command/skill | Qwen Code | Qoder CLI |
+|---|---|---|
+| `/rewind` (timeline rollback) | ✅ | ✅ (alias `checkpoint`) |
+| `/statusline` (custom status line, using a sub-agent) | ✅ | ✅ ("Uses a sub-agent...") |
+| `/security-review` | ✅ (bundled skill) | ✅ (bundled skill) |
+| `/context` (context visualization) | ✅ | ✅ |
 | `/compact` | ✅ `/compress` | ✅ |
-| **skill-creator meta-skill** | ✅（`skills/builtin/skill-creator`）| ✅（`builtin/skill-creator`）|
-| **agent-creator meta-skill** | —（`/agents` 向导）| ✅（`builtin/agent-creator` 引导 skill）|
+| **skill-creator meta-skill** | ✅ (`skills/builtin/skill-creator`) | ✅ (`builtin/skill-creator`) |
+| **agent-creator meta-skill** | — (`/agents` wizard) | ✅ (`builtin/agent-creator` guidance skill) |
 
-**判读**：命令层两家都向 Claude 习惯靠拢；**meta-skill（教用户写 agent/skill）Qoder 更全**——把 Claude 的"创作引导"也搬了。
+**Interpretation**: At the command layer, both products move toward Claude habits; **Qoder is more complete in meta-skills (teaching users to write agents/skills)**—it also copies Claude's "creation guidance."
 
 ---
 
-## 八、量化小结：各借了 Claude Code 多少
+## 8. Quantitative Summary: How Much Claude Code Each Borrowed
 
-> 按本文 ~50 个 Claude Code 能力点粗略归类（非穷尽，仅示意借鉴**密度与角度**）。
+> Roughly categorized by ~50 Claude Code capability points in this article (not exhaustive; only intended to show borrowing **density and angle**).
 
-| 借鉴类别 | Qwen Code | Qoder CLI |
+| Borrowing category | Qwen Code | Qoder CLI |
 |---|---|---|
-| **引擎/运行时深度**（subagent 编排、fork、tool_search、computer use、结构化输出、压缩、记忆、speculation…）| ★★★★★ 系统性重实现（PR 级）| ★★ 仅 fork + 基本 subagent |
-| **表面/UX 对齐**（CLI 参数、工具命名、output-style、permission-mode）| ★★ 少量参数 | ★★★★★ 几乎照搬 |
-| **Hook 事件命名** | ★★★★★（+ HTTP/Function/Async 扩展）| ★★★（命名对齐，类型未扩）|
-| **迁移/生态兼容**（migrate/.claude-plugin/market）| ★ 仅 hook 命名 | ★★★★★ 迁移链完整 |
-| **平台/被集成**（SDK/MCP-server/ACP HTTP-WS）| ★★★★★ | ★ 远程绑自家云 |
-| **命令/meta-skill 习惯** | ★★★★ | ★★★★（meta-skill 更全）|
+| **Engine/runtime depth** (subagent orchestration, fork, `tool_search`, computer use, structured output, compression, memory, speculation...) | ★★★★★ Systematic reimplementation (PR-level) | ★★ Only fork + basic subagent |
+| **Surface/UX alignment** (CLI parameters, tool names, output-style, permission-mode) | ★★ A few parameters | ★★★★★ Almost copied wholesale |
+| **Hook event names** | ★★★★★ (+ HTTP/Function/Async extensions) | ★★★ (name alignment, types not extended) |
+| **Migration/ecosystem compatibility** (migrate/.claude-plugin/market) | ★ Hook names only | ★★★★★ Complete migration chain |
+| **Platform/being integrated** (SDK/MCP-server/ACP HTTP-WS) | ★★★★★ | ★ Remote tied to own cloud |
+| **Command/meta-skill habits** | ★★★★ | ★★★★ (more complete meta-skills) |
 
 ---
 
-## 九、结论：两种"向 Claude 收敛"的路径
+## 9. Conclusion: Two Paths of "Converging Toward Claude"
 
-- **Qwen Code = 借 Claude 的"内功"**。把 Claude Code 的引擎能力（多 Agent 编排、fork、tool_search、computer use、结构化输出、分层压缩、记忆、SDK/Bridge）**重新实现进开源引擎**，目标是做成与 Claude Code 同级的 runtime 平台。借鉴**深、内化、可追溯到 PR**。
-- **Qoder CLI = 借 Claude 的"皮肤"**。把 Claude Code 的**用户界面**（CLI 参数、工具命名、output-style、hook 事件名、agent 定义文案、迁移链、插件市场格式）**对齐到位**，目标是让 Claude Code 用户**无痛迁移**到自营网关计费产品。借鉴**广、表层、面向兼容**。
+- **Qwen Code = borrowing Claude's "internal strength"**. It **reimplements Claude Code's engine capabilities** (multi-agent orchestration, fork, `tool_search`, computer use, structured output, layered compression, memory, SDK/Bridge) **inside an open-source engine**, aiming to become a runtime platform at the same level as Claude Code. The borrowing is **deep, internalized, and traceable to PRs**.
+- **Qoder CLI = borrowing Claude's "skin"**. It **aligns Claude Code's user interface** (CLI parameters, tool names, output-style, Hook event names, agent definition text, migration chain, plugin marketplace format) **as completely as possible**, aiming to let Claude Code users **migrate painlessly** to a self-operated gateway billing product. The borrowing is **broad, surface-level, and compatibility-oriented**.
 
-两家在 subagent 定义、hook 命名、命令习惯上**借得一样多**（都直接搬 Claude 文案/命名）；分野在：**引擎深度 Qwen 远超**，**迁移/表面兼容 Qoder 远超**。这恰好对应两家的产品定位——开源 runtime 平台 vs 闭源迁移友好的商业产品。
+Both borrow equally heavily in subagent definitions, Hook names, and command habits (both directly copy Claude text/names). The split is: **Qwen is far deeper in engine depth**, while **Qoder is far stronger in migration/surface compatibility**. This maps exactly to their product positioning—an open-source runtime platform vs a closed-source, migration-friendly commercial product.
 
 ---
 
-> **免责声明**：Qwen 侧借鉴状态以 [改进报告](./qwen-code-improvement-report.md)（持续 PR 追踪）为准，可能滞后于最新 main；Qoder 侧基于 v1.0.18 bundle 静态解码（无源码），借鉴判断按 Claude Code 公开特征比对。"借鉴"指能力/接口相似性，不含代码同源主张（两家代码基座均为 Gemini CLI）。截至 2026-06-14。
+> **Disclaimer**: Qwen's borrowing status follows the [improvement report](./qwen-code-improvement-report.md) (continuous PR tracking) and may lag the latest main branch; Qoder's side is based on static decoding of the v1.0.18 bundle (no source code), with borrowing judgments made by comparing against public Claude Code characteristics. "Borrowing" means capability/interface similarity and does not claim code common origin (both codebases are based on Gemini CLI). As of 2026-06-14.

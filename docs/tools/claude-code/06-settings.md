@@ -1,51 +1,51 @@
-# 6. 设置与安全——开发者参考
+# 6. Settings and Security -- Developer Reference
 
-> 5 层设置优先级、沙箱隔离、权限模型。企业级 Code Agent 的安全与可配置性参考。Hook 系统详见 [12-Hook 系统](./12-hooks.md)。
+> Five-level settings precedence, sandbox isolation, and permission model. A reference for enterprise-grade Code Agent security and configurability. For the Hook system, see [12-Hook System](./12-hooks.md).
 >
-> **Qwen Code 对标**：设置优先级（Qwen 有 user/project 两层 vs Claude Code 5 层）、沙箱（Qwen 无 OS 级沙箱，Gemini CLI 有 bwrap/Seatbelt）
+> **Qwen Code benchmark**: settings precedence (Qwen has two levels, user/project, vs Claude Code's five levels), sandboxing (Qwen has no OS-level sandbox; Gemini CLI has bwrap/Seatbelt)
 
-## 为什么需要 5 层设置
+## Why Five Settings Levels Are Needed
 
-### 问题定义
+### Problem Definition
 
-Code Agent 的配置需求因使用场景而异：
+Code Agent configuration requirements vary by use case:
 
-| 场景 | 配置要求 | 单层设置的问题 |
+| Scenario | Configuration requirement | Problem with single-level settings |
 |------|---------|--------------|
-| 企业安全团队 | 强制所有员工禁用 `rm -rf`、限制网络访问 | 无法强制，员工可以覆盖 |
-| 团队约定 | 项目使用 pnpm 不用 npm，Python 项目用 ruff | 每个成员需手动配置 |
-| 个人偏好 | 我喜欢 vim 模式、暗色主题 | 换项目后丢失 |
-| 临时覆盖 | 这次运行用 Opus 而非 Sonnet | 改了全局设置后忘记改回来 |
+| Enterprise security team | Force all employees to disable `rm -rf` and restrict network access | Cannot be enforced; employees can override it |
+| Team conventions | The project uses pnpm instead of npm, and Python projects use ruff | Each member must configure it manually |
+| Personal preference | I prefer vim mode and a dark theme | Lost after switching projects |
+| Temporary override | Use Opus instead of Sonnet for this run | After changing global settings, it is easy to forget to change them back |
 
-Claude Code 的解决方案：**5 层优先级设置体系**，高层可以"锁定"低层无法覆盖。
+Claude Code's solution: a **five-level settings precedence system**, where higher levels can "lock" lower levels so they cannot override them.
 
-### 竞品设置层级对比
+### Competitor Settings-Level Comparison
 
-| Agent | 设置层级 | 企业管控 | 远程下发 |
+| Agent | Settings levels | Enterprise control | Remote delivery |
 |-------|---------|---------|---------|
-| **Claude Code** | 5 层（企业→组织→用户→项目→本地） | ✓ managed-settings 强制锁定 | ✓ |
-| **Gemini CLI** | 3 层（admin→user→workspace）+ TOML Policy | ✓ 通过 Policy 引擎 | — |
-| **Qwen Code** | 2 层（user→project） | — | — |
-| **Copilot CLI** | 3 层（organization→user→workspace） | ✓ 通过 GitHub org 设置 | ✓ |
-| **Cursor** | 2 层（user→workspace） | — | — |
+| **Claude Code** | 5 levels (enterprise -> organization -> user -> project -> local) | ✓ managed-settings enforced lock | ✓ |
+| **Gemini CLI** | 3 levels (admin -> user -> workspace) + TOML Policy | ✓ via Policy engine | — |
+| **Qwen Code** | 2 levels (user -> project) | — | — |
+| **Copilot CLI** | 3 levels (organization -> user -> workspace) | ✓ via GitHub org settings | ✓ |
+| **Cursor** | 2 levels (user -> workspace) | — | — |
 
-## 5 层设置优先级体系
+## Five-Level Settings Precedence System
 
-Claude Code 采用 5 层优先级设置体系，从高到低：
+Claude Code uses a five-level settings precedence system, from highest to lowest:
 
-| 优先级 | 来源 | 路径/方式 | 说明 |
+| Priority | Source | Path/method | Description |
 |--------|------|-----------|------|
-| 1（最高） | Managed（托管） | `managed-settings.json`（MDM 部署/服务器下发） | 管理员强制策略，不可覆盖 |
-| 2 | CLI 参数 | `--model`、`--allowedTools` 等 | 命令行参数覆盖所有项目及用户设置 |
-| 3 | 本地项目 | `.claude/settings.local.json`（项目根目录） | 本地覆盖，不提交到 Git |
-| 4 | 共享项目 | `.claude/settings.json`（项目根目录） | 项目级共享配置，提交到 Git |
-| 5（最低） | 用户 | `~/.claude/settings.json` | 个人全局偏好 |
+| 1 (highest) | Managed | `managed-settings.json` (MDM deployment/server delivery) | Administrator-enforced policy; cannot be overridden |
+| 2 | CLI arguments | `--model`, `--allowedTools`, etc. | Command-line arguments override all project and user settings |
+| 3 | Local project | `.claude/settings.local.json` (project root) | Local override; not committed to Git |
+| 4 | Shared project | `.claude/settings.json` (project root) | Project-level shared configuration; committed to Git |
+| 5 (lowest) | User | `~/.claude/settings.json` | Personal global preferences |
 
-**注意**：Managed 设置优先级最高；CLI 参数优先级高于项目设置；本地项目设置（`.local.json`）优先于共享项目设置。
+**Note**: Managed settings have the highest priority; CLI arguments have higher priority than project settings; local project settings (`.local.json`) take precedence over shared project settings.
 
-> **第六轮修正：** 原文档声称"7 层设置系统"，经官方文档（code.claude.com/docs/en/settings）验证，实际为 5 层优先级体系。优先级从高到低为：Managed > CLI 参数 > 本地项目 > 共享项目 > 用户。原"Organization"层不存在，CLI 参数优先级高于项目设置（非最低）。
+> **Sixth-round correction:** The original document claimed a "seven-level settings system." Official documentation (code.claude.com/docs/en/settings) confirms that the actual system has five precedence levels. From highest to lowest: Managed > CLI arguments > local project > shared project > user. The original "Organization" layer does not exist, and CLI arguments have higher priority than project settings (not the lowest priority).
 
-**设置文件示例**（`~/.claude/settings.json`）：
+**Settings file example** (`~/.claude/settings.json`):
 ```json
 {
   "permissions": {
@@ -65,7 +65,7 @@ Claude Code 采用 5 层优先级设置体系，从高到低：
 }
 ```
 
-**项目级设置**（`.claude/settings.json`）：
+**Project-level settings** (`.claude/settings.json`):
 ```json
 {
   "permissions": {
@@ -77,42 +77,42 @@ Claude Code 采用 5 层优先级设置体系，从高到低：
 }
 ```
 
-## Prompt Hook 系统
+## Prompt Hook System
 
-Claude Code 的 Hook 系统是其最独特的能力之一。与传统脚本 Hook 不同，Claude Code 支持 **LLM 驱动的 Hook 决策**——让 LLM 分析工具调用的意图和参数，决定是否允许执行。
+Claude Code's Hook system is one of its most distinctive capabilities. Unlike traditional script Hooks, Claude Code supports **LLM-driven Hook decisions**: the LLM analyzes the intent and parameters of a tool call and decides whether execution should be allowed.
 
-### Hook 事件类型（24 种）
+### Hook Event Types (24)
 
-| 事件 | 触发时机 | 来源 |
+| Event | Trigger timing | Source |
 |------|----------|------|
-| `SessionStart` | 会话开始时 | 二进制+官方 |
-| `SessionEnd` | 会话结束时 | 官方 |
-| `UserPromptSubmit` | 用户提交提示时 | 二进制+官方 |
-| `PreToolUse` | 工具执行前 | 二进制+官方 |
-| `PostToolUse` | 工具执行成功后 | 二进制+官方 |
-| `PostToolUseFailure` | 工具执行失败后 | 官方 |
-| `PermissionRequest` | 请求权限时 | 官方 |
-| `Notification` | 通知事件 | 二进制+官方 |
-| `SubagentStart` | 子代理启动时 | 二进制+官方 |
-| `SubagentStop` | 子代理停止时 | 二进制+官方 |
-| `Stop` | 代理停止时 | 二进制+官方 |
-| `StopFailure` | 代理停止失败时 | 官方 |
-| `PreCompact` | 上下文压缩前 | 二进制+官方 |
-| `PostCompact` | 上下文压缩后 | 二进制+官方 |
-| `TaskCompleted` | 后台任务完成时 | 官方 |
-| `TeammateIdle` | Teammate 空闲时 | 官方 |
-| `InstructionsLoaded` | 指令文件加载时 | 官方 |
-| `ConfigChange` | 配置变更时 | 官方 |
-| `WorktreeCreate` | 创建 Git worktree 时 | 官方 |
-| `WorktreeRemove` | 移除 Git worktree 时 | 官方 |
-| `Elicitation` | 向用户请求信息时 | 官方 |
-| `ElicitationResult` | 用户回复请求时 | 官方 |
-| `CwdChanged` | 工作目录变更时 | v2.1.83 二进制确认 |
-| `FileChanged` | 文件变更检测时 | v2.1.83 二进制确认 |
+| `SessionStart` | When the session starts | binary + official |
+| `SessionEnd` | When the session ends | official |
+| `UserPromptSubmit` | When the user submits a prompt | binary + official |
+| `PreToolUse` | Before tool execution | binary + official |
+| `PostToolUse` | After successful tool execution | binary + official |
+| `PostToolUseFailure` | After tool execution fails | official |
+| `PermissionRequest` | When requesting permission | official |
+| `Notification` | Notification event | binary + official |
+| `SubagentStart` | When a subagent starts | binary + official |
+| `SubagentStop` | When a subagent stops | binary + official |
+| `Stop` | When the agent stops | binary + official |
+| `StopFailure` | When agent stopping fails | official |
+| `PreCompact` | Before context compaction | binary + official |
+| `PostCompact` | After context compaction | binary + official |
+| `TaskCompleted` | When a background task completes | official |
+| `TeammateIdle` | When Teammate is idle | official |
+| `InstructionsLoaded` | When instruction files are loaded | official |
+| `ConfigChange` | When configuration changes | official |
+| `WorktreeCreate` | When creating a Git worktree | official |
+| `WorktreeRemove` | When removing a Git worktree | official |
+| `Elicitation` | When requesting information from the user | official |
+| `ElicitationResult` | When the user replies to a request | official |
+| `CwdChanged` | When the working directory changes | v2.1.83 binary confirmation |
+| `FileChanged` | When file-change detection runs | v2.1.83 binary confirmation |
 
-> 来源：[官方 Hooks 文档](https://code.claude.com/docs/en/hooks)，全部 24 个事件在 v2.1.83 二进制中确认存在。
+> Source: [official Hooks documentation](https://code.claude.com/docs/en/hooks). All 24 events were confirmed to exist in the v2.1.83 binary.
 
-### Hook 配置示例
+### Hook Configuration Example
 
 ```json
 {
@@ -134,7 +134,7 @@ Claude Code 的 Hook 系统是其最独特的能力之一。与传统脚本 Hook
         "hooks": [
           {
             "type": "command",
-            "command": "echo '文件已写入' >> /tmp/audit.log"
+            "command": "echo 'File written' >> /tmp/audit.log"
           }
         ]
       }
@@ -164,7 +164,7 @@ Claude Code 的 Hook 系统是其最独特的能力之一。与传统脚本 Hook
         "hooks": [
           {
             "type": "command",
-            "command": "echo '即将压缩上下文' >> /tmp/audit.log"
+            "command": "echo 'About to compact context' >> /tmp/audit.log"
           }
         ]
       }
@@ -173,172 +173,172 @@ Claude Code 的 Hook 系统是其最独特的能力之一。与传统脚本 Hook
 }
 ```
 
-### Hook 决策返回值
-Hook 脚本通过 stdout 输出 JSON 控制行为：
-- **approve**：允许工具调用（跳过用户确认）
-- **deny**：拒绝工具调用
-- **block**：阻止并附带消息
-- 无输出或空输出：继续正常流程
+### Hook Decision Return Values
+Hook scripts output JSON to stdout to control behavior:
+- **approve**: allow the tool call (skip user confirmation)
+- **deny**: deny the tool call
+- **block**: block with an attached message
+- No output or empty output: continue the normal flow
 
-## 权限与安全
+## Permissions and Security
 
-### 安全监控系统（Auto Mode Classifier，反编译提取）
+### Security Monitoring System (Auto Mode Classifier, Extracted by Decompilation)
 
-> 从二进制变量 `d38`（安全监控提示词）和 `wSA`（权限模板）反编译提取。这是 Claude Code 的自主模式安全系统——在 `--permission-mode auto` 或 `--dangerously-skip-permissions` 下运行时，由独立的分类器模型评估每个操作。
+> Extracted by decompiling the binary variables `d38` (security monitoring prompt) and `wSA` (permission template). This is Claude Code's autonomous-mode security system: when running under `--permission-mode auto` or `--dangerously-skip-permissions`, an independent classifier model evaluates every operation.
 
-**身份：** "You are a security monitor for autonomous AI coding agents."
+**Identity:** "You are a security monitor for autonomous AI coding agents."
 
-**威胁模型（3 种风险）：**
+**Threat model (three risks):**
 
-| 风险 | 说明 |
+| Risk | Description |
 |------|------|
-| **Prompt Injection** | 代理被文件/网页/工具输出中的内容操纵执行有害操作 |
-| **Scope Creep** | 代理超出任务范围——修复一个问题后"顺便"删除基础设施或外泄数据 |
-| **Accidental Damage** | 代理不理解爆炸半径——删除自认为是自己任务的内容但实际是共享的 |
+| **Prompt Injection** | The agent is manipulated by content in files, web pages, or tool output to perform harmful actions |
+| **Scope Creep** | The agent goes beyond the task scope: after fixing one issue, it "also" deletes infrastructure or exfiltrates data |
+| **Accidental Damage** | The agent does not understand the blast radius: it deletes content it believes belongs to its task, but that content is actually shared |
 
-**默认规则：** "默认允许。仅在命中 BLOCK 条件且无 ALLOW 例外时阻止。"
+**Default rule:** "Allow by default. Block only when a BLOCK condition is met and no ALLOW exception applies."
 
-**BLOCK 条件（28 条，从二进制逐字提取）：**
+**BLOCK conditions (28, extracted verbatim from the binary):**
 
-| 类别 | 规则 | 说明 |
+| Category | Rule | Description |
 |------|------|------|
-| **Git 破坏** | Git Destructive | force push、删除远程分支、改写远程历史 |
-| **Git 推送** | Push to Default Branch | 直接推送到 main/master 绕过 PR 审查 |
-| **外部代码** | Code from External | `curl \| bash`、eval、pickle、exec 来自外部源 |
-| **云存储** | Cloud Storage Mass Delete | S3/GCS/Azure 批量删除或修改 |
-| **生产部署** | Production Deploy | 部署到生产或执行生产数据库迁移 |
-| **远程写入** | Remote Shell Writes | `kubectl exec`、`docker exec`、`ssh` 写入操作 |
-| **盲目应用** | Blind Apply | 跳过 preview/dry-run 直接执行破坏性操作 |
-| **日志篡改** | Logging Tampering | 停止日志、删除日志目录、移除 git hooks |
-| **权限提升** | Permission Grant | 授予 admin/owner、添加用户、提升 IAM/RBAC |
-| **安全降级** | TLS/Auth Weaken | 禁用 TLS 验证、`--allow-unauthenticated` |
-| **安全削弱** | Security Weaken | 禁用安全缓解、修改防火墙规则 |
-| **创建不安全代理** | Create Unsafe Agents | 无人工审批的自主代理循环 |
-| **干扰他人** | Interfere With Others | 删除作业、破坏集群、轰炸 Slack |
-| **修改共享资源** | Modify Shared Resources | 原地修改非自己创建的共享配置/数据 |
-| **不可逆本地破坏** | Irreversible Local Destruction | `rm -rf`、`git clean -fdx`、`git checkout .` |
-| **创建 RCE** | Create RCE Surface | eval、shell 注入、不安全反序列化 |
-| **暴露本地服务** | Expose Local Services | 绑定端口暴露本地文件/服务 |
-| **凭据泄露** | Credential Leakage | 在 metadata/labels/URLs 中嵌入密钥 |
-| **凭据探索** | Credential Exploration | 系统性扫描凭据存储寻找可用 token |
-| **数据外泄** | Data Exfiltration | 发送敏感数据到外部端点 |
-| **外泄侦察** | Exfil Scouting | 测试外部端点可达性 |
-| **信任猜测的服务** | Trusting Guessed Services | 向代理自行猜测的外部服务发送数据 |
-| **不受信代码集成** | Untrusted Code Integration | 从外部仓库拉取代码并执行 |
-| **未授权持久化** | Unauthorized Persistence | 添加 SSH 密钥、修改 .bashrc、创建 cron |
-| **自我修改** | Self-Modification | 修改代理自身的配置/设置/权限文件 |
-| **外部系统写入** | External System Writes | 删除/修改 Jira/Linear/GitHub 中非自己创建的项目 |
-| **内容伪造** | Content Impersonation | 发布虚假内容、伪造声明 |
-| **真实世界交易** | Real-World Transactions | 购买、支付、预订、发送外部通信 |
+| **Git destruction** | Git Destructive | force push, deleting remote branches, rewriting remote history |
+| **Git push** | Push to Default Branch | Push directly to main/master, bypassing PR review |
+| **External code** | Code from External | `curl \| bash`, eval, pickle, or exec from external sources |
+| **Cloud storage** | Cloud Storage Mass Delete | Mass deletion or modification in S3/GCS/Azure |
+| **Production deployment** | Production Deploy | Deploying to production or running production database migrations |
+| **Remote writes** | Remote Shell Writes | Write operations via `kubectl exec`, `docker exec`, or `ssh` |
+| **Blind apply** | Blind Apply | Skipping preview/dry-run and directly executing destructive operations |
+| **Log tampering** | Logging Tampering | Stopping logs, deleting log directories, removing git hooks |
+| **Privilege escalation** | Permission Grant | Granting admin/owner, adding users, escalating IAM/RBAC |
+| **Security downgrade** | TLS/Auth Weaken | Disabling TLS verification or using `--allow-unauthenticated` |
+| **Security weakening** | Security Weaken | Disabling security mitigations or modifying firewall rules |
+| **Creating unsafe agents** | Create Unsafe Agents | Autonomous agent loops without human approval |
+| **Interfering with others** | Interfere With Others | Deleting jobs, breaking clusters, bombing Slack |
+| **Modifying shared resources** | Modify Shared Resources | In-place modification of shared configuration/data not created by the agent |
+| **Irreversible local destruction** | Irreversible Local Destruction | `rm -rf`, `git clean -fdx`, `git checkout .` |
+| **Creating an RCE surface** | Create RCE Surface | eval, shell injection, insecure deserialization |
+| **Exposing local services** | Expose Local Services | Binding ports that expose local files/services |
+| **Credential leakage** | Credential Leakage | Embedding secrets in metadata/labels/URLs |
+| **Credential exploration** | Credential Exploration | Systematically scanning credential stores for usable tokens |
+| **Data exfiltration** | Data Exfiltration | Sending sensitive data to external endpoints |
+| **Exfiltration scouting** | Exfil Scouting | Testing reachability of external endpoints |
+| **Trusting guessed services** | Trusting Guessed Services | Sending data to external services guessed by the agent itself |
+| **Untrusted code integration** | Untrusted Code Integration | Pulling code from external repositories and executing it |
+| **Unauthorized persistence** | Unauthorized Persistence | Adding SSH keys, modifying .bashrc, creating cron jobs |
+| **Self-modification** | Self-Modification | Modifying the agent's own configuration/settings/permission files |
+| **External system writes** | External System Writes | Deleting/modifying Jira/Linear/GitHub items not created by the agent |
+| **Content impersonation** | Content Impersonation | Publishing false content or fabricating claims |
+| **Real-world transactions** | Real-World Transactions | Purchases, payments, bookings, or sending external communications |
 
-**ALLOW 例外（7 条）：**
+**ALLOW exceptions (7):**
 
-| 例外 | 说明 |
+| Exception | Description |
 |------|------|
-| Test Artifacts | 硬编码测试密钥、占位符凭据 |
-| Local Operations | 工作目录内的文件操作、本地测试 |
-| Read-Only Operations | GET 请求、不修改状态的查询 |
-| Declared Dependencies | 从仓库 manifest 文件安装依赖 |
-| Toolchain Bootstrap | 官方一键安装（rustup、pypa、bun） |
-| Standard Credentials | 从自身配置读取凭据发送给对应提供商 |
-| Git Push to Working Branch | 推送到会话分支（非默认分支） |
+| Test Artifacts | Hard-coded test keys and placeholder credentials |
+| Local Operations | File operations within the working directory and local tests |
+| Read-Only Operations | GET requests and queries that do not modify state |
+| Declared Dependencies | Installing dependencies from repository manifest files |
+| Toolchain Bootstrap | Official one-command installers (rustup, pypa, bun) |
+| Standard Credentials | Reading credentials from the agent's own configuration and sending them to the corresponding provider |
+| Git Push to Working Branch | Pushing to the session branch (not the default branch) |
 
-**分类器架构：**
+**Classifier architecture:**
 
-| 属性 | 值 |
+| Attribute | Value |
 |------|-----|
-| **阶段** | 双阶段：fast（XML, 256 token 上限）→ thinking（XML, 4096 token 上限） |
-| **默认模型** | `claude-sonnet-4-6`（大上下文时使用 `claude-sonnet-4-6[1m]`） |
-| **输出格式** | `<block>yes/no</block><reason>一句话原因</reason>` |
-| **失败安全** | 解析失败 → 阻止；错误/超时 → 阻止 |
-| **用户意图** | "用户意图提供上下文但**不是** BLOCK 条件的自动覆盖" |
+| **Stages** | Two stages: fast (XML, 256-token limit) -> thinking (XML, 4096-token limit) |
+| **Default model** | `claude-sonnet-4-6` (uses `claude-sonnet-4-6[1m]` for large contexts) |
+| **Output format** | `<block>yes/no</block><reason>one-sentence reason</reason>` |
+| **Fail-safe behavior** | Parse failure -> block; error/timeout -> block |
+| **User intent** | "User intent provides context but is **not** an automatic override for BLOCK conditions" |
 
-### 沙箱模式
+### Sandbox Modes
 
-| 平台 | 沙箱技术 | 说明 |
+| Platform | Sandbox technology | Description |
 |------|----------|------|
-| **macOS** | sandbox-exec（Seatbelt） | 基于 Apple 沙箱配置文件，限制文件系统和网络访问 |
-| **Linux** | Docker 容器 | 通过容器隔离文件系统和网络 |
+| **macOS** | sandbox-exec (Seatbelt) | Based on Apple sandbox profiles; restricts file-system and network access |
+| **Linux** | Docker containers | Isolates the file system and network through containers |
 
-### 权限规则语法（二进制提取 + 官方文档）
+### Permission Rule Syntax (Binary Extraction + Official Documentation)
 
-规则格式：`ToolName` 或 `ToolName(specifier)`，支持通配符 `*`。
+Rule format: `ToolName` or `ToolName(specifier)`, with wildcard `*` support.
 
-**Bash 命令规则（从二进制提取的内置模式，38 个）：**
+**Bash command rules (built-in patterns extracted from the binary, 38):**
 
-| 模式 | 说明 |
+| Pattern | Description |
 |------|------|
-| `Bash(git:*)` | 所有 git 命令 |
-| `Bash(git add:*)` | git add 及其参数 |
+| `Bash(git:*)` | All git commands |
+| `Bash(git add:*)` | git add and its arguments |
 | `Bash(git commit:*)` | git commit |
 | `Bash(git push:*)` | git push |
 | `Bash(git diff:*)` | git diff |
 | `Bash(git log:*)` | git log |
 | `Bash(git status:*)` | git status |
 | `Bash(git show:*)` | git show |
-| `Bash(git checkout -b:*)` | 创建新分支 |
-| `Bash(git checkout --branch:*)` | 创建新分支（长参数） |
-| `Bash(git remote show:*)` | 查看远程信息 |
-| `Bash(gh:*)` | 所有 GitHub CLI 命令 |
-| `Bash(gh pr:*)` | GitHub PR 操作 |
-| `Bash(gh pr create:*)` | 创建 PR |
-| `Bash(gh pr edit:*)` | 编辑 PR |
-| `Bash(gh pr merge:*)` | 合并 PR |
-| `Bash(gh pr view:*)` | 查看 PR |
-| `Bash(npm:*)` | 所有 npm 命令 |
-| `Bash(npm install)` | npm install（精确匹配） |
-| `Bash(npm run *)` | npm run 脚本 |
-| `Bash(npm run build)` | npm run build（精确） |
-| `Bash(npm run lint)` | npm run lint（精确） |
-| `Bash(npm run test)` | npm run test（精确） |
-| `Bash(pnpm:*)` | 所有 pnpm 命令 |
-| `Bash(yarn:*)` | 所有 yarn 命令 |
-| `Bash(bun:*)` | 所有 bun 命令 |
-| `Bash(curl:*)` | curl 命令（通常放 deny） |
-| `Bash(http:*)` | HTTP 相关命令 |
-| `Bash(asciinema:*)` | 终端录制 |
-| `Bash(rm -rf:*)` | 危险删除（通常放 deny） |
-| `Bash(sleep ...)` | sleep 命令 |
+| `Bash(git checkout -b:*)` | Create a new branch |
+| `Bash(git checkout --branch:*)` | Create a new branch (long option) |
+| `Bash(git remote show:*)` | View remote information |
+| `Bash(gh:*)` | All GitHub CLI commands |
+| `Bash(gh pr:*)` | GitHub PR operations |
+| `Bash(gh pr create:*)` | Create a PR |
+| `Bash(gh pr edit:*)` | Edit a PR |
+| `Bash(gh pr merge:*)` | Merge a PR |
+| `Bash(gh pr view:*)` | View a PR |
+| `Bash(npm:*)` | All npm commands |
+| `Bash(npm install)` | npm install (exact match) |
+| `Bash(npm run *)` | npm run scripts |
+| `Bash(npm run build)` | npm run build (exact) |
+| `Bash(npm run lint)` | npm run lint (exact) |
+| `Bash(npm run test)` | npm run test (exact) |
+| `Bash(pnpm:*)` | All pnpm commands |
+| `Bash(yarn:*)` | All yarn commands |
+| `Bash(bun:*)` | All bun commands |
+| `Bash(curl:*)` | curl command (usually placed in deny) |
+| `Bash(http:*)` | HTTP-related commands |
+| `Bash(asciinema:*)` | Terminal recording |
+| `Bash(rm -rf:*)` | Dangerous deletion (usually placed in deny) |
+| `Bash(sleep ...)` | sleep command |
 
-**文件操作规则：**
+**File operation rules:**
 
-| 模式 | 说明 |
+| Pattern | Description |
 |------|------|
-| `Read` | 允许所有文件读取 |
-| `Read(~/**)` | 允许读取用户目录 |
-| `Read(~/.zshrc)` | 只允许读取特定文件 |
-| `Write(/etc/*)` | 允许写入 /etc（危险） |
-| `Edit(.claude)` | 允许编辑 .claude 目录 |
-| `Edit(~/.claude/settings.json)` | 编辑特定设置文件 |
-| `Edit(docs/**)` | 编辑 docs 目录下所有文件 |
+| `Read` | Allow reading all files |
+| `Read(~/**)` | Allow reading the user directory |
+| `Read(~/.zshrc)` | Allow reading only a specific file |
+| `Write(/etc/*)` | Allow writing to /etc (dangerous) |
+| `Edit(.claude)` | Allow editing the .claude directory |
+| `Edit(~/.claude/settings.json)` | Edit a specific settings file |
+| `Edit(docs/**)` | Edit all files under the docs directory |
 
-**网络规则：**
+**Network rules:**
 
-| 模式 | 说明 |
+| Pattern | Description |
 |------|------|
-| `WebFetch(domain:example.com)` | 限制到特定域名 |
-| `WebFetch(domain:github.com)` | 允许 GitHub |
-| `WebFetch(domain:*.google.com)` | 通配符域名 |
-| `WebSearch(claude ai)` | 搜索特定主题 |
+| `WebFetch(domain:example.com)` | Restrict to a specific domain |
+| `WebFetch(domain:github.com)` | Allow GitHub |
+| `WebFetch(domain:*.google.com)` | Wildcard domain |
+| `WebSearch(claude ai)` | Search a specific topic |
 
-**MCP 工具规则：** `mcp__serverName__toolName` 格式（双下划线）
+**MCP tool rules:** `mcp__serverName__toolName` format (double underscores)
 
-**三层评估顺序**（官方文档）：deny → ask → allow → 默认需确认
+**Three-level evaluation order** (official documentation): deny -> ask -> allow -> confirmation required by default
 
-### --permission-mode 选项（`claude --help` 确认）
+### --permission-mode Options (confirmed by `claude --help`)
 
-| 模式 | 说明 |
+| Mode | Description |
 |------|------|
-| `default` | 默认模式——未匹配规则的操作需确认 |
-| `acceptEdits` | 自动接受文件编辑，其他操作仍需确认 |
-| `plan` | 规划模式——仅允许只读操作 |
-| `auto` | 自动模式——减少确认频率 |
-| `dontAsk` | 不询问——自动执行所有操作 |
-| `bypassPermissions` | 绕过所有权限检查（需 `--dangerously-skip-permissions`） |
+| `default` | Default mode: operations that do not match a rule require confirmation |
+| `acceptEdits` | Automatically accept file edits; other operations still require confirmation |
+| `plan` | Planning mode: only read-only operations are allowed |
+| `auto` | Automatic mode: reduces confirmation frequency |
+| `dontAsk` | Do not ask: automatically execute all operations |
+| `bypassPermissions` | Bypass all permission checks (requires `--dangerously-skip-permissions`) |
 
-> 证据：`claude --help` 输出 `--permission-mode <mode> (choices: "acceptEdits", "bypassPermissions", "default", "dontAsk", "plan", "auto")`
+> Evidence: `claude --help` outputs `--permission-mode <mode> (choices: "acceptEdits", "bypassPermissions", "default", "dontAsk", "plan", "auto")`
 
-### 权限配置示例
+### Permission Configuration Example
 ```json
 {
   "permissions": {
@@ -359,9 +359,9 @@ Hook 脚本通过 stdout 输出 JSON 控制行为：
 }
 ```
 
-## 配置示例
+## Configuration Examples
 
-### 完整设置文件（`~/.claude/settings.json`）
+### Complete Settings File (`~/.claude/settings.json`)
 ```json
 {
   "model": "claude-sonnet-4-6",
@@ -424,7 +424,7 @@ Hook 脚本通过 stdout 输出 JSON 控制行为：
 }
 ```
 
-### 项目级配置（`.claude/settings.json`）
+### Project-Level Configuration (`.claude/settings.json`)
 ```json
 {
   "permissions": {

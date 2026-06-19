@@ -1,42 +1,42 @@
-# Claude Code 异步任务深度分析 — 后台 Shell + Monitor
+# Claude Code Async Tasks Deep Dive — Background Shell + Monitor
 
-> **核心问题**：状态条上的 `1 shell, 1 monitor` 是什么？为什么只有 Claude Code 把"agent 异步任务"做成了一等公民？
+> **Core question**: What are `1 shell, 1 monitor` in the status bar? Why is Claude Code the only tool that makes "agent async tasks" a first-class capability?
 >
-> **结论先行**：Claude Code v2.1.120 把"agent 在后台还在干活"产品化为**两类计数 + 统一管理 UI + 通知机制**三件套。Qwen Code v0.16.0 已完成 5 PR stack（PR#3076 + PR#3471 + PR#3488 + PR#3642 + PR#3684 全部 merged），覆盖 subagent 控制、Bash bg pool 和 Monitor 工具，接近 Claude Code 完整方案。OpenCode 仍无此套。
+> **Conclusion first**: Claude Code v2.1.120 productizes "the agent is still working in the background" as a three-part system: **two kinds of counters + unified management UI + notification mechanism**. Qwen Code v0.16.0 has completed the 5-PR stack (PR#3076 + PR#3471 + PR#3488 + PR#3642 + PR#3684 all merged), covering subagent control, the Bash bg pool, and the Monitor tool, approaching Claude Code's full design. OpenCode still has no equivalent system.
 
-## 一、状态条上的 `1 shell, 1 monitor`
+## 1. `1 shell, 1 monitor` in the status bar
 
-实测一个会话同时跑后台 bash + Monitor：
+A real session running background bash + Monitor at the same time:
 
 ```
-✻ Sautéed for 37s · 1 shell, 1 monitor still running          ← 每 turn 状态行
+✻ Sautéed for 37s · 1 shell, 1 monitor still running          ← per-turn status line
 ──────────────────────────────────────────────────────────────
 ❯
 ──────────────────────────────────────────────────────────────
   /tmp/cc-bg-test
-  ⏵⏵ auto mode on · 1 shell, 1 monitor                         ← Footer 第二行
+  ⏵⏵ auto mode on · 1 shell, 1 monitor                         ← Footer second line
 ```
 
-两个数字含义：
+Meaning of the two numbers:
 
-| 计数 | 来源 | 何时出现 |
+| Counter | Source | When it appears |
 |---|---|---|
-| `N shell` | 后台 Bash 进程数 | 任意 `Bash(..., run_in_background: true)` |
-| `N monitor` | 活跃 Monitor 工具实例数 | LLM 调用 `Monitor` 工具 |
+| `N shell` | Number of background Bash processes | Any `Bash(..., run_in_background: true)` |
+| `N monitor` | Number of active Monitor tool instances | LLM calls the `Monitor` tool |
 
-实测原文件：[`screenshots/claude-code-bg-tasks-90x35.txt`](./screenshots/claude-code-bg-tasks-90x35.txt)
+Real capture file: [`screenshots/claude-code-bg-tasks-90x35.txt`](./screenshots/claude-code-bg-tasks-90x35.txt)
 
-## 二、两类后台任务的差异
+## 2. Differences between the two kinds of background tasks
 
-### Shell（后台 Bash）
+### Shell (background Bash)
 
-来自 `Bash` 工具 + `run_in_background: true`，本质是**子进程托管**。常用场景：
+Comes from the `Bash` tool + `run_in_background: true`; fundamentally it is **subprocess hosting**. Common scenarios:
 
-- Dev 服务器：`npm run dev` / `vite` / `webpack --watch`
-- 文件 watch：`tail -f` / `inotifywait -m`
-- 长任务：`pytest` / `cargo build`
+- Dev servers: `npm run dev` / `vite` / `webpack --watch`
+- File watching: `tail -f` / `inotifywait -m`
+- Long tasks: `pytest` / `cargo build`
 
-实测调用：
+Observed invocation:
 
 ```
 ● Bash(tail -f /tmp/.../watched.log)
@@ -46,22 +46,22 @@
   It will keep running and capture any lines appended to the file.
 ```
 
-特征：
-- **完成时单次通知**：agent 收到 `<task-notification>` `status: completed`（含 exit code），但**不在通知里携带 stdout 内容**
-- **stdout 落盘**：完整输出写到 session 临时目录下的 task 输出文件（agent 通过 `Read` 工具读取该路径）
-- **磁盘上限 5 GB**（`MAX_TASK_OUTPUT_BYTES`），超限 SIGKILL
-- **结束方式**：自然退出 / 用户 `x` 停 / agent `TaskStop(shell_id=...)`（含 `KillShell` 别名）
+Characteristics:
+- **One completion notification**: the agent receives a `<task-notification>` with `status: completed` (including exit code), but the notification **does not include stdout contents**
+- **stdout written to disk**: complete output is written to a task output file under the session temporary directory (the agent reads that path with the `Read` tool)
+- **5 GB disk limit** (`MAX_TASK_OUTPUT_BYTES`); exceeding it triggers SIGKILL
+- **Termination methods**: natural exit / user presses `x` / agent calls `TaskStop(shell_id=...)` (including the `KillShell` alias)
 
-### Monitor（事件流监听）
+### Monitor (event-stream listener)
 
-来自 `Monitor` 工具，本质是**长期监听 + 推送通知**。常用场景：
+Comes from the `Monitor` tool; fundamentally it is **long-running listening + push notifications**. Common scenarios:
 
-- 监听日志错误：`tail -f log | grep ERROR`
-- 监听文件变化：`inotifywait -m --format '%e %f' /watched/dir`
-- 轮询远端：`while true; do gh api ...; sleep 30; done`
-- WebSocket 监听器
+- Watch log errors: `tail -f log | grep ERROR`
+- Watch file changes: `inotifywait -m --format '%e %f' /watched/dir`
+- Poll a remote endpoint: `while true; do gh api ...; sleep 30; done`
+- WebSocket listener
 
-实测调用：
+Observed invocation:
 
 ```
 ● Monitor(ERROR lines in /tmp/.../watched.log)
@@ -71,63 +71,63 @@
   on /tmp/.../watched.log. Each ERROR line that appears will arrive as a notification.
 ```
 
-特征：
-- **每事件通知**：每条 stdout 行的**内容直接进入 `<task-notification>`**（agent 不需另读文件）
-- **200ms 内多行批量为一条通知**（"multiline output from a single event groups naturally"）
-- **生命周期**：默认 `timeout_ms: 300000`（5 分钟）/ `persistent: true`（会话生命周期）
-- **过量保护**：消息过多自动停止（避免 token 爆炸）
-- **退出条件**：脚本自身 exit / timeout / `TaskStop(task_id=...)`
+Characteristics:
+- **Notification per event**: the **content of each stdout line goes directly into `<task-notification>`** (the agent does not need to read another file)
+- **Multiple lines within 200ms are batched into one notification** ("multiline output from a single event groups naturally")
+- **Lifecycle**: default `timeout_ms: 300000` (5 minutes) / `persistent: true` (session lifetime)
+- **Overload protection**: automatically stops when too many messages are produced (avoids token explosion)
+- **Exit conditions**: script exits / timeout / `TaskStop(task_id=...)`
 
-### 一表看清差异
+### Differences at a glance
 
-| 维度 | Shell（Bash bg） | Monitor |
+| Dimension | Shell (Bash bg) | Monitor |
 |---|---|---|
-| 触发 | `Bash` + `run_in_background: true` | `Monitor` 工具 |
-| 通知次数 | **1 次**（完成时，含 exit code） | **N 次**（每事件 1 条，200ms 批合） |
-| stdout 内容 | 落盘到 task 输出文件，agent 用 `Read` 读 | 直接在 notification 里 |
-| 生命周期默认 | 进程自然结束 | 5 分钟 timeout |
-| 推送上限 | 仅完成 1 条 | 自动节流 + 过量自停 |
-| 状态条计数 | `N shell` | `N monitor` |
-| 终止 | `TaskStop(shell_id=...)` 或 `KillShell` 别名 | `TaskStop(task_id=...)` |
+| Trigger | `Bash` + `run_in_background: true` | `Monitor` tool |
+| Notification count | **1** (on completion, includes exit code) | **N** (one per event, 200ms batching) |
+| stdout contents | Written to task output file; agent reads with `Read` | Directly inside notification |
+| Default lifecycle | Process exits naturally | 5-minute timeout |
+| Push limit | Only one completion event | Automatic throttling + self-stop on overload |
+| Status-bar counter | `N shell` | `N monitor` |
+| Termination | `TaskStop(shell_id=...)` or `KillShell` alias | `TaskStop(task_id=...)` |
 
-**关键洞察**：两者**都是 push 模式**，但 cardinality 不同——Shell 是"完成时通知一次"（适合 build / 测试），Monitor 是"每事件通知一次"（适合 watch / 日志监听）。这与 Monitor 工具描述里写的选择树一致：
+**Key insight**: both are **push-mode**, but their cardinality differs. Shell sends "one notification on completion" (good for build/test), while Monitor sends "one notification per event" (good for watch/log listening). This matches the decision tree in the Monitor tool description:
 
-> - **One**（"tell me when the server is ready / the build finishes"）→ use **Bash with `run_in_background`**
+> - **One** ("tell me when the server is ready / the build finishes") → use **Bash with `run_in_background`**
 > - **One per occurrence, indefinitely** → Monitor with an unbounded command
 
-## 三、状态条显示机制
+## 3. Status-bar display mechanism
 
-Footer 的两行布局（v2.1.120）：
+Footer two-line layout (v2.1.120):
 
 ```
   /tmp/cc-bg-test                              ← Line 1: cwd
-  ⏵⏵ auto mode on · 1 shell, 1 monitor         ← Line 2: mode + 异步任务计数
+  ⏵⏵ auto mode on · 1 shell, 1 monitor         ← Line 2: mode + async task counters
 ```
 
-`auto mode on` 永久存在（除非用户切换），后续 `· 1 shell, 1 monitor` **按需附加**：
+`auto mode on` is always present (unless the user switches modes); the later `· 1 shell, 1 monitor` is **appended on demand**:
 
-| 触发条件 | 显示 | 是否实测 |
+| Trigger condition | Display | Observed? |
 |---|---|---|
-| 无后台任务 | `⏵⏵ auto mode on (shift+tab to cycle)` | ✅ |
-| 仅 1 个 bg shell | `⏵⏵ auto mode on · 1 shell` | ✅ |
-| 都有 | `⏵⏵ auto mode on · 1 shell, 1 monitor` | ✅ |
-| 仅 1 个 monitor | `⏵⏵ auto mode on · 1 monitor` | ⚠️ 推测（未单独测过纯 monitor） |
-| 多个 | `⏵⏵ auto mode on · 3 shells, 2 monitors` | ⚠️ 推测（plurals 形式参考"2 active shells" UI 标题） |
+| No background tasks | `⏵⏵ auto mode on (shift+tab to cycle)` | ✅ |
+| Only 1 bg shell | `⏵⏵ auto mode on · 1 shell` | ✅ |
+| Both | `⏵⏵ auto mode on · 1 shell, 1 monitor` | ✅ |
+| Only 1 monitor | `⏵⏵ auto mode on · 1 monitor` | ⚠️ Inferred (pure monitor not tested separately) |
+| Multiple | `⏵⏵ auto mode on · 3 shells, 2 monitors` | ⚠️ Inferred (plural form references the "2 active shells" UI title) |
 
-每个 turn 完成后还有**内联状态行**：
+After each turn completes there is also an **inline status line**:
 
 ```
 ✻ Cooked for 7s · 1 shell still running
 ✻ Sautéed for 37s · 1 shell, 1 monitor still running
 ```
 
-这是回答用户后展示的 timing + 后台任务提醒——**用户看完 LLM 的回复，紧接着就被提醒"还有 N 个任务在后台"**。这种"双重提示"避免被忽视。
+This is the timing + background-task reminder shown after replying to the user: **right after the user reads the LLM response, they are reminded that N tasks are still running in the background**. This "double prompt" prevents the state from being ignored.
 
-## 四、触发方式
+## 4. Trigger mechanisms
 
-### 1. LLM 显式 `run_in_background: true`
+### 1. The LLM explicitly sets `run_in_background: true`
 
-最常见——LLM 判断"这是个长任务"主动后台化：
+The most common case: the LLM decides "this is a long task" and proactively backgrounds it:
 
 ```
 Bash({
@@ -136,51 +136,51 @@ Bash({
 })
 ```
 
-这适用于明显的长任务（dev server / watch / sleep）。
+This applies to obvious long-running tasks (dev server / watch / sleep).
 
-### 2. 命令在 `COMMON_BACKGROUND_COMMANDS` 列表中且超时
+### 2. The command is in `COMMON_BACKGROUND_COMMANDS` and times out
 
-对于 `npm` / `node` / `python` / `cargo` / `make` / `docker` / `webpack` / `vite` / `jest` / `pytest` 这些常见长命令，**超时时自动转后台**——避免占用 agent 主线程。
+For common long commands such as `npm` / `node` / `python` / `cargo` / `make` / `docker` / `webpack` / `vite` / `jest` / `pytest`, **timeout automatically moves them to the background** to avoid occupying the agent main thread.
 
-源码引用：[04-tools.md#643-655](../tools/claude-code/04-tools.md)
+Source reference: [04-tools.md#643-655](../tools/claude-code/04-tools.md)
 
-### 3. Kairos 模式 15 秒自动后台化
+### 3. Kairos mode backgrounds automatically after 15 seconds
 
-`ASSISTANT_BLOCKING_BUDGET_MS = 15_000` —— **assistant 模式下任何前台 bash 跑超 15 秒，自动甩到后台**。对 LLM 的"前台等待预算"严格 15 秒，超时即解放 agent。
+`ASSISTANT_BLOCKING_BUDGET_MS = 15_000` — **in assistant mode, any foreground bash that runs longer than 15 seconds is automatically moved to the background**. The LLM has a strict 15-second "foreground wait budget"; after timeout, the agent is freed.
 
 ```
-启动 Bash → 2 秒后显示进度（PROGRESS_THRESHOLD_MS）
-            ↓
-        15 秒后自动后台化（Kairos 模式）
-            ↓
-        移出前台，进入 shell pool，状态条 +1 shell
+Start Bash → progress appears after 2 seconds (PROGRESS_THRESHOLD_MS)
+           ↓
+       automatically background after 15 seconds (Kairos mode)
+           ↓
+       removed from foreground, enters shell pool, status bar +1 shell
 ```
 
-### 4. 用户 `Ctrl+B` 手动后台化
+### 4. User manually backgrounds with `Ctrl+B`
 
-前台 bash 跑得久，用户想干别的——按 Ctrl+B 立刻后台化，主提示符可继续接收下一条 prompt。
+When foreground bash runs too long and the user wants to do something else, pressing Ctrl+B immediately backgrounds it, and the main prompt can receive the next prompt.
 
-## 五、管理 UI（`/tasks` / `/bashes` / `↓` 键）
+## 5. Management UI (`/tasks` / `/bashes` / `↓` key)
 
-### 列表视图
+### List view
 
-按 `↓` 键或输入 `/tasks`（别名 `/bashes`）：
+Press `↓` or enter `/tasks` (alias `/bashes`):
 
 ```
   Background tasks
   2 active shells
 
-  ❯ ERROR lines in /tmp/.../watched.log (running)        ← Monitor (高亮)
+  ❯ ERROR lines in /tmp/.../watched.log (running)        ← Monitor (highlighted)
     tail -f /tmp/.../watched.log (running)                ← Shell
 
   ↑/↓ to select · Enter to view · x to stop · ←/Esc to close
 ```
 
-UI 标题用 `2 active shells` 把两类**统称为 shell**（命名沿用——Monitor 内部就是包装的 shell pipeline，如下面 Monitor 详情里 Script 字段所示），但 Footer 状态条**精确分类**为 `1 shell, 1 monitor`——以 Footer 为准。
+The UI title uses `2 active shells` to refer to both kinds **collectively as shells** (the naming carries over: internally Monitor is a wrapped shell pipeline, as shown by the Script field in the Monitor details below), but the Footer status bar **classifies them precisely** as `1 shell, 1 monitor`; the Footer should be treated as authoritative.
 
-### Shell 详情
+### Shell details
 
-选中 bash bg 项按 Enter：
+Select a bash bg item and press Enter:
 
 ```
   Shell details
@@ -195,11 +195,11 @@ UI 标题用 `2 active shells` 把两类**统称为 shell**（命名沿用——
   ← to go back · Esc/Enter/Space to close · x to stop
 ```
 
-显示运行时长 + 命令字符串 + 累积 stdout 输出（截断）。
+Shows runtime + command string + accumulated stdout output (truncated).
 
-### Monitor 详情
+### Monitor details
 
-选中 Monitor 项：
+Select a Monitor item:
 
 ```
   Monitor details
@@ -212,178 +212,178 @@ UI 标题用 `2 active shells` 把两类**统称为 shell**（命名沿用——
   No output available
 ```
 
-显示完整 monitor 脚本——Monitor 工具内部把 `tail -f log | grep ERROR` 包成完整 bash 命令再执行，所以 Script 字段是**最终展开的 shell 脚本**。
+Shows the full monitor script. Internally the Monitor tool wraps `tail -f log | grep ERROR` into a complete bash command before execution, so the Script field is the **final expanded shell script**.
 
-## 六、Monitor 的通知机制（agent 视角）
+## 6. Monitor notification mechanism (agent perspective)
 
-Monitor 的"每行 stdout = 一条聊天通知"是它独特的设计。从 agent 视角：
+Monitor's unique design is "each stdout line = one chat notification." From the agent's perspective:
 
 ```
-Monitor 启动 → agent 继续干别的事 → Monitor 检测到 ERROR 行
+Monitor starts → agent continues doing other work → Monitor detects an ERROR line
                                           ↓
-                  注入 <system-reminder><task-notification>:
-                  脚本 stdout 行内容直接进入通知正文
+                  Inject <system-reminder><task-notification>:
+                  script stdout line content goes directly into the notification body
                                           ↓
-                  agent 在下一轮看到通知 + 内容，决策是否响应
+                  agent sees notification + content in the next turn and decides whether to respond
 ```
 
-**与 Bash bg 的差别**：Bash bg 的完成通知**只携带 status/exit code**，stdout 全文落到 `tasks/<id>.output` 文件，agent 想看完整输出还要再调一次 `Read`。Monitor 把内容直接塞进通知——零额外读取。
+**Difference from Bash bg**: Bash bg completion notifications **carry only status/exit code**. Full stdout is written to a `tasks/<id>.output` file, and the agent must call `Read` again to see it. Monitor puts the content directly into the notification: zero extra reads.
 
-实现细节（来自 Monitor 工具的描述）：
+Implementation details (from the Monitor tool description):
 
 > Stdout lines within 200ms are batched into a single notification, so multiline output from a single event groups naturally.
 >
 > Monitors that produce too many events are automatically stopped; restart with a tighter filter if this happens.
 
-工程细节（同样来自工具描述）：
-- 使用 `grep --line-buffered` 强制行缓冲（否则 pipe 缓冲延迟分钟级）
-- 失败容错：`curl ... || true` 防止单次请求失败杀掉整个 monitor
-- 轮询间隔建议：本地 0.5-1s / 远端 30s+（API 速率限制）
+Engineering details (also from the tool description):
+- Use `grep --line-buffered` to force line buffering (otherwise pipe buffering can delay output by minutes)
+- Failure tolerance: `curl ... || true` prevents one failed request from stopping the whole monitor
+- Recommended polling interval: local 0.5-1s / remote 30s+ (API rate limits)
 
-## 七、与 Bash 前台/后台的关系
+## 7. Relationship to foreground/background Bash
 
 ```
-Bash 工具调用
+Bash tool call
     │
-    ├─ run_in_background=true 显式
-    │    或
-    │   命令属 COMMON_BACKGROUND_COMMANDS 且超时
-    │    或
-    │   Kairos 15s 自动后台化
-    │    或
-    │   用户 Ctrl+B
+    ├─ run_in_background=true explicitly
+    │    or
+    │   command belongs to COMMON_BACKGROUND_COMMANDS and times out
+    │    or
+    │   Kairos 15s automatic backgrounding
+    │    or
+    │   user Ctrl+B
     │       ↓
-    │   进入 shell pool
-    │   Footer 显示 +1 shell
-    │   完成时收到 1 条通知（含 exit code）
-    │   stdout 落 session 临时目录，用 Read 读
-    │   通过 TaskStop(shell_id=id) 终止
+    │   enters shell pool
+    │   Footer displays +1 shell
+    │   receives 1 notification on completion (including exit code)
+    │   stdout lands in the session temp directory and is read with Read
+    │   terminated via TaskStop(shell_id=id)
     │
-    └─ 默认前台
+    └─ default foreground
         ↓
-       直接同步等待退出
-       PROGRESS_THRESHOLD_MS=2s 后显示进度条
+       waits synchronously for exit
+       shows a progress bar after PROGRESS_THRESHOLD_MS=2s
 ```
 
 ```
-Monitor 工具调用
+Monitor tool call
     │
-    └─ 总是后台 + 推送式
+    └─ always background + push-style
         ↓
-       进入 monitor pool
-       Footer 显示 +1 monitor
-       每行 stdout 推送通知给 agent
-       通过 TaskStop(task_id=id) 终止
+       enters monitor pool
+       Footer displays +1 monitor
+       pushes every stdout line as a notification to the agent
+       terminated via TaskStop(task_id=id)
 ```
 
-两个 pool 共享 `/tasks` 管理 UI，但状态条计数分类。
+The two pools share the `/tasks` management UI, but the status-bar counters are classified separately.
 
-## 八、其他 Agent 的对应能力
+## 8. Corresponding capabilities in other agents
 
-| 能力 | Claude Code v2.1.120 | Qwen Code v0.16.0 | OpenCode v1.14.24 |
+| Capability | Claude Code v2.1.120 | Qwen Code v0.16.0 | OpenCode v1.14.24 |
 |---|---|---|---|
-| 后台 Bash 进程 | ✅ `run_in_background` + 自动后台化 + Ctrl+B + shell pool + 输出落盘 | ✅ **v0.16.0 完成**：`is_background: true` + BackgroundShellRegistry（PR#3642）+ `/tasks` 命令 + 输出落盘 + settle 通知 | ✗ `bash` 工具**无 background 参数**（源码: `tool/bash.ts#53-59`） |
-| 后台 Subagent 启动 | ✅ `Agent(..., run_in_background: true)` + 完成通知 | ✅ PR#3076（已合并 2026-04-17）`Agent` 工具支持后台 + lifecycle 事件 + headless/SDK 一致 | ✗ 无 |
-| 父→子 mid-flight 控制（task_stop / send_message） | ✅ `TaskStopTool`（`task_id` + `shell_id` + `KillShell` 别名）+ `SendMessage` 工具 | ✅ **v0.16.0 完成**：PR#3471（已合并）`task_stop` + `send_message` + per-agent transcript JSONL（**仅 subagent**，Bash bg 通过 backgroundShellRegistry 的 `task_stop` shell_id 控制） | ✗ 无 |
-| 父读取后台 transcript | ✅ Monitor 直接 push line + `<task-notification>` / Subagent transcript 可读 | ✅ **v0.16.0 完成**：parent 可 read live transcript（ChatRecord JSONL，与 main session 共享 schema）；Bash bg settle 通知包含 output 路径 | ✗ 无 |
-| Monitor / 事件流 | ✅ 独立 `Monitor` 工具 + 200ms 节流 + 过量自停 | ✅ **v0.16.0 完成**：PR#3684 `Monitor` 工具 + `MonitorRegistry`（635 行）+ 200ms 节流 + 过量自停 | ✗ 无 |
-| 状态条计数 | ✅ `N shell, M monitor` 实时分类 | ✅ **v0.16.0 完成**：PR#3488（已合并）背景 subagent pill + combined dialog；Bash bg / Monitor 亦纳入计数（PR#3720/#3791） | ✗ 无 |
-| 统一管理 UI | ✅ `/tasks`（`/bashes` 别名）+ `↓` 键 + Shell/Monitor 各有详情视图 | ✅ **v0.16.0 完成**：`/tasks` 命令（PR#3642）+ Combined Background tasks dialog（PR#3720/#3791）+ detail view（PR#3488） | ✗ 无任务面板 |
-| 通知推送（事件 → LLM） | ✅ `<task-notification>` 系统消息注入（subagent + shell + monitor 全部） | ✅ subagent 完成通知（PR#3076）+ mid-flight transcript（PR#3471）+ Monitor 事件通知（PR#3684）+ Bash bg settle（PR#3642） | ✗ |
+| Background Bash process | ✅ `run_in_background` + automatic backgrounding + Ctrl+B + shell pool + output written to disk | ✅ **Completed in v0.16.0**: `is_background: true` + BackgroundShellRegistry (PR#3642) + `/tasks` command + output written to disk + settle notification | ✗ `bash` tool has **no background parameter** (Source: `tool/bash.ts#53-59`) |
+| Background Subagent launch | ✅ `Agent(..., run_in_background: true)` + completion notification | ✅ PR#3076 (merged 2026-04-17) `Agent` tool supports background + lifecycle events + headless/SDK consistency | ✗ None |
+| Parent→child mid-flight control (task_stop / send_message) | ✅ `TaskStopTool` (`task_id` + `shell_id` + `KillShell` alias) + `SendMessage` tool | ✅ **Completed in v0.16.0**: PR#3471 (merged) `task_stop` + `send_message` + per-agent transcript JSONL (**subagent only**; Bash bg is controlled via backgroundShellRegistry `task_stop` shell_id) | ✗ None |
+| Parent reads background transcript | ✅ Monitor directly pushes lines + `<task-notification>` / Subagent transcript readable | ✅ **Completed in v0.16.0**: parent can read live transcript (ChatRecord JSONL, sharing schema with main session); Bash bg settle notification includes output path | ✗ None |
+| Monitor / event stream | ✅ Independent `Monitor` tool + 200ms throttling + self-stop on overload | ✅ **Completed in v0.16.0**: PR#3684 `Monitor` tool + `MonitorRegistry` (635 lines) + 200ms throttling + self-stop on overload | ✗ None |
+| Status-bar counters | ✅ `N shell, M monitor` real-time classification | ✅ **Completed in v0.16.0**: PR#3488 (merged) background subagent pill + combined dialog; Bash bg / Monitor also included in counters (PR#3720/#3791) | ✗ None |
+| Unified management UI | ✅ `/tasks` (`/bashes` alias) + `↓` key + separate detail views for Shell/Monitor | ✅ **Completed in v0.16.0**: `/tasks` command (PR#3642) + Combined Background tasks dialog (PR#3720/#3791) + detail view (PR#3488) | ✗ No task panel |
+| Notification push (event → LLM) | ✅ `<task-notification>` system-message injection (subagent + shell + monitor) | ✅ subagent completion notification (PR#3076) + mid-flight transcript (PR#3471) + Monitor event notification (PR#3684) + Bash bg settle (PR#3642) | ✗ |
 
-**Claude Code 仍是功能最完整的方案，但 Qwen Code v0.16.0 已完成全 5-PR stack，主要剩余差距为：① 流式工具执行（API 响应流到达即执行）、② 自动 Kairos 后台化（15s 超时自动移入后台）、③ Ctrl+B 手动前台→后台（Qwen Code 有 foreground→background promote 机制但 UX 不同）。**
+**Claude Code remains the most complete design, but Qwen Code v0.16.0 has completed the full 5-PR stack. The main remaining gaps are: (1) streaming tool execution as API response chunks arrive, (2) automatic Kairos backgrounding (move to background after 15s timeout), and (3) manual Ctrl+B foreground→background UX (Qwen Code has a foreground→background promote mechanism, but the UX differs).**
 
-### Qwen Code 的相关 PR（v0.16.0 完整状态）
+### Related Qwen Code PRs (complete v0.16.0 status)
 
-Qwen Code 在 v0.16.0 完成了完整的 5 条 PR stack，覆盖 Bash bg pool、Monitor、subagent 控制和 UI：
+Qwen Code completed the full 5-PR stack in v0.16.0, covering Bash bg pool, Monitor, subagent control, and UI:
 
 ```
-PR#3076 ✅ MERGED (2026-04-17) — background subagent 启动
-PR#3642 ✅ MERGED              — Bash bg pool + /tasks 命令
-PR#3684 ✅ MERGED              — Monitor 工具 + MonitorRegistry
+PR#3076 ✅ MERGED (2026-04-17) — background subagent launch
+PR#3642 ✅ MERGED              — Bash bg pool + /tasks command
+PR#3684 ✅ MERGED              — Monitor tool + MonitorRegistry
 PR#3471 ✅ MERGED              — model-facing agent control (task_stop, send_message, transcript)
-PR#3488 ✅ MERGED              — UI：pill + combined dialog + detail view
+PR#3488 ✅ MERGED              — UI: pill + combined dialog + detail view
 ```
 
-并随后扩展：
+And later extensions:
 
 ```
-PR#3720 ✅ MERGED — Background shells 纳入 tasks dialog
-PR#3791 ✅ MERGED — Monitor entries 纳入 tasks dialog
-PR#3801 ✅ MERGED — /tasks 命令包含 Monitor + 交互模式提示
+PR#3720 ✅ MERGED — Background shells included in tasks dialog
+PR#3791 ✅ MERGED — Monitor entries included in tasks dialog
+PR#3801 ✅ MERGED — /tasks command includes Monitor + interactive-mode hint
 ```
 
-**[PR#3642](https://github.com/QwenLM/qwen-code/pull/3642)** `feat(core): managed background shell pool with /tasks command`（**已合并**）—— 给 `shell` 工具的 `is_background: true` 加入完整 shell pool 管理：子进程注册（`BackgroundShellRegistry`，339 行）、输出落盘、settle 通知（含 exit code）、`/tasks` 文本命令。对标 Claude Code 的 shell pool 核心功能。
+**[PR#3642](https://github.com/QwenLM/qwen-code/pull/3642)** `feat(core): managed background shell pool with /tasks command` (**merged**) — adds complete shell-pool management to `is_background: true` for the `shell` tool: subprocess registration (`BackgroundShellRegistry`, 339 lines), output written to disk, settle notification (including exit code), and `/tasks` text command. This matches the core of Claude Code's shell pool.
 
-**[PR#3684](https://github.com/QwenLM/qwen-code/pull/3684)** `feat(core): event monitor tool with throttled stdout streaming`（**已合并**）—— 新增 `Monitor` 工具 + `MonitorRegistry`（635 行），每行 stdout 作为通知推回 agent，200ms 批合节流，过量自停。完整对标 Claude Code 的 Monitor 工具。
+**[PR#3684](https://github.com/QwenLM/qwen-code/pull/3684)** `feat(core): event monitor tool with throttled stdout streaming` (**merged**) — adds the `Monitor` tool + `MonitorRegistry` (635 lines), pushes each stdout line back to the agent as a notification, batches/throttles at 200ms, and self-stops on overload. This fully matches Claude Code's Monitor tool.
 
-**[PR#3471](https://github.com/QwenLM/qwen-code/pull/3471)** `feat(core): model-facing agent control (task_stop, send_message, per-agent transcript)`（**已合并**）—— `task_stop` tool + `send_message` tool + per-agent transcript JSONL。
+**[PR#3471](https://github.com/QwenLM/qwen-code/pull/3471)** `feat(core): model-facing agent control (task_stop, send_message, per-agent transcript)` (**merged**) — `task_stop` tool + `send_message` tool + per-agent transcript JSONL.
 
-**[PR#3488](https://github.com/QwenLM/qwen-code/pull/3488)** `feat(cli): background-agent UI — pill, combined dialog, detail view`（**已合并**）—— 状态行 pill 计数 + 组合 dialog + 单条详情 view。
+**[PR#3488](https://github.com/QwenLM/qwen-code/pull/3488)** `feat(cli): background-agent UI — pill, combined dialog, detail view` (**merged**) — status-line pill counters + combined dialog + per-item detail view.
 
-完整对标 Claude Code 的 5 个组件（v0.16.0 状态）：
+The 5 components matching Claude Code (v0.16.0 status):
 
-| 组件 | Qwen Code v0.16.0 状态 |
+| Component | Qwen Code v0.16.0 status |
 |---|---|
-| 1. Shell pool | ✅ PR#3642（BackgroundShellRegistry，339 行） |
-| 2. Monitor pool | ✅ PR#3684（MonitorRegistry，635 行） |
-| 3. 状态条聚合器 | ✅ PR#3488 + PR#3720 + PR#3791（shell + monitor + subagent 全覆盖） |
-| 4. 管理 UI | ✅ PR#3488 + PR#3720 + PR#3791（/tasks + combined dialog） |
-| 5. 通知注入器 | ✅ PR#3076（subagent）+ PR#3684（monitor）+ PR#3642（bash bg settle） |
+| 1. Shell pool | ✅ PR#3642 (BackgroundShellRegistry, 339 lines) |
+| 2. Monitor pool | ✅ PR#3684 (MonitorRegistry, 635 lines) |
+| 3. Status-bar aggregator | ✅ PR#3488 + PR#3720 + PR#3791 (full shell + monitor + subagent coverage) |
+| 4. Management UI | ✅ PR#3488 + PR#3720 + PR#3791 (/tasks + combined dialog) |
+| 5. Notification injector | ✅ PR#3076 (subagent) + PR#3684 (monitor) + PR#3642 (bash bg settle) |
 
-## 九、为什么这套设计重要
+## 9. Why this design matters
 
-### 用户视角：避免"agent 偷偷干活"焦虑
+### User perspective: avoid anxiety that "the agent is secretly still working"
 
-如果没有状态条提醒：
-- 你以为对话结束 → 实际还有 dev server 占着 8080 端口
-- 你 Ctrl+D 退出 → 后台 task 默默 leak 到 OS（孤儿进程）
-- Monitor 突然弹通知 → 你不知道为什么
+Without a status-bar reminder:
+- You think the conversation ended → but a dev server is still occupying port 8080
+- You press Ctrl+D to exit → a background task silently leaks into the OS (orphan process)
+- A Monitor notification suddenly appears → you do not know why
 
-`1 shell, 1 monitor` 的可见性把"被动透明度"变成"主动感知"——这与软件工程里"用户应该能看到系统状态"的 [Heuristic Evaluation 第一条](https://www.nngroup.com/articles/ten-usability-heuristics/) 一致。
+The visibility of `1 shell, 1 monitor` turns "passive transparency" into "active awareness," consistent with the first [Heuristic Evaluation principle](https://www.nngroup.com/articles/ten-usability-heuristics/): users should be able to see system status.
 
-### Agent 视角：异步并发解锁更复杂的工作流
+### Agent perspective: async concurrency unlocks more complex workflows
 
-**Bash bg + Monitor 组合**可以构建：
+The **Bash bg + Monitor combination** can build:
 
 ```
-1. 启动 dev server (Bash bg)
-2. 启动 log monitor 监听 ERROR (Monitor)
-3. 同时跑 typecheck + 测试（前台）
-4. 任一时刻，monitor 推回 ERROR 通知 → agent 立刻调试
+1. Start dev server (Bash bg)
+2. Start log monitor watching for ERROR (Monitor)
+3. Run typecheck + tests at the same time (foreground)
+4. At any point, monitor pushes back an ERROR notification → agent debugs immediately
 ```
 
-这种"agent 边写代码边监控"的模式在 Qwen Code v0.16.0 中**已经可以实现**——v0.16.0 新增了 BackgroundShellRegistry（Bash bg pool，PR#3642）和 Monitor 工具（PR#3684），Monitor 的事件推送给了 agent "中断"概念，让 agent 有了"等待外部条件"的原语。v0.15.2 时 `is_background` 是简单的 fork-and-detach（无 pool / 无输出收集），该壁垒在 v0.16.0 已消除。
+This "agent writes code while monitoring" pattern is **already possible** in Qwen Code v0.16.0: v0.16.0 added BackgroundShellRegistry (Bash bg pool, PR#3642) and the Monitor tool (PR#3684). Monitor event push gives the agent a concept of "interrupt," and therefore a primitive for "waiting for external conditions." In v0.15.2, `is_background` was a simple fork-and-detach (no pool / no output collection); that barrier is removed in v0.16.0.
 
-### 实现视角：至少需要的核心组件
+### Implementation perspective: minimum required core components
 
-从外部行为反推（非源码确认），完整方案至少包含：
+Inferring from external behavior (not source-confirmed), a complete design needs at least:
 
-1. **Shell pool**：子进程注册表 + lifecycle 管理（PID / 输出文件路径 / kill handle）
-2. **Monitor pool**：watch script 注册 + stdout 流式过滤 + 通知去抖（200ms 批合）
-3. **状态条聚合器**：跨两个 pool 计数 → 渲染到 Footer 的 `· N shell, M monitor`
-4. **管理 UI**：列表视图 + 详情视图（Shell 显示 Command/Runtime/Output；Monitor 显示完整 Script）
-5. **通知注入器**：把 shell 完成事件 + monitor stdout 行包成 `<task-notification>` 注入下一轮 LLM context
+1. **Shell pool**: subprocess registry + lifecycle management (PID / output file path / kill handle)
+2. **Monitor pool**: watch-script registration + stdout streaming filters + notification debounce (200ms batching)
+3. **Status-bar aggregator**: counts across the two pools → renders `· N shell, M monitor` in the Footer
+4. **Management UI**: list view + detail view (Shell shows Command/Runtime/Output; Monitor shows full Script)
+5. **Notification injector**: wraps shell completion events + monitor stdout lines into `<task-notification>` and injects them into the next-turn LLM context
 
-任何 agent 想抄这套，5 个组件都需要。**Qwen Code v0.16.0 通过 5 PR stack 全部完成**，5 个组件全部覆盖：
+Any agent that wants to copy this design needs all five components. **Qwen Code v0.16.0 completed all of them through the 5-PR stack**:
 
-| 组件 | Qwen Code v0.16.0 状态 |
+| Component | Qwen Code v0.16.0 status |
 |---|---|
-| 1. Shell pool | ✅ [PR#3642](https://github.com/QwenLM/qwen-code/pull/3642)（BackgroundShellRegistry，339 行） |
-| 2. Monitor pool | ✅ [PR#3684](https://github.com/QwenLM/qwen-code/pull/3684)（MonitorRegistry，635 行） |
-| 3. 状态条聚合器 | ✅ [PR#3488](https://github.com/QwenLM/qwen-code/pull/3488) + [PR#3720](https://github.com/QwenLM/qwen-code/pull/3720) + [PR#3791](https://github.com/QwenLM/qwen-code/pull/3791) |
-| 4. 管理 UI | ✅ PR#3642（/tasks 命令）+ PR#3720 + PR#3791（combined dialog） |
-| 5. 通知注入器 | ✅ PR#3076（subagent）+ PR#3684（monitor 每事件）+ PR#3642（bash bg settle） |
+| 1. Shell pool | ✅ [PR#3642](https://github.com/QwenLM/qwen-code/pull/3642) (BackgroundShellRegistry, 339 lines) |
+| 2. Monitor pool | ✅ [PR#3684](https://github.com/QwenLM/qwen-code/pull/3684) (MonitorRegistry, 635 lines) |
+| 3. Status-bar aggregator | ✅ [PR#3488](https://github.com/QwenLM/qwen-code/pull/3488) + [PR#3720](https://github.com/QwenLM/qwen-code/pull/3720) + [PR#3791](https://github.com/QwenLM/qwen-code/pull/3791) |
+| 4. Management UI | ✅ PR#3642 (`/tasks` command) + PR#3720 + PR#3791 (combined dialog) |
+| 5. Notification injector | ✅ PR#3076 (subagent) + PR#3684 (monitor per event) + PR#3642 (bash bg settle) |
 
-**剩余差距**：① 自动 Kairos 后台化（Claude Code 15s 超时自动移入后台）；② Ctrl+B 手动后台化（Qwen Code 有 foreground→background promote 但 UX 不同）；③ 流式工具执行在 API 流到达时即执行（StreamingToolExecutor）。
+**Remaining gaps**: (1) automatic Kairos backgrounding (Claude Code moves tasks to the background after a 15s timeout); (2) manual Ctrl+B backgrounding (Qwen Code has foreground→background promote, but the UX differs); (3) streaming tool execution immediately as API stream chunks arrive (StreamingToolExecutor).
 
-## 十、源码分析（基于 leaked source）
+## 10. Source-code analysis (based on leaked source)
 
-源码位置：`/root/git/claude-code-leaked/`（v2.1.x 反混淆源码，1934 文件）。以下逐项给出文件 + 行号 + 关键代码。
+Source location: `/root/git/claude-code-leaked/` (v2.1.x deobfuscated source, 1934 files). The following lists files + line numbers + key code.
 
-### 10.1 核心数据模型
+### 10.1 Core data model
 
-**`tasks/LocalShellTask/guards.ts#9-33`** —— Shell 与 Monitor 共用同一类型，只用 `kind` 字段区分：
+**`tasks/LocalShellTask/guards.ts#9-33`** — Shell and Monitor share the same type and are distinguished only by the `kind` field:
 
 ```ts
 export type BashTaskKind = 'bash' | 'monitor'
@@ -401,14 +401,14 @@ export type LocalShellTaskState = TaskStateBase & {
 }
 ```
 
-源码注释直接说明：**Monitor 是 `local_bash` 任务的 UI display variant**，差异在于：
-1. 列表里显示 description 而非 command
-2. 详情 dialog 标题是 "Monitor details"
-3. 状态条 pill 单独计数
+The source comment states directly: **Monitor is a UI display variant of a `local_bash` task**. The differences are:
+1. The list shows description rather than command
+2. The detail dialog title is "Monitor details"
+3. The status-bar pill counts it separately
 
-### 10.2 状态条文本生成
+### 10.2 Status-bar text generation
 
-**`tasks/pillLabel.ts#11-30`** —— `getPillLabel` 函数同时被 Footer pill + 内联 turn duration 行调用：
+**`tasks/pillLabel.ts#11-30`** — the `getPillLabel` function is used by both the Footer pill and the inline turn-duration line:
 
 ```ts
 export function getPillLabel(tasks: BackgroundTaskState[]): string {
@@ -429,37 +429,37 @@ export function getPillLabel(tasks: BackgroundTaskState[]): string {
           parts.push(monitors === 1 ? '1 monitor' : `${monitors} monitors`)
         return parts.join(', ')
       }
-      // ... 其他 6 种 task type
+      // ... 6 other task types
     }
   }
   return `${n} background ${n === 1 ? 'task' : 'tasks'}`
 }
 ```
 
-源码确认了**单复数处理**（`shells` / `monitors`）以及**混合显示**（`1 shell, 1 monitor` 用 `, ` 拼接）。
+The source confirms **singular/plural handling** (`shells` / `monitors`) and **mixed display** (`1 shell, 1 monitor` joined with `, `).
 
-### 10.3 完整的 7 种 background task 类型
+### 10.3 Full set of 7 background task types
 
-`tasks/types.ts#13-21` + `pillLabel.ts` 定义了 **7 种 task 类型**（不只是 shell + monitor）：
+`tasks/types.ts#13-21` + `pillLabel.ts` define **7 task types** (not just shell + monitor):
 
-| 类型 | 来源 | Footer pill 文案 |
+| Type | Source | Footer pill text |
 |---|---|---|
-| `local_bash` (kind='bash') | Bash 工具 + run_in_background | `N shell(s)` |
-| `local_bash` (kind='monitor') | Monitor 工具 | `N monitor(s)` |
-| `local_agent` | Agent 工具 + run_in_background | `N local agent(s)` |
-| `remote_agent` | Cloud sessions | `N cloud session(s)`，ultraplan 用 `◆ ultraplan ready` / `◇ ultraplan needs your input` |
-| `in_process_teammate` | TeamCreate / 多 agent 协同 | `N team(s)` |
-| `local_workflow` | （独立工作流类型，PR 估计是 swarm 相关） | `N background workflow(s)` |
-| `monitor_mcp` | （MCP server 监控，**与 Monitor 工具不同**） | `N monitor(s)` |
-| `dream` | Auto Dream 系统 | `dreaming`（无计数，单飞模式） |
+| `local_bash` (kind='bash') | Bash tool + run_in_background | `N shell(s)` |
+| `local_bash` (kind='monitor') | Monitor tool | `N monitor(s)` |
+| `local_agent` | Agent tool + run_in_background | `N local agent(s)` |
+| `remote_agent` | Cloud sessions | `N cloud session(s)`; ultraplan uses `◆ ultraplan ready` / `◇ ultraplan needs your input` |
+| `in_process_teammate` | TeamCreate / multi-agent collaboration | `N team(s)` |
+| `local_workflow` | (independent workflow type, PR likely swarm-related) | `N background workflow(s)` |
+| `monitor_mcp` | (MCP server monitoring, **different from the Monitor tool**) | `N monitor(s)` |
+| `dream` | Auto Dream system | `dreaming` (no count, solo mode) |
 
-**注意**：`monitor_mcp` 和 `local_bash kind=monitor` 都显示 `N monitor`，但**底层是不同任务类型**——前者是 MCP 服务器健康监控，后者是 Monitor 工具实例。
+**Note**: `monitor_mcp` and `local_bash kind=monitor` both display `N monitor`, but the **underlying task types are different**: the former is MCP server health monitoring, while the latter is a Monitor tool instance.
 
-源码：`tasks/pillLabel.ts#34-67`
+Source: `tasks/pillLabel.ts#34-67`
 
-### 10.4 Bash 工具的后台逻辑
+### 10.4 Background logic in the Bash tool
 
-**`tools/BashTool/BashTool.tsx`** 关键常量（行号实测）：
+**`tools/BashTool/BashTool.tsx`** key constants (observed line numbers):
 
 ```ts
 const PROGRESS_THRESHOLD_MS = 2000;            // #55
@@ -472,9 +472,9 @@ const COMMON_BACKGROUND_COMMANDS = [           // #265
 ] as const;
 ```
 
-注：**实际 22 项**（之前 [04-tools.md 摘录](../tools/claude-code/04-tools.md#L651) 只列了 10 项），完整列表包括 `yarn / pnpm / python3 / go / terraform / curl / wget` 等。
+Note: there are **22 actual items** (the earlier [04-tools.md excerpt](../tools/claude-code/04-tools.md#L651) listed only 10). The full list includes `yarn / pnpm / python3 / go / terraform / curl / wget`, etc.
 
-**Kairos 自动后台化触发**（`BashTool.tsx#974-985`）：
+**Kairos automatic backgrounding trigger** (`BashTool.tsx#974-985`):
 
 ```ts
 // blocking commands after ASSISTANT_BLOCKING_BUDGET_MS so the agent can keep
@@ -484,9 +484,9 @@ if (feature('KAIROS') && getKairosActive() && isMainThread &&
 }
 ```
 
-仅在 Kairos 模式开启 + 主线程 + 用户没显式 `run_in_background: true` 时才自动后台化。
+Automatic backgrounding happens only when Kairos mode is enabled + main thread + the user did not explicitly set `run_in_background: true`.
 
-**Sleep 拦截 + Monitor 推荐**（`BashTool.tsx#525-530`）—— 当 Bash 命令含 `sleep > 2s` 时 Claude 直接 **拒绝执行**并返回错误，提示用 Monitor：
+**Sleep interception + Monitor recommendation** (`BashTool.tsx#525-530`) — when a Bash command contains `sleep > 2s`, Claude directly **refuses to execute** and returns an error suggesting Monitor:
 
 ```ts
 if (feature('MONITOR_TOOL') && !isBackgroundTasksDisabled && !input.run_in_background) {
@@ -498,19 +498,19 @@ if (feature('MONITOR_TOOL') && !isBackgroundTasksDisabled && !input.run_in_backg
 }
 ```
 
-这是实际错误消息文本——LLM 在写 `sleep 60` 时会被这条消息引导改用 Monitor 或 `run_in_background: true`。
+This is the actual error-message text. When the LLM writes `sleep 60`, this message guides it to use Monitor or `run_in_background: true`.
 
-### 10.5 MAX_TASK_OUTPUT_BYTES 落盘上限
+### 10.5 MAX_TASK_OUTPUT_BYTES disk-output limit
 
-**`utils/task/diskOutput.ts#30`**：
+**`utils/task/diskOutput.ts#30`**:
 
 ```ts
 export const MAX_TASK_OUTPUT_BYTES = 5 * 1024 * 1024 * 1024  // 5 GB
 ```
 
-### 10.6 TaskStopTool（含 KillShell 别名）
+### 10.6 TaskStopTool (including KillShell alias)
 
-**`tools/TaskStopTool/TaskStopTool.ts#11-18, #38-46`**：
+**`tools/TaskStopTool/TaskStopTool.ts#11-18, #38-46`**:
 
 ```ts
 const inputSchema = lazySchema(() =>
@@ -531,43 +531,43 @@ export const TaskStopTool = buildTool({
 })
 ```
 
-`shell_id` 仅用于兼容 KillShell 时代旧 transcript 重放，**新 SDK 应只用 `task_id`**。
+`shell_id` exists only for replay compatibility with old transcripts from the KillShell era; **new SDKs should use only `task_id`**.
 
-### 10.7 Monitor 工具的 lazy 加载
+### 10.7 Lazy loading of the Monitor tool
 
-**`tools.ts#39-40, #237`**：
+**`tools.ts#39-40, #237`**:
 
 ```ts
 const MonitorTool = feature('MONITOR_TOOL')
   ? require('./tools/MonitorTool/MonitorTool.js').MonitorTool
   : undefined
 // ...
-...(MonitorTool ? [MonitorTool] : []),  // 加入 tools 列表
+...(MonitorTool ? [MonitorTool] : []),  // add to tools list
 ```
 
-Monitor 工具实现文件 `tools/MonitorTool/` 在 leaked source 中**未包含**（feature-gate 后的 dead code elimination 移除了），但通过 `feature('MONITOR_TOOL')` 调用证实它是 GrowthBook feature flag 控制的。
+The Monitor implementation directory `tools/MonitorTool/` is **not included** in the leaked source (dead-code elimination after the feature gate removed it), but the `feature('MONITOR_TOOL')` call confirms it is controlled by a GrowthBook feature flag.
 
-### 10.8 Footer pill 渲染
+### 10.8 Footer pill rendering
 
-**`components/PromptInput/PromptInputFooterLeftSide.tsx#17`** 导入 `BackgroundTaskStatus`：
+**`components/PromptInput/PromptInputFooterLeftSide.tsx#17`** imports `BackgroundTaskStatus`:
 
 ```ts
 import { BackgroundTaskStatus } from '../tasks/BackgroundTaskStatus.js';
 ```
 
-**`components/tasks/BackgroundTaskStatus.tsx#10, #25-92`** 调用 `getPillLabel` 渲染 mainPill + teammatePills（多 team 时叠加显示）。
+**`components/tasks/BackgroundTaskStatus.tsx#10, #25-92`** calls `getPillLabel` to render mainPill + teammatePills (stacked display when multiple teams exist).
 
-### 10.9 BackgroundTasksDialog（`/tasks` 管理 UI）
+### 10.9 BackgroundTasksDialog (`/tasks` management UI)
 
-**`components/tasks/BackgroundTasksDialog.tsx#409`** —— UI 标题：
+**`components/tasks/BackgroundTasksDialog.tsx#409`** — UI title:
 
 ```ts
 {runningBashCount !== 1 ? 'active shells' : 'active shell'}
 ```
 
-注意只有 `runningBashCount`（local_bash 总数，含 monitor），其他 task type 单独统计。
+Note that this uses only `runningBashCount` (total local_bash count, including monitors); other task types are counted separately.
 
-**#414** 列出所有支持的 task type 用于键盘快捷键 `x` 终止：
+**#414** lists all supported task types for the keyboard shortcut `x` to stop:
 
 ```ts
 ...((currentSelection?.type === 'local_bash' || 
@@ -581,47 +581,47 @@ import { BackgroundTaskStatus } from '../tasks/BackgroundTaskStatus.js';
   ? [<KeyboardShortcutHint key="kill" shortcut="x" action="stop" />] : [])
 ```
 
-7 种 task type 都支持 `x` 键停止。
+All 7 task types support stopping with the `x` key.
 
-### 10.10 ShellDetailDialog（同时承载 Shell + Monitor 详情）
+### 10.10 ShellDetailDialog (details for both Shell + Monitor)
 
-**`components/tasks/ShellDetailDialog.tsx#164`** —— 动态 title：
+**`components/tasks/ShellDetailDialog.tsx#164`** — dynamic title:
 
 ```ts
 const t9 = isMonitor ? "Monitor details" : "Shell details";
 ```
 
-**#177, #193, #253** —— 渲染 `Status:` / `Runtime:` / `Output:` 三个字段——同一组件，按 `isMonitor` 切换 title 即可。
+**#177, #193, #253** — render the three fields `Status:` / `Runtime:` / `Output:`. It is the same component; only the title switches based on `isMonitor`.
 
-### 10.11 内联 turn 状态行的 source
+### 10.11 Source of the inline turn status line
 
-**`components/messages/SystemTextMessage.tsx#508, #568`**：
+**`components/messages/SystemTextMessage.tsx#508, #568`**:
 
 ```ts
-// #508 — 计算 backgroundTaskSummary
+// #508 — calculate backgroundTaskSummary
 return running.length > 0 ? getPillLabel(running) : null;
 
-// #568 — 拼接 turn timing + bg summary
+// #568 — concatenate turn timing + bg summary
 const t8 = backgroundTaskSummary && ` · ${backgroundTaskSummary} still running`;
-//                                    ↑ 中点 ·
+//                                    ↑ middle dot ·
 const t7 = showTurnDuration && `${verb} for ${duration}`;
-// 渲染：<Text dimColor>{t7}{budgetSuffix}{t8}</Text>
+// Render: <Text dimColor>{t7}{budgetSuffix}{t8}</Text>
 //   →  ✻ Cooked for 7s · 1 shell, 1 monitor still running
 ```
 
-`getPillLabel` 同时驱动 Footer pill 和这里的 turn-end 状态行——两处显示**保证一致**（同一函数）。
+`getPillLabel` drives both the Footer pill and the turn-end status line here, so the two displays are **guaranteed consistent** (same function).
 
-## 十一、二进制分析（v2.1.119）
+## 11. Binary analysis (v2.1.119)
 
-二进制：`/root/.local/share/claude/versions/2.1.119`，245 MB ELF Linux x86-64，**not stripped**（保留符号表 + JS 源码字符串）。
+Binary: `/root/.local/share/claude/versions/2.1.119`, 245 MB ELF Linux x86-64, **not stripped** (symbol table + JS source strings retained).
 
-### 11.1 验证 UI 字符串
+### 11.1 Verifying UI strings
 
 ```bash
 strings 2.1.119 | grep -E "^(1 shell|1 monitor|Monitor details|Shell details)$"
 ```
 
-输出：
+Output:
 
 ```
 1 shell
@@ -630,92 +630,92 @@ Monitor details
 Shell details
 ```
 
-✅ 4 个 UI 字符串在二进制里**精确存在**。"Monitor details" / "Shell details" 各出现 6 次（不同代码路径）。
+✅ All 4 UI strings **exist exactly** in the binary. "Monitor details" / "Shell details" each appears 6 times (different code paths).
 
-### 11.2 Monitor 工具描述
+### 11.2 Monitor tool description
 
-二进制内可找到完整 Monitor 工具 schema：
+The complete Monitor tool schema can be found inside the binary:
 
 ```js
 var mL="Monitor",wH6='Start a background monitor that streams events from a long-running script. ...'
 ```
 
-这是 LLM 看到的 Monitor 工具描述源串——证明 Monitor 工具确实在二进制中（即便 leaked source 没有 `tools/MonitorTool/` 目录）。
+This is the Monitor tool description source string seen by the LLM, proving that the Monitor tool is indeed in the binary (even though leaked source lacks the `tools/MonitorTool/` directory).
 
-### 11.3 验证 COMMON_BACKGROUND_COMMANDS
+### 11.3 Verifying COMMON_BACKGROUND_COMMANDS
 
 ```bash
 strings 2.1.119 | grep -E "^(yarn|pnpm|webpack|vite|terraform|cargo)$" | sort -u
 ```
 
-输出：`cargo / pnpm / terraform / vite / webpack / yarn`——这些 22 项命令名都以独立字符串存在二进制里（minifier 不展开数组字面量字符串）。
+Output: `cargo / pnpm / terraform / vite / webpack / yarn` — these 22 command names all exist as standalone strings in the binary (the minifier did not expand array-literal strings).
 
-### 11.4 minifier 损耗
+### 11.4 Minifier loss
 
-源码常量名 `ASSISTANT_BLOCKING_BUDGET_MS` / `MAX_TASK_OUTPUT_BYTES` / `PROGRESS_THRESHOLD_MS` 在二进制中**已被 esbuild 内联展开为字面量值**（15000 / 5368709120 / 2000），所以 grep 找不到名字。但 source map 可还原（如果有的话），且实测行为完全吻合源码定义的数字。
+Source constant names such as `ASSISTANT_BLOCKING_BUDGET_MS` / `MAX_TASK_OUTPUT_BYTES` / `PROGRESS_THRESHOLD_MS` have **already been inlined by esbuild into literal values** (15000 / 5368709120 / 2000) in the binary, so grep cannot find the names. But source maps can restore them (if available), and observed behavior fully matches the source-defined numbers.
 
-## 十二、其他 5 种 task 类型详解
+## 12. Details of the other 5 task types
 
-§10.3 给了 7 种 task type 的概览表。本节深入讲剩余 5 种（除 `local_bash` 的 shell + monitor 双形态外）的能力、触发场景、源码细节。
+Section 10.3 gave an overview table of 7 task types. This section goes deeper into the capabilities, trigger scenarios, and source details of the remaining 5 types (excluding the shell + monitor dual forms of `local_bash`).
 
-### 12.1 `local_agent`（后台 Subagent）
+### 12.1 `local_agent` (background Subagent)
 
-**触发**：Agent 工具 + `run_in_background: true`：
+**Trigger**: Agent tool + `run_in_background: true`:
 
 ```ts
 Agent({
   description: "Research X in parallel",
   prompt: "...",
   subagent_type: "researcher",
-  run_in_background: true   // ← 不阻塞父 agent
+  run_in_background: true   // ← does not block the parent agent
 })
 ```
 
-**特征**（[`tasks/LocalAgentTask/LocalAgentTask.tsx#33-110`](file:/root/git/claude-code-leaked/tasks/LocalAgentTask/LocalAgentTask.tsx)）：
+**Characteristics** ([`tasks/LocalAgentTask/LocalAgentTask.tsx#33-110`](file:/root/git/claude-code-leaked/tasks/LocalAgentTask/LocalAgentTask.tsx)):
 
 ```ts
 export type AgentProgress = {
-  toolUseCount: number;       // 子 agent 调用了多少次工具
-  tokenCount: number;         // 累积 token
-  currentActivity?: string;   // 当前正在做的事
+  toolUseCount: number;       // how many tools the child agent has called
+  tokenCount: number;         // cumulative tokens
+  currentActivity?: string;   // what it is currently doing
   // ...
 }
 
 export type LocalAgentTaskState = TaskStateBase & {
   type: 'local_agent';
-  // 含 progress tracker，实时上报到父 agent
+  // includes progress tracker, reported to the parent agent in real time
 }
 ```
 
-**实时进度回流**：子 agent 每个 tool 调用都更新父 agent 看到的进度。Footer pill 显示 `1 local agent`，详情 dialog（`AsyncAgentDetailDialog.tsx`）显示 token 消耗 + 工具活动时间轴。
+**Real-time progress return**: every tool call by the child agent updates the progress visible to the parent agent. The Footer pill shows `1 local agent`, and the details dialog (`AsyncAgentDetailDialog.tsx`) shows token usage + a timeline of tool activity.
 
-**完成时**：子 agent 最终回答 + token 总量 + 耗时通过 `<task-notification>` 推回父 agent，父 agent 在下一轮 context 看到。
+**On completion**: the child agent's final answer + total tokens + elapsed time are pushed back to the parent agent through `<task-notification>`, and the parent agent sees them in the next-turn context.
 
-**典型场景**：并行研究多个独立子任务（每子 agent 一个 worktree）、长任务委派（让子 agent 慢慢跑而父 agent 继续 coordinate）。
+**Typical scenarios**: parallel research across multiple independent subtasks (one worktree per child agent), long-task delegation (let the child agent run slowly while the parent keeps coordinating).
 
-### 12.2 `remote_agent`（Cloud Sessions）
+### 12.2 `remote_agent` (Cloud Sessions)
 
-**触发**：以下斜杠命令之一：
-- `/autofix-pr <PR>` — 修 PR 测试 / lint 错误
-- `/ultrareview <PR>` — 多 agent 云端 review
-- `/ultraplan` — 长 plan 推理
-- 其它 `RemoteTaskType`（源码 `RemoteAgentTask.tsx` 内 `REMOTE_TASK_TYPES` 数组）
+**Trigger**: one of the following slash commands:
+- `/autofix-pr <PR>` — fix PR test / lint errors
+- `/ultrareview <PR>` — multi-agent cloud review
+- `/ultraplan` — long plan reasoning
+- Other `RemoteTaskType` values (source `REMOTE_TASK_TYPES` array inside `RemoteAgentTask.tsx`)
 
-**特征**（[`tasks/RemoteAgentTask/RemoteAgentTask.tsx#21-50`](file:/root/git/claude-code-leaked/tasks/RemoteAgentTask/RemoteAgentTask.tsx)）：
+**Characteristics** ([`tasks/RemoteAgentTask/RemoteAgentTask.tsx#21-50`](file:/root/git/claude-code-leaked/tasks/RemoteAgentTask/RemoteAgentTask.tsx)):
 
 ```ts
 export type RemoteAgentTaskState = TaskStateBase & {
   type: 'remote_agent';
   remoteTaskType: RemoteTaskType;  // autofix-pr / ultrareview / ultraplan / ...
-  sessionId: string;               // 远程 session ID
+  sessionId: string;               // remote session ID
   command: string;
   title: string;
-  todoList: TodoList;              // 子 todo 实时回流
-  log: SDKMessage[];               // 远程 SDK 消息流（pollRemoteSessionEvents）
+  todoList: TodoList;              // child todos returned in real time
+  log: SDKMessage[];               // remote SDK message stream (pollRemoteSessionEvents)
   isLongRunning?: boolean;
-  pollStartedAt: number;           // 防 restore 时的时钟漂移
-  isRemoteReview?: boolean;        // /ultrareview 标记
-  reviewProgress?: {                // <remote-review-progress> 心跳解析
+  pollStartedAt: number;           // prevents clock drift on restore
+  isRemoteReview?: boolean;        // /ultrareview marker
+  reviewProgress?: {                // <remote-review-progress> heartbeat parsing
     stage?: 'finding' | 'verifying' | 'synthesizing';
     bugsFound: number;
     bugsVerified: number;
@@ -724,9 +724,9 @@ export type RemoteAgentTaskState = TaskStateBase & {
 }
 ```
 
-**远程执行**：任务在 Anthropic Cloud 容器跑，本地 `pollRemoteSessionEvents` 每 N 秒拉事件回填 `todoList` + `log`。即使本地 Claude Code 进程退出，远程任务**仍继续**——下次启动可 resume。
+**Remote execution**: the task runs in an Anthropic Cloud container; local `pollRemoteSessionEvents` pulls events every N seconds to backfill `todoList` + `log`. Even if the local Claude Code process exits, the remote task **continues** and can be resumed on the next startup.
 
-**ultraplan 特殊视觉**：[`tasks/pillLabel.ts#36-50`](file:/root/git/claude-code-leaked/tasks/pillLabel.ts) 用菱形符号区分阶段：
+**ultraplan special visual**: [`tasks/pillLabel.ts#36-50`](file:/root/git/claude-code-leaked/tasks/pillLabel.ts) uses diamond symbols to distinguish phases:
 
 ```
 remote_agent + ultraplanPhase === 'plan_ready'      → ◆ ultraplan ready
@@ -734,13 +734,13 @@ remote_agent + ultraplanPhase === 'needs_input'     → ◇ ultraplan needs your
 remote_agent + ultraplanPhase === undefined         → ◇ ultraplan
 ```
 
-`◆` 实心 = 等用户审阅 plan；`◇` 空心 = 还在跑或等输入。
+`◆` solid = waiting for the user to review the plan; `◇` hollow = still running or waiting for input.
 
-### 12.3 `in_process_teammate`（同进程 Team 成员）
+### 12.3 `in_process_teammate` (same-process Team member)
 
-**触发**：`TeamCreate` 工具创建 team，team 成员通过 team definition 启动；或者通过 `/tasks` 中的 `f` 键 foreground 进 teammate 视图。
+**Trigger**: the `TeamCreate` tool creates a team, and team members start via the team definition; or the user presses `f` in `/tasks` to foreground into the teammate view.
 
-**特征**（[`tasks/InProcessTeammateTask/types.ts#13-50`](file:/root/git/claude-code-leaked/tasks/InProcessTeammateTask/types.ts)）：
+**Characteristics** ([`tasks/InProcessTeammateTask/types.ts#13-50`](file:/root/git/claude-code-leaked/tasks/InProcessTeammateTask/types.ts)):
 
 ```ts
 export type TeammateIdentity = {
@@ -754,26 +754,26 @@ export type TeammateIdentity = {
 export type InProcessTeammateTaskState = TaskStateBase & {
   type: 'in_process_teammate'
   identity: TeammateIdentity;
-  permissionMode: PermissionMode;     // ← 独立 cycle，Shift+Tab 切换
+  permissionMode: PermissionMode;     // ← independent cycle, switched with Shift+Tab
   awaitingPlanApproval: boolean;
-  abortController?: AbortController;        // kill WHOLE teammate
-  currentWorkAbortController?: AbortController;  // 仅 abort 当前 turn
+  abortController?: AbortController;        // stop WHOLE teammate
+  currentWorkAbortController?: AbortController;  // abort only current turn
   result?: AgentToolResult;
   progress?: AgentProgress;
 }
 ```
 
-**与 `local_agent` 的关键差异**：
-1. **同进程 vs 子进程**：teammate 在主进程内 AsyncLocalStorage 隔离，subagent 是 fork 子进程
-2. **独立 permission cycle**：每个 teammate 有自己的 `permissionMode`，Shift+Tab 切换不影响其他人
-3. **可双向交互**：用户用 `f` 键 "foreground" 切到 teammate 视图，可直接发 prompt 给 teammate（subagent 不行）
-4. **双层 abort**：`abortController` 杀整个 teammate；`currentWorkAbortController` 仅 abort 当前 turn 让 teammate 进新 turn
+**Key differences from `local_agent`**:
+1. **Same process vs child process**: teammate is isolated inside the main process with AsyncLocalStorage; subagent is a forked child process
+2. **Independent permission cycle**: each teammate has its own `permissionMode`; Shift+Tab switching does not affect others
+3. **Bidirectional interaction**: the user can press `f` to foreground into a teammate view and send prompts directly to the teammate (not possible for subagents)
+4. **Two-level abort**: `abortController` stops the entire teammate; `currentWorkAbortController` aborts only the current turn so the teammate enters a new turn
 
-**典型场景**：多个并发协作的角色 agent（researcher / reviewer / writer），用户可在 leader 与各 teammate 视图间自由切换。
+**Typical scenario**: multiple concurrently collaborating role agents (researcher / reviewer / writer), with the user freely switching between leader and teammate views.
 
-### 12.4 `local_workflow`（Anthropic 内部 only）
+### 12.4 `local_workflow` (Anthropic internal only)
 
-**门控**：`feature('WORKFLOW_SCRIPTS')` + `build_flags.yaml`，**外部 build 整个 dead-code 消除 ~1.3K 行 workflow 引擎**。源码注释：
+**Gate**: `feature('WORKFLOW_SCRIPTS')` + `build_flags.yaml`; the **external build dead-code-eliminates the entire ~1.3K-line workflow engine**. Source comment:
 
 ```ts
 // WORKFLOW_SCRIPTS is ant-only (build_flags.yaml). Static imports would leak
@@ -781,32 +781,32 @@ export type InProcessTeammateTaskState = TaskStateBase & {
 // bundler can dead-code-eliminate the branch.
 ```
 
-**典型场景**（推测，未实测）：内部 release / build / deploy 自动化脚本，让 agent 触发预定义工作流。外部用户**无法触发也看不到这个 task type**。
+**Typical scenario** (inferred, not observed): internal release / build / deploy automation scripts that let the agent trigger predefined workflows. External users **cannot trigger or see this task type**.
 
-leaked source 中 `tasks/LocalWorkflowTask/` 目录为空——证明 dead code elimination 把整个实现移除。仅 `Task.ts#11` 联合类型 + `BackgroundTasksDialog.tsx#82-86` UI 分支保留（用于将来支持时不破坏类型）。
+The `tasks/LocalWorkflowTask/` directory in leaked source is empty, proving that dead-code elimination removed the whole implementation. Only the `Task.ts#11` union type + `BackgroundTasksDialog.tsx#82-86` UI branch remain (to avoid breaking types when support is added later).
 
-### 12.5 `monitor_mcp`（MCP server 健康监控）
+### 12.5 `monitor_mcp` (MCP server health monitoring)
 
-**这与 Monitor 工具不是一回事**——核心区别：
+**This is not the same thing as the Monitor tool**. Core differences:
 
-| 维度 | Monitor 工具 | `monitor_mcp` task |
+| Dimension | Monitor tool | `monitor_mcp` task |
 |---|---|---|
-| 内部 task type | `local_bash` + `kind='monitor'` | `monitor_mcp`（独立类型） |
-| ID 前缀 | `b`（继承 local_bash） | `m` |
-| 触发者 | LLM agent 调用 Monitor 工具 | MCP 客户端管理器自动产生 |
-| 监控对象 | 任意脚本（`tail -f` / `inotifywait` / poll loop） | MCP server 启动状态 / 健康度 |
-| Footer 文案 | `N monitor` | `N monitor`（**两者文案相同！**） |
-| 详情 dialog | 复用 `ShellDetailDialog`（"Monitor details"） | 独立处理（`BackgroundTasksDialog#392`） |
+| Internal task type | `local_bash` + `kind='monitor'` | `monitor_mcp` (independent type) |
+| ID prefix | `b` (inherits local_bash) | `m` |
+| Triggered by | LLM agent calling the Monitor tool | MCP client manager automatically |
+| Monitored object | Any script (`tail -f` / `inotifywait` / poll loop) | MCP server startup state / health |
+| Footer text | `N monitor` | `N monitor` (**same text for both!**) |
+| Details dialog | Reuses `ShellDetailDialog` ("Monitor details") | Handled independently (`BackgroundTasksDialog#392`) |
 
-**Footer 文案撞车的处理**：[`tasks/pillLabel.ts#67`](file:/root/git/claude-code-leaked/tasks/pillLabel.ts) 给 `monitor_mcp` 单独 case："1 monitor" / "N monitors"——但**当混合存在时**（local_bash:monitor + monitor_mcp 都有）pill 会显示 `N background tasks` 退化（因为 `allSameType` 判断失败）。
+**Handling Footer text collision**: [`tasks/pillLabel.ts#67`](file:/root/git/claude-code-leaked/tasks/pillLabel.ts) gives `monitor_mcp` its own case: "1 monitor" / "N monitors". But **when both are present** (`local_bash:monitor` + `monitor_mcp`), the pill degrades to `N background tasks` because the `allSameType` check fails.
 
-**典型场景**：MCP server 启动慢、断连重试、初始化进度。leaked source 没有 `tasks/MonitorMcpTask/` 实现（feature gate dead-coded），但 `BackgroundTasksDialog.tsx#198, #278, #392, #537` 4 处 reference 证明它在生产环境是激活的。
+**Typical scenario**: MCP server slow startup, disconnect retries, initialization progress. Leaked source has no `tasks/MonitorMcpTask/` implementation (feature-gated dead code), but 4 references in `BackgroundTasksDialog.tsx#198, #278, #392, #537` prove it is active in production.
 
-### 12.6 `dream`（Auto Dream 记忆整理）
+### 12.6 `dream` (Auto Dream memory consolidation)
 
-**触发**：**完全自动**——Auto Dream 系统按"每 N 轮 / token 阈值"自动 fork 一个子 agent 整理用户的 `CLAUDE.md` memory。无需用户或 LLM 显式触发。
+**Trigger**: **fully automatic**. The Auto Dream system forks a child agent every N turns / at a token threshold to consolidate the user's `CLAUDE.md` memory. No explicit user or LLM trigger is required.
 
-源码：[`tasks/DreamTask/DreamTask.ts#1-26`](file:/root/git/claude-code-leaked/tasks/DreamTask/DreamTask.ts)：
+Source: [`tasks/DreamTask/DreamTask.ts#1-26`](file:/root/git/claude-code-leaked/tasks/DreamTask/DreamTask.ts):
 
 ```ts
 // Background task entry for auto-dream (memory consolidation subagent).
@@ -814,7 +814,7 @@ leaked source 中 `tasks/LocalWorkflowTask/` 目录为空——证明 dead code 
 // Shift+Down dialog. The dream agent itself is unchanged — this is pure UI
 // surfacing via the existing task registry.
 
-const MAX_TURNS = 30  // 仅显示最后 30 turn
+const MAX_TURNS = 30  // display only the last 30 turns
 
 // No phase detection — the dream prompt has a 4-stage structure
 // (orient/gather/consolidate/prune) but we don't parse it. Just flip from
@@ -823,23 +823,23 @@ export type DreamPhase = 'starting' | 'updating'
 
 export type DreamTurn = {
   text: string
-  toolUseCount: number  // tool 调用折叠为计数
+  toolUseCount: number  // tool calls are collapsed into a count
 }
 ```
 
-**Dream agent 4 阶段** prompt（源码注释揭示，但 dream agent 本身不解析阶段，仅根据"是否出现 Edit/Write tool"切 starting → updating）：
-1. **orient** —— 读现有 memory，建立认知
-2. **gather** —— 搜集本轮新信息
-3. **consolidate** —— 整合到 memory
-4. **prune** —— 删除过时条目
+**Dream agent 4-stage prompt** (revealed by source comments; the dream agent itself does not parse stages and only switches starting → updating based on whether an Edit/Write tool appears):
+1. **orient** — read existing memory and build understanding
+2. **gather** — collect new information from the current round
+3. **consolidate** — integrate into memory
+4. **prune** — remove stale entries
 
-**Footer 显示**：单飞 `dreaming`（无计数 N）—— `pillLabel.ts#65` 单独 case `case 'dream': return 'dreaming'`。
+**Footer display**: solo `dreaming` (no count N) — `pillLabel.ts#65` has a dedicated `case 'dream': return 'dreaming'`.
 
-**典型场景**：长会话末尾 LLM 总结对话洞察 → 自动写入 `~/.claude/CLAUDE.md`。用户感知：突然出现 `dreaming` pill，几分钟后 `~/.claude/CLAUDE.md` 多了几条新记忆。
+**Typical scenario**: near the end of a long session, the LLM summarizes conversation insights → automatically writes them into `~/.claude/CLAUDE.md`. User-visible behavior: a `dreaming` pill suddenly appears, and a few minutes later `~/.claude/CLAUDE.md` has several new memories.
 
-### 12.7 `LocalMainSessionTask`（Ctrl+B 两次后台主会话）
+### 12.7 `LocalMainSessionTask` (backgrounding the main session by pressing Ctrl+B twice)
 
-**这不是新 type，而是 `local_agent` 的特殊用法**——源码 [`tasks/LocalMainSessionTask.ts#1-10`](file:/root/git/claude-code-leaked/tasks/LocalMainSessionTask.ts)：
+**This is not a new type; it is a special use of `local_agent`**. Source [`tasks/LocalMainSessionTask.ts#1-10`](file:/root/git/claude-code-leaked/tasks/LocalMainSessionTask.ts):
 
 ```ts
 /**
@@ -854,116 +854,116 @@ export type DreamTurn = {
  */
 ```
 
-**触发**：用户在主会话进行中**连按 Ctrl+B 两次**——整个 main session query 甩到后台，UI 立即清空可接收新 prompt。
+**Trigger**: the user presses **Ctrl+B twice** while the main session is in progress. The whole main-session query is moved to the background, and the UI is immediately cleared to accept a new prompt.
 
-**典型场景**：你给 agent 派了个长任务（如"重构整个模块"），跑了 30 秒还没完，但你想插一个新指令。Ctrl+B Ctrl+B 把当前 turn 后台化，开新对话——后台 turn 完成时通知回来。
+**Typical scenario**: you assigned the agent a long task (for example "refactor the whole module"), it has run for 30 seconds and is still not done, but you want to insert a new instruction. Ctrl+B Ctrl+B backgrounds the current turn and opens a new conversation; when the background turn finishes, a notification returns.
 
-这相当于**用户主动给自己 fork**——和 `local_agent`（agent 主动 fork 子 agent）相对应。
+This is effectively **the user proactively forking themselves**, corresponding to `local_agent` (where the agent proactively forks a child agent).
 
-### 12.8 总结：异步能力光谱
+### 12.8 Summary: async capability spectrum
 
-按"agent 知道 vs 用户知道"分组：
+Grouped by "agent knows" vs "user knows":
 
-| Task type | agent 主动产生 | 用户可触发 | 用户可独立交互 |
+| Task type | Actively created by agent | User-triggerable | User can interact independently |
 |---|---|---|---|
-| `local_bash` (shell) | ✅ run_in_background=true | ✅ Ctrl+B（前台 → 后台） | ❌ 仅可 stop / 看 output |
-| `local_bash` (monitor) | ✅ Monitor 工具 | ❌ | ❌ 仅可 stop |
-| `local_agent` | ✅ Agent + run_in_background | ❌ | ❌ 仅可 stop / 看进度 |
+| `local_bash` (shell) | ✅ run_in_background=true | ✅ Ctrl+B (foreground → background) | ❌ only stop / view output |
+| `local_bash` (monitor) | ✅ Monitor tool | ❌ | ❌ only stop |
+| `local_agent` | ✅ Agent + run_in_background | ❌ | ❌ only stop / view progress |
 | `LocalMainSessionTask` | ❌ | ✅ Ctrl+B Ctrl+B | ❌ |
-| `remote_agent` | ❌ | ✅ /autofix-pr / /ultrareview / /ultraplan | ✅ Plan ready 时审阅 |
-| `in_process_teammate` | ✅ TeamCreate | ✅ team 启动 | ✅ **`f` 键 foreground 直接交互** |
-| `local_workflow` | （ant-only） | （ant-only） | ？ |
-| `monitor_mcp` | ❌（系统自动） | ❌ | ❌ 仅可 stop |
-| `dream` | ❌（系统自动） | ❌ | ❌ 仅可看进度 |
+| `remote_agent` | ❌ | ✅ /autofix-pr / /ultrareview / /ultraplan | ✅ review when Plan is ready |
+| `in_process_teammate` | ✅ TeamCreate | ✅ team startup | ✅ **press `f` to foreground and interact directly** |
+| `local_workflow` | (ant-only) | (ant-only) | ? |
+| `monitor_mcp` | ❌ (system automatic) | ❌ | ❌ only stop |
+| `dream` | ❌ (system automatic) | ❌ | ❌ only view progress |
 
-**最强能力**：`in_process_teammate`——既可后台并发，又可前台交互。其他要么纯被动，要么仅 stop/查看。
+**Strongest capability**: `in_process_teammate`: it supports both background concurrency and foreground interaction. Others are either purely passive or only support stop/view.
 
-**最普通能力**：`local_bash` + `local_agent`——agent 主动 fork 的"小弟"，跑完报告。
+**Most ordinary capability**: `local_bash` + `local_agent`: agent-initiated forked "helpers" that report back when done.
 
-**最云端**：`remote_agent`——本地下线远程也跑。
+**Most cloud-native**: `remote_agent`: remote tasks keep running even when local is offline.
 
-## 十三、实测复现命令
+## 13. Reproduction commands from real testing
 
 ```bash
 mkdir -p /tmp/cc-bg-test && cd /tmp/cc-bg-test
 tmux new-session -d -s cc -x 90 -y 35 'cd /tmp/cc-bg-test && claude'
 sleep 6
-tmux send-keys -t cc Enter            # 信任目录
+tmux send-keys -t cc Enter            # trust directory
 
-# 1. 触发 Bash bg
+# 1. Trigger Bash bg
 tmux send-keys -t cc "Run 'sleep 60' as a background bash command" Enter
 sleep 8
 
-# 2. 触发 Monitor
+# 2. Trigger Monitor
 tmux send-keys -t cc "Use the Monitor tool to watch /tmp/cc-bg-test/watched.log for ERROR lines" Enter
 sleep 30
 
-# 3. 看状态条
+# 3. Inspect status bar
 tmux capture-pane -t cc -p | tail -5
-# 应看到：
+# Should see:
 #   /tmp/cc-bg-test
 #   ⏵⏵ auto mode on · 1 shell, 1 monitor
 
-# 4. 打开管理 UI
+# 4. Open management UI
 tmux send-keys -t cc "/tasks" Enter
 sleep 2
 tmux capture-pane -t cc -p | tail -10
 
-# 5. 清理
+# 5. Clean up
 tmux kill-session -t cc
 rm -rf /tmp/cc-bg-test
 ```
 
-## 证据来源
+## Evidence sources
 
-### 实测
+### Real testing
 
-- Claude Code v2.1.120 在 tmux 90×35 内运行抓屏：[`screenshots/claude-code-bg-tasks-90x35.txt`](./screenshots/claude-code-bg-tasks-90x35.txt)
+- Claude Code v2.1.120 running inside tmux 90×35 capture: [`screenshots/claude-code-bg-tasks-90x35.txt`](./screenshots/claude-code-bg-tasks-90x35.txt)
 
-### 源码（leaked，v2.1.x，路径 `/root/git/claude-code-leaked/`）
+### Source (leaked, v2.1.x, path `/root/git/claude-code-leaked/`)
 
-| 文件 | 关键行号 | 内容 |
+| File | Key lines | Content |
 |---|---|---|
-| `tasks/LocalShellTask/guards.ts` | 9, 33 | `BashTaskKind = 'bash' \| 'monitor'` + `kind?: BashTaskKind` 字段 + 注释 |
-| `tasks/LocalShellTask/LocalShellTask.tsx` | 522 LOC | shell task 主实现 |
-| `tasks/pillLabel.ts` | 11-30 | `getPillLabel` 状态条文本生成（含单复数） |
-| `tasks/types.ts` | 13-21 | 7 种 BackgroundTaskState 联合类型 |
-| `tools/BashTool/BashTool.tsx` | 55, 57, 241, 265, 525, 974 | 常量定义 + run_in_background schema + sleep 拦截 |
+| `tasks/LocalShellTask/guards.ts` | 9, 33 | `BashTaskKind = 'bash' \| 'monitor'` + `kind?: BashTaskKind` field + comments |
+| `tasks/LocalShellTask/LocalShellTask.tsx` | 522 LOC | Main shell task implementation |
+| `tasks/pillLabel.ts` | 11-30 | `getPillLabel` status-bar text generation (including singular/plural) |
+| `tasks/types.ts` | 13-21 | Union type for 7 BackgroundTaskState variants |
+| `tools/BashTool/BashTool.tsx` | 55, 57, 241, 265, 525, 974 | Constant definitions + run_in_background schema + sleep interception |
 | `tools/TaskStopTool/TaskStopTool.ts` | 11-18, 38-46 | task_id / shell_id schema + `aliases: ['KillShell']` |
-| `tools.ts` | 39-40, 237 | Monitor 工具 lazy load + `feature('MONITOR_TOOL')` 门控 |
+| `tools.ts` | 39-40, 237 | Monitor tool lazy load + `feature('MONITOR_TOOL')` gate |
 | `utils/task/diskOutput.ts` | 30 | `MAX_TASK_OUTPUT_BYTES = 5 * 1024 * 1024 * 1024` |
-| `components/messages/SystemTextMessage.tsx` | 508, 568 | 内联 turn 状态行使用 `getPillLabel` + ` · ... still running` |
-| `components/tasks/BackgroundTaskStatus.tsx` | 10, 25-92 | Footer pill 组件 |
-| `components/tasks/BackgroundTasksDialog.tsx` | 409, 414 | `/tasks` 管理 UI（`active shell(s)` 标题 + 7 task type 支持） |
-| `components/tasks/ShellDetailDialog.tsx` | 164, 177-253 | Shell/Monitor 详情视图（共组件，`isMonitor ? "Monitor details" : "Shell details"`） |
-| `components/PromptInput/PromptInputFooterLeftSide.tsx` | 17 | 导入 `BackgroundTaskStatus` 渲染到 Footer |
+| `components/messages/SystemTextMessage.tsx` | 508, 568 | Inline turn status line uses `getPillLabel` + ` · ... still running` |
+| `components/tasks/BackgroundTaskStatus.tsx` | 10, 25-92 | Footer pill component |
+| `components/tasks/BackgroundTasksDialog.tsx` | 409, 414 | `/tasks` management UI (`active shell(s)` title + support for 7 task types) |
+| `components/tasks/ShellDetailDialog.tsx` | 164, 177-253 | Shell/Monitor detail view (shared component, `isMonitor ? "Monitor details" : "Shell details"`) |
+| `components/PromptInput/PromptInputFooterLeftSide.tsx` | 17 | Imports `BackgroundTaskStatus` to render in Footer |
 
-### 二进制（`/root/.local/share/claude/versions/2.1.119`，245 MB ELF）
+### Binary (`/root/.local/share/claude/versions/2.1.119`, 245 MB ELF)
 
-| 验证项 | 命令 | 结果 |
+| Verification item | Command | Result |
 |---|---|---|
-| UI 字符串 | `strings 2.1.119 \| grep -E "^(1 shell\|1 monitor\|Monitor details\|Shell details)$"` | 4 项全部精确存在 |
-| Monitor 工具名 | `strings 2.1.119 \| grep 'mL="Monitor"'` | `var mL="Monitor"` |
-| Monitor 描述 | 完整工具 description 字符串 | 完整存在 |
-| 22 项 background commands | `strings 2.1.119 \| grep -E "^(yarn\|pnpm\|webpack\|...)$"` | 全部精确存在 |
-| 常量数字 | `nm -a 2.1.119` 或 source map | 已被 esbuild 内联，名字消失但数值（15000/5368709120/2000）保留 |
+| UI strings | `strings 2.1.119 \| grep -E "^(1 shell\|1 monitor\|Monitor details\|Shell details)$"` | All 4 items exist exactly |
+| Monitor tool name | `strings 2.1.119 \| grep 'mL="Monitor"'` | `var mL="Monitor"` |
+| Monitor description | Complete tool description string | Exists in full |
+| 22 background commands | `strings 2.1.119 \| grep -E "^(yarn\|pnpm\|webpack\|...)$"` | All exist exactly |
+| Constant numbers | `nm -a 2.1.119` or source map | Inlined by esbuild; names disappeared but values (15000/5368709120/2000) remain |
 
-### 公开文档
+### Public documentation
 
-- [04-tools.md §4.4.7 后台进程管理](../tools/claude-code/04-tools.md)、[03-architecture.md](../tools/claude-code/03-architecture.md)
-- [EVIDENCE.md](../tools/claude-code/EVIDENCE.md)（基于较早 v2.1.x 二进制反编译）
+- [04-tools.md §4.4.7 Background process management](../tools/claude-code/04-tools.md), [03-architecture.md](../tools/claude-code/03-architecture.md)
+- [EVIDENCE.md](../tools/claude-code/EVIDENCE.md) (based on earlier v2.1.x binary decompilation)
 
-### 相关 Qwen Code PR（v0.16.0 全部已合并）
+### Related Qwen Code PRs (all merged in v0.16.0)
 
-- [PR#3076](https://github.com/QwenLM/qwen-code/pull/3076) `feat: background subagents`（已合并 2026-04-17，Agent 后台启动）
-- [PR#3471](https://github.com/QwenLM/qwen-code/pull/3471) `feat(core): model-facing agent control`（已合并，task_stop / send_message / per-agent transcript JSONL）
-- [PR#3488](https://github.com/QwenLM/qwen-code/pull/3488) `feat(cli): background-agent UI`（已合并，pill + combined dialog + detail view）
-- [PR#3642](https://github.com/QwenLM/qwen-code/pull/3642) `feat(core): managed background shell pool with /tasks command`（已合并）
-- [PR#3684](https://github.com/QwenLM/qwen-code/pull/3684) `feat(core): event monitor tool with throttled stdout streaming`（已合并）
-- [PR#3720](https://github.com/QwenLM/qwen-code/pull/3720) `feat(cli): wire background shells into combined Background tasks dialog`（已合并）
-- [PR#3791](https://github.com/QwenLM/qwen-code/pull/3791) `feat(cli): wire Monitor entries into combined Background tasks dialog`（已合并）
+- [PR#3076](https://github.com/QwenLM/qwen-code/pull/3076) `feat: background subagents` (merged 2026-04-17, Agent background launch)
+- [PR#3471](https://github.com/QwenLM/qwen-code/pull/3471) `feat(core): model-facing agent control` (merged, task_stop / send_message / per-agent transcript JSONL)
+- [PR#3488](https://github.com/QwenLM/qwen-code/pull/3488) `feat(cli): background-agent UI` (merged, pill + combined dialog + detail view)
+- [PR#3642](https://github.com/QwenLM/qwen-code/pull/3642) `feat(core): managed background shell pool with /tasks command` (merged)
+- [PR#3684](https://github.com/QwenLM/qwen-code/pull/3684) `feat(core): event monitor tool with throttled stdout streaming` (merged)
+- [PR#3720](https://github.com/QwenLM/qwen-code/pull/3720) `feat(cli): wire background shells into combined Background tasks dialog` (merged)
+- [PR#3791](https://github.com/QwenLM/qwen-code/pull/3791) `feat(cli): wire Monitor entries into combined Background tasks dialog` (merged)
 
-> **免责声明**：
-> - Claude Code 实测在 v2.1.120 binary，源码分析在 v2.1.x leaked dump（版本可能略有差异，但核心架构稳定）
-> - Qwen Code 部分基于 2026 年 Q1 初稿，2026-05-22 对照 v0.16.0 复核；Qwen Code 的 PR 状态已全部更新为 v0.16.0 实际状态（原文档中标注为 OPEN 的 PR#3471/#3488 已合并，且新增 PR#3642/#3684 覆盖 Bash bg pool 和 Monitor）
-> - 二进制反编译可能损失部分元数据；7 种 task type 中 `local_workflow` / `monitor_mcp` 实际触发条件未在本文实测验证
+> **Disclaimer**:
+> - Claude Code real testing used the v2.1.120 binary; source analysis used the v2.1.x leaked dump (versions may differ slightly, but the core architecture is stable)
+> - Qwen Code portions were based partly on a 2026 Q1 draft and rechecked against v0.16.0 on 2026-05-22; Qwen Code PR status has been fully updated to the actual v0.16.0 state (PR#3471/#3488, marked OPEN in the original document, have been merged, and PR#3642/#3684 were added to cover Bash bg pool and Monitor)
+> - Binary decompilation may lose some metadata; actual trigger conditions for `local_workflow` / `monitor_mcp` among the 7 task types were not empirically verified in this article
