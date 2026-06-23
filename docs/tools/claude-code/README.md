@@ -1,60 +1,60 @@
-# Claude Code 源码分析（面向 Code Agent 开发者）
+# Claude Code Source Analysis (for Code Agent Developers)
 
-> 本系列文档基于 Claude Code 源码分析（~1800 文件）和二进制逆向分析，提炼出对 Qwen Code、Gemini CLI 等 Code Agent 开发者有参考价值的架构设计和实现模式。
+> This documentation series is based on Claude Code source analysis (~1800 files) and binary reverse engineering. It extracts architecture designs and implementation patterns that are useful for developers of Code Agents such as Qwen Code and Gemini CLI.
 >
-> **阅读对象**：正在开发或改进 CLI Code Agent 的工程师
+> **Audience**: Engineers developing or improving CLI Code Agents
 >
-> **不是**：Claude Code 用户手册或功能介绍
+> **Not**: A Claude Code user manual or feature introduction
 
-> **基线版本说明**：
-> - 主体内容基于 **v2.1.81 二进制逆向分析**（2026-03-25）
-> - **v2.1.82 → v2.1.132 增量更新**汇总在 [§23-recent-updates.md](./23-recent-updates.md)（5 个云端新特性 / 默认 Opus 4.6 → 4.7 / 新斜杠命令 / 新 env vars / hooks conditional / MCP per-tool size override / 1 个 breaking）。各章节内的小幅更新就地标注 `(v2.1.X+)` 或 `(2026-04 后)`。
+> **Baseline version note**:
+> - The main content is based on **v2.1.81 binary reverse engineering** (2026-03-25)
+> - **v2.1.82 → v2.1.132 incremental updates** are summarized in [§23-recent-updates.md](./23-recent-updates.md) (5 new cloud features / default Opus 4.6 → 4.7 / new slash commands / new env vars / hooks conditional / MCP per-tool size override / 1 breaking change). Minor updates inside chapters are marked in place as `(v2.1.X+)` or `(after 2026-04)`.
 
-## 文档索引
+## Document Index
 
-| 文档 | 开发者关注点 | Qwen Code 对标 |
+| Document | Developer Focus | Qwen Code Comparison |
 |------|------------|----------------|
-| [01-概述与对标](./01-overview.md) | 核心能力矩阵、架构差异速查 | 功能差距一览 |
-| [02-命令系统](./02-commands.md) | 79 命令的注册/加载/权限设计 | 斜杠命令架构参考 |
-| [03-技术架构](./03-architecture.md) | Bootstrap 链、QueryEngine 循环、Feature Flag DCE、Provider 通信 | 核心循环 + 启动优化 |
-| [04-工具系统](./04-tools.md) | 42 工具的 Zod Schema、权限模型、延迟加载、安全校验 | 工具注册 + ToolSearch |
-| [05-Skill 系统](./05-skills.md) | Skill 定义格式、加载优先级、内置 Skill | Skill/技能架构 |
-| [06-设置与安全](./06-settings.md) | 5 层设置、沙箱隔离、24 种 Hook 事件、权限模型 | 安全加固路线 |
-| [07-会话与记忆](./07-session.md) | 5 层上下文压缩、CLAUDE.md 记忆、团队记忆、MCP、文件检查点 | 上下文管理 + 记忆系统 |
-| [08-Remote Control](./08-remote-control.md) | WebSocket/SSE 桥接、会话生命周期、安全纵深 | 远程控制架构 |
-| [09-多 Agent 系统](./09-multi-agent.md) | Leader-Worker、Swarm 三后端、邮箱通信、任务管理、Kairos | 多 Agent 编排 |
-| [10-Prompt Suggestions](./10-prompt-suggestions.md) | 预测生成、12 条过滤规则、Speculation 推测执行 | 智能补全 |
-| [11-终端渲染](./11-terminal-rendering.md) | DEC 2026 同步输出、差分渲染、缓存池化 | 防闪烁 + 渲染性能 |
-| [12-Hook 系统](./12-hooks.md) | 27 种事件、6 种处理器（含 LLM 推理决策）、hookify 自动规则 | Hook 事件覆盖度 + prompt/agent Hook |
-| [13-系统提示](./13-system-prompt.md) | 动态拼装、静态/动态分区、Prompt Cache 优化、`<system-reminder>` 注入 | Prompt Cache 分区 + QWEN.md 注入方式 |
-| [14-MCP 集成](./14-mcp.md) | 6 种传输、OAuth + XAA、Channel 消息、断线重连、资源订阅 | MCP 资源/Prompt 支持 + 重连策略 |
-| [15-遥测与 Feature Flag](./15-telemetry-feature-flags.md) | 891+ 事件、GrowthBook 远程灰度、双 Sink 架构、隐私保护 | 远程 Feature Flag + 遥测扩展 |
-| [16-Auto Dream](./16-auto-dream.md) | 四阶段记忆整合、三门触发、与 Kairos 互斥 | 记忆自动整理 |
-| [17-LSP 客户端](./17-lsp.md) | 编译器级代码理解、诊断自动注入 | LSP 默认启用 + 诊断集成 |
-| [18-文件索引](./18-file-index.md) | Rust NAPI fzf 模糊搜索、异步增量索引 | 文件搜索性能优化 |
-| [19-参考速查](./19-reference.md) | 数据结构、术语表、实体关系图 | 概念速查 |
-| [20-查询状态转换](./20-query-transitions.md) | 6 种转换原因、状态机模型 | TransitionReason 枚举 |
-| [21-工具执行运行时](./21-tool-execution-runtime.md) | 并发分类、波次调度、进度消息 | Wave-based 并行 |
-| [22-消息管线](./22-message-pipeline.md) | 消息标准化、system-reminder 注入、Cache 分区 | QWEN.md 注入方式 |
-| [23-近期更新](./23-recent-updates.md) | v2.1.82 → v2.1.132 增量（Computer Use / Auto Mode / Ultraplan / Ultrareview / Routines / Opus 4.7 / 新命令 / hooks conditional / MCP size override）| 云端新模式 + 多 agent fleet 借鉴 |
-| [EVIDENCE.md](./EVIDENCE.md) | 二进制分析原始证据 | — |
+| [01-Overview and Comparison](./01-overview.md) | Core capability matrix and architecture differences at a glance | Feature gap overview |
+| [02-Command System](./02-commands.md) | Registration/loading/permission design for 79 commands | Slash command architecture reference |
+| [03-Technical Architecture](./03-architecture.md) | Bootstrap chain, QueryEngine loop, Feature Flag DCE, Provider communication | Core loop + startup optimization |
+| [04-Tool System](./04-tools.md) | Zod Schema, permission model, lazy loading, and security validation for 42 tools | Tool registration + ToolSearch |
+| [05-Skill System](./05-skills.md) | Skill definition format, loading priority, built-in Skills | Skill architecture |
+| [06-Settings and Security](./06-settings.md) | 5-layer settings, sandbox isolation, 24 Hook events, permission model | Security hardening path |
+| [07-Session and Memory](./07-session.md) | 5-layer context compression, CLAUDE.md memory, team memory, MCP, file checkpoints | Context management + memory system |
+| [08-Remote Control](./08-remote-control.md) | WebSocket/SSE bridge, session lifecycle, defense in depth | Remote control architecture |
+| [09-Multi-Agent System](./09-multi-agent.md) | Leader-Worker, three Swarm backends, mailbox communication, task management, Kairos | Multi-Agent orchestration |
+| [10-Prompt Suggestions](./10-prompt-suggestions.md) | Predictive generation, 12 filtering rules, Speculation execution | Intelligent completion |
+| [11-Terminal Rendering](./11-terminal-rendering.md) | DEC 2026 synchronized output, differential rendering, cache pooling | Anti-flicker + rendering performance |
+| [12-Hook System](./12-hooks.md) | 27 events, 6 handler types (including LLM reasoning decisions), hookify automatic rules | Hook event coverage + prompt/agent Hooks |
+| [13-System Prompt](./13-system-prompt.md) | Dynamic assembly, static/dynamic partitioning, Prompt Cache optimization, `<system-reminder>` injection | Prompt Cache partitioning + QWEN.md injection approach |
+| [14-MCP Integration](./14-mcp.md) | 6 transports, OAuth + XAA, Channel messages, reconnect, resource subscriptions | MCP resource/Prompt support + reconnect strategy |
+| [15-Telemetry and Feature Flag](./15-telemetry-feature-flags.md) | 891+ events, GrowthBook remote rollout, dual Sink architecture, privacy protection | Remote Feature Flag + telemetry extension |
+| [16-Auto Dream](./16-auto-dream.md) | Four-stage memory consolidation, three-gate trigger, mutual exclusion with Kairos | Automatic memory cleanup |
+| [17-LSP Client](./17-lsp.md) | Compiler-level code understanding, automatic diagnostic injection | LSP enabled by default + diagnostic integration |
+| [18-File Index](./18-file-index.md) | Rust NAPI fzf fuzzy search, async incremental indexing | File search performance optimization |
+| [19-Reference Quick Sheet](./19-reference.md) | Data structures, glossary, entity relationship diagrams | Concept quick reference |
+| [20-Query State Transitions](./20-query-transitions.md) | 6 transition reasons, state-machine model | TransitionReason enum |
+| [21-Tool Execution Runtime](./21-tool-execution-runtime.md) | Concurrency classification, wave scheduling, progress messages | Wave-based parallelism |
+| [22-Message Pipeline](./22-message-pipeline.md) | Message normalization, system-reminder injection, Cache partitioning | QWEN.md injection approach |
+| [23-Recent Updates](./23-recent-updates.md) | v2.1.82 → v2.1.132 increments (Computer Use / Auto Mode / Ultraplan / Ultrareview / Routines / Opus 4.7 / new commands / hooks conditional / MCP size override) | Cloud modes + multi-agent fleet reference |
+| [EVIDENCE.md](./EVIDENCE.md) | Raw evidence from binary analysis | — |
 
-## 如何使用本系列
+## How to Use This Series
 
-1. **快速定位差距**：从 [01-概述](./01-overview.md) 的能力矩阵找到你关心的领域
-2. **深入架构**：进入对应章节查看 Claude Code 的实现细节
-3. **对照改进**：每个章节的"开发者参考"小节提供 Qwen Code 的对标分析和实现建议
-4. **查阅证据**：所有技术声明在 [EVIDENCE.md](./EVIDENCE.md) 中有源码/二进制分析支撑
+1. **Locate gaps quickly**: Start with the capability matrix in [01-Overview](./01-overview.md) to find the area you care about
+2. **Dive into architecture**: Open the corresponding chapter to study Claude Code implementation details
+3. **Compare and improve**: Each chapter's "Developer Reference" section provides Qwen Code comparison analysis and implementation suggestions
+4. **Review evidence**: All technical claims are supported by source/binary analysis in [EVIDENCE.md](./EVIDENCE.md)
 
-## 相关文档
+## Related Documents
 
-- [Qwen Code 改进建议报告（Claude Code 对比）](../../../docs/comparison/qwen-code-improvement-report.md)
-- [Qwen Code 上游 backport 报告（Gemini CLI 对比）](../../../docs/comparison/qwen-code-gemini-upstream-report.md)
-- [/review 功能改进建议](../../../docs/comparison/qwen-code-review-improvements.md)
+- [Qwen Code Improvement Recommendations Report (Claude Code Comparison)](../../../docs/comparison/qwen-code-improvement-report.md)
+- [Qwen Code Upstream Backport Report (Gemini CLI Comparison)](../../../docs/comparison/qwen-code-gemini-upstream-report.md)
+- [/review Feature Improvement Recommendations](../../../docs/comparison/qwen-code-review-improvements.md)
 
-## 分析方法
+## Analysis Methodology
 
-- **源码分析**：基于公开的反编译/source map 分析结果
-- **二进制分析**：ELF x86-64 二进制的 `strings` / `readelf` / 反编译
-- **官方文档**：[code.claude.com/docs](https://code.claude.com/docs/en)
-- **网络搜索**：GitHub Blog、社区分析、第三方拆解
+- **Source analysis**: Based on public decompilation/source map analysis results
+- **Binary analysis**: `strings` / `readelf` / decompilation of ELF x86-64 binaries
+- **Official documentation**: [code.claude.com/docs](https://code.claude.com/docs/en)
+- **Web research**: GitHub Blog, community analysis, and third-party teardowns

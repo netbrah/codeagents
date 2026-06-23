@@ -311,20 +311,20 @@ Date: 2026-03-25
 ########## DECOMPILATION: Telemetry, System Info, Network Targets ##########
 
 ### Telemetry Endpoints (from binary)
-1. https://api.anthropic.com/api/claude_code/metrics — 主遥测上报
-2. https://api.anthropic.com/api/claude_code/organizations/metrics_enabled — 组织级遥测开关查询
-3. https://http-intake.logs.us5.datadoghq.com/api/v — Datadog 日志采集 (US5 区域)
-4. https://api.segment.io — Segment 分析
-5. https://beacon.claude-ai.staging.ant.dev — Staging 环境信标
+1. https://api.anthropic.com/api/claude_code/metrics — primary telemetry reporting
+2. https://api.anthropic.com/api/claude_code/organizations/metrics_enabled — organization-level telemetry switch query
+3. https://http-intake.logs.us5.datadoghq.com/api/v — Datadog log intake (US5 region)
+4. https://api.segment.io — Segment analytics
+5. https://beacon.claude-ai.staging.ant.dev — staging environment beacon
 
 ### System Information Collection
-- platform() / process.platform — 操作系统类型
-- process.arch — CPU 架构
-- oOH() — 平台信息聚合函数 (28 refs in binary)
-- os.hostname / gethostname — 主机名
-- uv_cpu_info / os.cpus — CPU 信息
-- hardwareConcurrency — 硬件并发数
-- macOS 版本号映射: Darwin kernel 22→macOS 13, 21→12, etc.
+- platform() / process.platform — operating system type
+- process.arch — CPU architecture
+- oOH() — platform information aggregation function (28 refs in binary)
+- os.hostname / gethostname — hostname
+- uv_cpu_info / os.cpus — CPU information
+- hardwareConcurrency — hardware concurrency count
+- macOS version number mapping: Darwin kernel 22→macOS 13, 21→12, etc.
 
 ### Environment Variables (161 total CLAUDE_CODE_*)
 Key categories:
@@ -401,57 +401,57 @@ From binary analysis of telemetry event construction:
 
 ########## SOURCE CODE ANALYSIS: Remote Control / Bridge ##########
 
-> 以下数据来自 Claude Code 源码分析（`bridge/`、`remote/`、`utils/`、`entrypoints/` 等目录，约 35,000 行 TypeScript），与 v2.1.87 ELF 二进制反编译交叉验证。文件名和行号可直接追溯。
+> The following data comes from Claude Code source-code analysis (`bridge/`, `remote/`, `utils/`, `entrypoints/`, and related directories, approximately 35,000 lines of TypeScript), cross-validated against v2.1.87 ELF binary decompilation. File names and line numbers are directly traceable.
 
 ### Source Code File Map
 
-| 文件路径 | 行数 | 职责 |
+| File Path | Lines | Responsibility |
 |----------|------|------|
-| `bridge/bridgeMain.ts` | 2,999 | 主桥接编排器（standalone daemon/server 模式） |
-| `bridge/replBridge.ts` | 2,406 | REPL 会话内桥接核心 |
-| `bridge/remoteBridgeCore.ts` | 1,008 | Env-less v2 桥接核心 |
-| `bridge/initReplBridge.ts` | 569 | 桥接初始化 |
-| `bridge/sessionRunner.ts` | 550 | 会话执行器 |
-| `bridge/bridgeApi.ts` | 539 | Bridge API 层 |
-| `bridge/bridgeUI.ts` | 530 | Bridge UI 层 |
-| `bridge/bridgeMessaging.ts` | 461 | 消息协议处理 |
-| `bridge/createSession.ts` | 384 | 会话创建 |
-| `bridge/replBridgeTransport.ts` | 370 | 传输层抽象 |
-| `bridge/types.ts` | 262 | 类型定义 |
-| `bridge/jwtUtils.ts` | 256 | JWT 认证工具 |
-| `bridge/trustedDevice.ts` | 210 | 设备信任管理 |
-| `bridge/bridgeEnabled.ts` | 202 | 启用/禁用逻辑 |
-| `bridge/pollConfig.ts` | 110 | Polling 配置 |
-| `bridge/pollConfigDefaults.ts` | 82 | 默认 polling 参数 |
-| `bridge/flushGate.ts` | 71 | 历史消息刷新门控 |
-| `bridge/capacityWake.ts` | 56 | 容量唤醒信号 |
-| `remote/SessionsWebSocket.ts` | 404 | Sessions WebSocket 客户端 |
-| `remote/RemoteSessionManager.ts` | 343 | 远程会话管理 |
-| `remote/sdkMessageAdapter.ts` | 302 | SDK 消息适配器 |
-| `entrypoints/sdk/controlSchemas.ts` | ~510 | Zod v4 控制消息 schema（21 种子类型） |
-| `utils/concurrentSessions.ts` | 205 | PID 文件并发会话管理 |
-| `utils/sessionIngressAuth.ts` | 131 | 3 层 token 优先级链 |
-| `utils/sessionActivity.ts` | 123 | refcount 心跳计时器 |
-| `utils/controlMessageCompat.ts` | 35 | iOS camelCase 兼容层 |
-| `services/api/sessionIngress.ts` | 464 | Session-Ingress API（乐观并发写入） |
-| `utils/teleport.tsx` | 1,226 | Teleport 远程会话创建/恢复 |
-| `server/directConnectManager.ts` | 213 | DirectConnect WebSocket 客户端 |
+| `bridge/bridgeMain.ts` | 2,999 | Main bridge orchestrator (standalone daemon/server mode) |
+| `bridge/replBridge.ts` | 2,406 | Core bridge inside REPL sessions |
+| `bridge/remoteBridgeCore.ts` | 1,008 | Env-less v2 bridge core |
+| `bridge/initReplBridge.ts` | 569 | Bridge initialization |
+| `bridge/sessionRunner.ts` | 550 | Session runner |
+| `bridge/bridgeApi.ts` | 539 | Bridge API layer |
+| `bridge/bridgeUI.ts` | 530 | Bridge UI layer |
+| `bridge/bridgeMessaging.ts` | 461 | Message protocol handling |
+| `bridge/createSession.ts` | 384 | Session creation |
+| `bridge/replBridgeTransport.ts` | 370 | Transport-layer abstraction |
+| `bridge/types.ts` | 262 | Type definitions |
+| `bridge/jwtUtils.ts` | 256 | JWT authentication utilities |
+| `bridge/trustedDevice.ts` | 210 | Trusted device management |
+| `bridge/bridgeEnabled.ts` | 202 | Enable/disable logic |
+| `bridge/pollConfig.ts` | 110 | Polling configuration |
+| `bridge/pollConfigDefaults.ts` | 82 | Default polling parameters |
+| `bridge/flushGate.ts` | 71 | Historical message flush gating |
+| `bridge/capacityWake.ts` | 56 | Capacity wake signal |
+| `remote/SessionsWebSocket.ts` | 404 | Sessions WebSocket client |
+| `remote/RemoteSessionManager.ts` | 343 | Remote session management |
+| `remote/sdkMessageAdapter.ts` | 302 | SDK message adapter |
+| `entrypoints/sdk/controlSchemas.ts` | ~510 | Zod v4 control-message schemas (21 subtypes) |
+| `utils/concurrentSessions.ts` | 205 | PID-file concurrent session management |
+| `utils/sessionIngressAuth.ts` | 131 | 3-tier token priority chain |
+| `utils/sessionActivity.ts` | 123 | Refcount heartbeat timer |
+| `utils/controlMessageCompat.ts` | 35 | iOS camelCase compatibility layer |
+| `services/api/sessionIngress.ts` | 464 | Session-Ingress API (optimistic concurrent writes) |
+| `utils/teleport.tsx` | 1,226 | Teleport remote session creation/resume |
+| `server/directConnectManager.ts` | 213 | DirectConnect WebSocket client |
 
 ### Dual-Generation Transport Architecture
 
 **v1 (HybridTransport)** — `bridge/replBridge.ts`:
-- 读取：WebSocket 长连接
-- 写入：POST 到 Session-Ingress 端点
-- 认证：OAuth token（通过 `refreshHeaders` 回调注入刷新后的 token）
-- 重连：指数退避（2s → 60s，15 分钟放弃）
-- 选择条件：默认
+- Read: long-lived WebSocket connection
+- Write: POST to Session-Ingress endpoint
+- Authentication: OAuth token (refreshed token injected through the `refreshHeaders` callback)
+- Reconnection: exponential backoff (2s → 60s, give up after 15 minutes)
+- Selection condition: default
 
 **v2 (SSETransport + CCRClient)** — `bridge/remoteBridgeCore.ts`:
-- 读取：SSE（Server-Sent Events）
-- 写入：POST 到 CCR `/worker/*` 端点
-- 认证：JWT（含 `session_id` claim + `worker` role）
-- 重连：SSE 401 触发 OAuth 刷新 + 凭证重取
-- 选择条件：服务端通过 `secret.use_code_sessions` 标志切换；`CLAUDE_BRIDGE_USE_CCR_V2` env var 强制
+- Read: SSE (Server-Sent Events)
+- Write: POST to CCR `/worker/*` endpoints
+- Authentication: JWT (with `session_id` claim + `worker` role)
+- Reconnection: SSE 401 triggers OAuth refresh + credential re-fetch
+- Selection condition: server switches via `secret.use_code_sessions` flag; `CLAUDE_BRIDGE_USE_CCR_V2` env var forces it
 
 ### Session States (from `server/types.ts`)
 
@@ -502,13 +502,13 @@ showRemoteCallout: false
 ### Dependency Injection: BridgeCoreParams (from `bridge/initReplBridge.ts`)
 
 Injected params (no direct imports from bootstrap/state or sessionStorage):
-- `createSession` — 创建新会话
-- `archiveSession` — 归档会话
-- `toSDKMessages` — 内部消息→SDK 消息转换
-- `onAuth401` — 401 认证失败回调
-- `getPollIntervalConfig` — 获取 GrowthBook 下发的 polling 参数
-- `onSetPermissionMode` — 权限模式变更回调（含 auto gate check + bypassPermissions availability check）
-- `onEnvironmentLost` — 环境丢失回调
+- `createSession` — create a new session
+- `archiveSession` — archive a session
+- `toSDKMessages` — convert internal messages to SDK messages
+- `onAuth401` — 401 authentication failure callback
+- `getPollIntervalConfig` — get polling parameters delivered by GrowthBook
+- `onSetPermissionMode` — permission mode change callback (including auto gate check + bypassPermissions availability check)
+- `onEnvironmentLost` — environment lost callback
 
 Returned handle (ReplBridgeHandle):
 - Read-only: `bridgeSessionId`, `environmentId`, `sessionIngressUrl`
@@ -749,7 +749,7 @@ GrowthBook flag: `tengu_bridge_poll_interval_config` controls the entire config 
 
 ## SOURCE CODE ANALYSIS: Tool System
 
-> 以下数据来自 Claude Code `tools/` 目录源码分析（~163 文件、~50,000 行 TypeScript）。这与上文 Remote Control/Bridge 分析（`bridge/`、`remote/`、`utils/`、`entrypoints/`，约 35,000 行）是**独立的分析范围**。两个范围的差异来自不同目录覆盖：工具系统分析专注于 `tools/` 及其直接依赖。
+> The following data comes from source-code analysis of Claude Code's `tools/` directory (~163 files, ~50,000 lines of TypeScript). This is an **independent analysis scope** from the Remote Control/Bridge analysis above (`bridge/`, `remote/`, `utils/`, `entrypoints/`, approximately 35,000 lines). Differences between the two scopes come from different directory coverage: the tool-system analysis focuses on `tools/` and its direct dependencies.
 
 ### Tool Base Architecture (from `Tool.ts`)
 

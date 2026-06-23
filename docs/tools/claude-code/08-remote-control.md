@@ -1,486 +1,488 @@
-# 8. Remote Control（远程控制）——开发者参考
+# 8. Remote Control — Developer Reference
 
-> 从手机/浏览器远程操控本地终端 Agent——会话始终在本地执行，远程端仅为交互窗口。本文分析 WebSocket/SSE Bridge 架构、安全纵深设计。
+> Remotely control a local terminal Agent from a phone or browser. The session always executes locally; the remote side is only an interaction window. This document analyzes the WebSocket/SSE Bridge architecture and defense-in-depth security design.
 >
-> **Qwen Code 对标**：Qwen Code 目前无远程控制能力。本文的 Bridge 架构可作为实现参考，但优先级较低（P2-P3）。
+> **Qwen Code comparison**: Qwen Code currently has no remote-control capability. The Bridge architecture here can serve as an implementation reference, but its priority is relatively low (P2-P3).
 
-## 为什么需要远程控制
+## Why Remote Control Is Needed
 
-### 问题定义
+### Problem Definition
 
-Code Agent 运行在开发者的终端中，但开发者不总是坐在那台电脑前：
+Code Agents run in a developer's terminal, but developers are not always sitting at that computer:
 
-| 场景 | 痛点 | Remote Control 解决方案 |
+| Scenario | Pain Point | Remote Control Solution |
 |------|------|----------------------|
-| Agent 跑长任务，开发者去开会 | 无法从手机查看进度/审批操作 | 手机浏览器远程操控 |
-| SSH 到远程服务器跑 Agent | 终端掉线 = 会话丢失 | Bridge 保持会话，任意设备重连 |
-| 结对编程远程演示 | 无法共享终端给同事看 | 通过链接实时共享 |
+| An Agent is running a long task and the developer goes to a meeting | Cannot check progress or approve actions from a phone | Remote control from a mobile browser |
+| Running an Agent on a remote server over SSH | Terminal disconnect = session lost | The Bridge keeps the session alive and any device can reconnect |
+| Remote pair-programming demo | Cannot share the terminal with colleagues | Real-time sharing through a link |
 
-### 设计决策：本地执行 + 远程 UI
+### Design Decision: Local Execution + Remote UI
 
-关键架构决策：**会话始终在本地执行**——远程端仅是交互窗口。这意味着：
-- 代码不离开本地机器（安全）
-- 网络断开不影响执行（鲁棒）
-- 远程端是"视图"不是"控制器"（权限可控）
+Key architecture decision: **the session always executes locally**; the remote side is only an interaction window. This means:
+- Code does not leave the local machine (security)
+- Network disconnection does not affect execution (robustness)
+- The remote side is a "view", not a "controller" (controllable permissions)
 
-### 竞品远程能力对比
+### Competitor Remote Capability Comparison
 
-| Agent | 远程能力 | 架构 | 安全模型 |
+| Agent | Remote Capability | Architecture | Security Model |
 |-------|---------|------|---------|
-| **Claude Code** | Remote Control + Claude Code on the Web | WebSocket/SSE Bridge，本地执行 | Bearer token + 会话密钥 |
-| **Gemini CLI** | 无独立远程控制 | — | — |
-| **Qwen Code** | 无 | — | — |
-| **Copilot CLI** | Background Agent（GitHub Actions） | 云端执行 | GitHub 认证 |
-| **Cursor** | 无独立远程（VS Code Remote 继承） | VS Code SSH/Tunnel | VS Code 认证 |
+| **Claude Code** | Remote Control + Claude Code on the Web | WebSocket/SSE Bridge, local execution | Bearer token + session key |
+| **Gemini CLI** | No standalone remote control | — | — |
+| **Qwen Code** | None | — | — |
+| **Copilot CLI** | Background Agent (GitHub Actions) | Cloud execution | GitHub authentication |
+| **Cursor** | No standalone remote capability (inherits VS Code Remote) | VS Code SSH/Tunnel | VS Code authentication |
 
-## 8.1 概述
+## 8.1 Overview
 
-Remote Control 是 Claude Code 的跨设备会话桥接功能，在 19 款主流 AI 编程 Agent 中**为 Claude Code 独有**（[功能矩阵](../../comparison/features.md)）。它解决了开发者的一个核心痛点：启动了一个长时间的终端代理任务后，需要离开工位继续监控或干预。
+Remote Control is Claude Code's cross-device session bridging feature. Among 19 mainstream AI programming Agents, it is **unique to Claude Code** ([feature matrix](../../comparison/features.md)). It solves a core developer pain point: after starting a long-running terminal agent task, the developer may need to leave the workstation while continuing to monitor or intervene.
 
-核心特性：
+Core capabilities:
 
-- **本地执行，远程操控**：会话运行在本地机器上，完整的文件系统、MCP 服务器、工具链、项目配置均可使用
-- **实时双向同步**：所有连接设备的对话保持同步，可在任意设备上发送消息
-- **自动重连**：笔记本电脑睡眠或网络短暂中断后自动恢复连接
-- **零入站端口**：所有通信通过出站 HTTPS 完成，无需开放防火墙端口
+- **Local execution, remote control**: The session runs on the local machine, with the full file system, MCP servers, toolchain, and project configuration available
+- **Real-time bidirectional synchronization**: Conversations stay synchronized across all connected devices, and messages can be sent from any device
+- **Automatic reconnection**: The connection automatically recovers after laptop sleep or brief network interruption
+- **Zero inbound ports**: All communication uses outbound HTTPS; no firewall ports need to be opened
 
-## 8.2 前置条件
+## 8.2 Prerequisites
 
-| 要求 | 详情 |
+| Requirement | Details |
 |------|------|
-| **版本** | Claude Code v2.1.51+（`claude --version` 检查） |
-| **订阅** | Pro / Max / Team / Enterprise 计划。**API Key 不支持** |
-| **认证方式** | 必须通过 claude.ai OAuth 登录（`/login`），不支持 API Key 或 `claude setup-token` |
-| **工作区信任** | 需在项目目录中至少运行一次 `claude` 以接受工作区信任对话框 |
-| **Team/Enterprise** | 管理员需在 `claude.ai/admin-settings/claude-code` 中启用 Remote Control 开关 |
+| **Version** | Claude Code v2.1.51+ (check with `claude --version`) |
+| **Subscription** | Pro / Max / Team / Enterprise plans. **API Key is not supported** |
+| **Authentication method** | Must sign in through claude.ai OAuth (`/login`); API Key and `claude setup-token` are not supported |
+| **Workspace trust** | Run `claude` at least once in the project directory to accept the workspace trust dialog |
+| **Team/Enterprise** | An administrator must enable the Remote Control toggle in `claude.ai/admin-settings/claude-code` |
 
-## 8.3 三种启动方式
+## 8.3 Three Startup Methods
 
-### 8.3.1 方式一：Server 模式（专用服务）
+### 8.3.1 Method 1: Server Mode (Dedicated Service)
 
 ```bash
 claude remote-control
 claude remote-control --name "My Project"
 ```
 
-运行一个专用的 Remote Control 服务器，等待远程连接。终端显示会话 URL，按 **空格键** 可显示 QR 码。
+Runs a dedicated Remote Control server and waits for remote connections. The terminal displays the session URL; press the **Space key** to show the QR code.
 
-**可用参数：**
+**Available options:**
 
-| 参数 | 说明 |
+| Option | Description |
 |------|------|
-| `--name <名称>` | 自定义会话标题，在会话列表中可见 |
-| `--spawn <模式>` | `same-dir`（默认）：所有会话共享 CWD；`worktree`：每个会话获得独立 Git worktree |
-| `--capacity <N>` | 最大并发会话数（默认：32） |
-| `--verbose` | 详细连接/会话日志 |
-| `--sandbox` / `--no-sandbox` | 启用/禁用文件系统和网络沙箱（默认关闭） |
+| `--name <name>` | Custom session title, visible in the session list |
+| `--spawn <mode>` | `same-dir` (default): all sessions share the CWD; `worktree`: each session gets an independent Git worktree |
+| `--capacity <N>` | Maximum number of concurrent sessions (default: 32) |
+| `--verbose` | Detailed connection/session logs |
+| `--sandbox` / `--no-sandbox` | Enable/disable file-system and network sandboxing (disabled by default) |
 
-### 8.3.2 方式二：交互式会话 + Remote Control
+### 8.3.2 Method 2: Interactive Session + Remote Control
 
 ```bash
-claude --remote-control              # 或 --rc
-claude --remote-control "My Project" # 带名称
+claude --remote-control              # or --rc
+claude --remote-control "My Project" # with a name
 ```
 
-在终端中启动一个完整的交互式会话，同时可通过远程设备操控。可以本地输入，远程客户端也可以同时连接。
+Starts a full interactive session in the terminal while also allowing control from remote devices. Local input is still available, and remote clients can connect at the same time.
 
-### 8.3.3 方式三：从已有会话启用
+### 8.3.3 Method 3: Enable from an Existing Session
 
 ```
-/remote-control          # 或 /rc
+/remote-control          # or /rc
 /remote-control My Project
 ```
 
-在当前对话中启用 Remote Control。此方式不支持 `--verbose`、`--sandbox`、`--no-sandbox` 参数。
+Enables Remote Control in the current conversation. This method does not support the `--verbose`, `--sandbox`, or `--no-sandbox` options.
 
-> **命令类型**：`/remote-control` 斜杠命令类型为 `local-jsx`（[命令详解](./02-commands.md)），渲染远程控制配置 UI 并启动到 claude.ai/code 的连接。
+> **Command type**: The `/remote-control` slash command type is `local-jsx` ([command details](./02-commands.md)); it renders the remote-control configuration UI and starts the connection to claude.ai/code.
 
-## 8.4 从其他设备连接
+## 8.4 Connecting from Other Devices
 
-三种连接方式：
+Three connection methods:
 
-| 方式 | 操作 |
+| Method | Operation |
 |------|------|
-| **会话 URL** | 在任意浏览器中打开，跳转到 `claude.ai/code` |
-| **QR 码** | 用 Claude App 扫描（Server 模式下按空格键切换显示） |
-| **会话列表** | 在 `claude.ai/code` 或 Claude App 中按名称查找；在线的 Remote Control 会话显示**带绿点的电脑图标** |
+| **Session URL** | Open it in any browser; it redirects to `claude.ai/code` |
+| **QR code** | Scan it with the Claude App (in Server mode, press the Space key to toggle display) |
+| **Session list** | Find it by name in `claude.ai/code` or the Claude App; online Remote Control sessions show a **computer icon with a green dot** |
 
-**会话标题优先级**（依次递减）：
-1. `--name` / `--remote-control` / `/remote-control` 参数指定的名称
-2. 通过 `/rename` 设置的标题
-3. 对话历史中最后一条有意义消息的内容
-4. 用户发送的第一条 prompt
+**Session title priority** (descending):
+1. Name specified by the `--name` / `--remote-control` / `/remote-control` argument
+2. Title set through `/rename`
+3. Content of the last meaningful message in the conversation history
+4. The first prompt sent by the user
 
-## 8.5 全局默认启用
+## 8.5 Global Default Enablement
 
-在 Claude Code 中运行 `/config` → 将 **"Enable Remote Control for all sessions"** 设为 `true`。此后每个交互式进程自动注册一个远程会话。如需一个进程中多个并发会话，使用 **Server 模式** 加 `--spawn`。
+Run `/config` in Claude Code and set **"Enable Remote Control for all sessions"** to `true`. After that, every interactive process automatically registers a remote session. If multiple concurrent sessions are needed within one process, use **Server mode** with `--spawn`.
 
-## 8.6 技术架构
+## 8.6 Technical Architecture
 
-> 以下综合 [Anthropic 官方文档](https://docs.anthropic.com/en/docs/claude-code/remote-control)、源码分析（`bridge/` 目录 12,613 行 + `remote/` 目录 1,127 行 + `utils/` 和 `entrypoints/` 相关约 21,000 行）、GitHub Issues 社区反馈和 Anthropic 工程博客。
+> The following combines [Anthropic official documentation](https://docs.anthropic.com/en/docs/claude-code/remote-control), source analysis (`bridge/` directory: 12,613 lines + `remote/` directory: 1,127 lines + about 21,000 relevant lines in `utils/` and `entrypoints/`), GitHub Issues community feedback, and Anthropic engineering blog posts.
 
-### 8.6.1 三方中继架构
+### 8.6.1 Three-Party Relay Architecture
 
-Remote Control 采用 **三方中继**（Three-Party Relay）架构，Anthropic API 充当消息代理：
+Remote Control uses a **Three-Party Relay** architecture, with the Anthropic API acting as the message broker:
 
 ```
 ┌──────────────┐                              ┌───────────────────────┐
-│   本地终端    │   ① 注册会话 (POST /v1/...)   │    Anthropic API      │
-│  (Claude Code)│ ──────────────────────────→   │    (消息中继/代理)     │
-│              │   获取 JWT + 会话凭证          │                       │
+│ Local        │   1. Register session        │    Anthropic API      │
+│ Terminal     │      (POST /v1/...)          │    (message relay/    │
+│ (Claude Code)│ ──────────────────────────→   │     broker)           │
+│              │   Get JWT + session creds    │                       │
 │              │                                │  claude.ai/code       │
-│              │   ② WebSocket (v1) / SSE (v2)  │  会话注册 + 消息路由    │
-│              │ ←────────────────────────────→ │                       │
-│              │   双向消息传输                   │                       │
+│              │   2. WebSocket (v1) / SSE (v2)│  session registration │
+│              │ ←────────────────────────────→ │  + message routing    │
+│              │   Bidirectional message flow  │                       │
 └──────────────┘                                └───────────┬───────────┘
                                                             │
-                                                 ③ WebSocket/HTTPS │
+                                                 3. WebSocket/HTTPS │
                                                             │
                                                 ┌───────────▼───────────┐
-                                                │  浏览器 / 手机 App     │
-                                                │  (claude.ai/code)     │
+                                                │ Browser / Mobile App   │
+                                                │ (claude.ai/code)       │
                                                 └───────────────────────┘
 ```
 
-**双代传输架构**（源码确认）：
+**Two-generation transport architecture** (confirmed by source):
 
-源码揭示 Claude Code 内部实现了两代传输协议，服务端按会话动态选择：
+The source reveals that Claude Code internally implements two generations of transport protocols, with the server selecting one dynamically per session:
 
-| 维度 | v1（HybridTransport） | v2（SSETransport + CCRClient） |
+| Dimension | v1 (HybridTransport) | v2 (SSETransport + CCRClient) |
 |------|----------------------|-------------------------------|
-| **读取通道** | WebSocket 接收消息 | SSE（Server-Sent Events）接收消息 |
-| **写入通道** | POST 到 Session-Ingress 端点 | POST 到 CCR `/worker/*` 端点 |
-| **认证方式** | OAuth token | JWT（含 `session_id` + `worker` role） |
-| **选择条件** | 默认 | 服务端通过 `secret.use_code_sessions` 标志切换；`CLAUDE_BRIDGE_USE_CCR_V2` 环境变量可强制启用 |
-| **来源** | `bridge/replBridge.ts` | `bridge/remoteBridgeCore.ts` |
+| **Read channel** | WebSocket receives messages | SSE (Server-Sent Events) receives messages |
+| **Write channel** | POST to the Session-Ingress endpoint | POST to CCR `/worker/*` endpoints |
+| **Authentication** | OAuth token | JWT (with `session_id` + `worker` role) |
+| **Selection condition** | Default | Server switches via the `secret.use_code_sessions` flag; the `CLAUDE_BRIDGE_USE_CCR_V2` environment variable can force enablement |
+| **Source** | `bridge/replBridge.ts` | `bridge/remoteBridgeCore.ts` |
 
-**数据流**：
+**Data flow**:
 
-| 阶段 | v1 流程 | v2 流程 | 确认度 |
+| Phase | v1 Flow | v2 Flow | Confidence |
 |------|---------|---------|--------|
-| **注册** | `registerBridgeEnvironment()` → `environment_id` + `environment_secret` | `createCodeSession()` → `sessionId` → `fetchRemoteCredentials()` → JWT | ✅ 源码确认 |
-| **连接** | WebSocket 长连接 + POST 写入 | SSE 长连接 + POST 写入 | ✅ 源码确认 |
-| **认证刷新** | OAuth token 刷新后通过 `refreshHeaders` 回调注入 | JWT 过期前 5 分钟通过 `/bridge` 端点刷新，bump epoch | ✅ 源码确认 |
-| **断线重连** | 指数退避（2s → 60s，15 分钟放弃），重连-in-place 或新建会话 | SSE 401 触发 OAuth 刷新 + 凭证重取 | ✅ 源码确认 |
-| **心跳** | `keep_alive` 消息（默认 120 秒间隔） | `heartbeatIntervalMs` + `heartbeatJitterFraction` | ✅ 源码确认 |
+| **Registration** | `registerBridgeEnvironment()` -> `environment_id` + `environment_secret` | `createCodeSession()` -> `sessionId` -> `fetchRemoteCredentials()` -> JWT | Confirmed by source |
+| **Connection** | Long-lived WebSocket + POST writes | Long-lived SSE + POST writes | Confirmed by source |
+| **Authentication refresh** | Injected through the `refreshHeaders` callback after OAuth token refresh | Refreshed through the `/bridge` endpoint 5 minutes before JWT expiration, with epoch bump | Confirmed by source |
+| **Disconnection/reconnection** | Exponential backoff (2s -> 60s, give up after 15 minutes), reconnect-in-place or create a new session | SSE 401 triggers OAuth refresh + credential refetch | Confirmed by source |
+| **Heartbeat** | `keep_alive` message (default 120-second interval) | `heartbeatIntervalMs` + `heartbeatJitterFraction` | Confirmed by source |
 
-| 方面 | 细节 | 确认度 |
+| Aspect | Details | Confidence |
 |------|------|--------|
-| **本地→服务器** | 出站 WebSocket/SSE，本地不开放入站端口 | ✅ 源码确认 |
-| **远程客户端→服务器** | 浏览器/App 连接到 claude.ai 基础设施（WebSocket） | ✅ 源码确认 |
-| **消息路由** | Anthropic 服务器在远程客户端和本地会话之间双向中继 | ✅ 官方确认 |
-| **传输安全** | 全程 TLS 加密，与普通 Claude Code 会话相同 | ✅ 官方确认 |
-| **凭证体系** | 多个短期凭证（JWT + OAuth），每个限定单一用途，独立过期 | ✅ 源码确认 |
+| **Local -> server** | Outbound WebSocket/SSE; no local inbound port is opened | Confirmed by source |
+| **Remote client -> server** | Browser/App connects to claude.ai infrastructure (WebSocket) | Confirmed by source |
+| **Message routing** | Anthropic servers relay messages bidirectionally between the remote client and local session | Officially confirmed |
+| **Transport security** | TLS encryption throughout, same as normal Claude Code sessions | Officially confirmed |
+| **Credential system** | Multiple short-lived credentials (JWT + OAuth), each limited to a single purpose and expiring independently | Confirmed by source |
 
-#### 8.6.1.1 三层架构拆分：控制面 / 数据面 / 本地状态面
+#### 8.6.1.1 Three-Layer Architecture Split: Control Plane / Data Plane / Local State Plane
 
-从实现者视角，Remote Control 可拆分为三个职责清晰的子系统（源码中对应 `ReplBridgeHandle` 统一接口，`BridgeCoreParams` 依赖注入）：
+From an implementer's perspective, Remote Control can be split into three subsystems with clear responsibilities (corresponding in source to the unified `ReplBridgeHandle` interface and `BridgeCoreParams` dependency injection):
 
-**控制面（Control Plane）**——会话注册、资格检查、凭证管理、策略执行：
+**Control Plane** — session registration, eligibility checks, credential management, and policy enforcement:
 
-| 组件 | 职责 | 证据来源 |
+| Component | Responsibility | Evidence Source |
 |------|------|----------|
-| 会话注册 | v1: `registerBridgeEnvironment()` → `environment_id` + `environment_secret`；v2: `createCodeSession()` → JWT | 源码: `bridge/replBridge.ts` |
-| 资格检查 | `admin_requests/eligibility` 端点判定用户是否可使用 RC（受订阅类型、管理员策略、组织策略影响） | 源码: `services/api/adminRequests.ts` + `bridge/bridgeEnabled.ts` |
-| 凭证刷新 | v1: OAuth 刷新 → `refreshHeaders` 回调；v2: JWT 过期前 5 分钟调用 `/bridge` 端点，bump epoch 防双刷 | 源码: `bridge/remoteBridgeCore.ts` |
-| 策略执行 | `policy_limits` 端点查询组织级 RC 开关；Team/Enterprise 管理员门控 | EVIDENCE.md |
-| 配置下发 | GrowthBook 特性门控（`tengu_bridge_poll_interval_config`、`tengu_bridge_initial_history_cap` 等）动态调整运行参数 | 源码: `bridge/bridgeMain.ts` |
-| PID 文件管理 | `~/.claude/sessions/{pid}.json` 跟踪并发会话，含 `kind`（interactive/bg/daemon/daemon-worker）和 `status`（busy/idle/waiting） | 源码: `utils/concurrentSessions.ts` |
+| Session registration | v1: `registerBridgeEnvironment()` -> `environment_id` + `environment_secret`; v2: `createCodeSession()` -> JWT | Source: `bridge/replBridge.ts` |
+| Eligibility check | The `admin_requests/eligibility` endpoint determines whether the user can use RC (affected by subscription type, administrator policy, and organization policy) | Source: `services/api/adminRequests.ts` + `bridge/bridgeEnabled.ts` |
+| Credential refresh | v1: OAuth refresh -> `refreshHeaders` callback; v2: call the `/bridge` endpoint 5 minutes before JWT expiration and bump epoch to prevent double refresh | Source: `bridge/remoteBridgeCore.ts` |
+| Policy enforcement | Query the `policy_limits` endpoint for the organization-level RC toggle; Team/Enterprise administrator gate | EVIDENCE.md |
+| Configuration delivery | GrowthBook feature gates (`tengu_bridge_poll_interval_config`, `tengu_bridge_initial_history_cap`, etc.) dynamically adjust runtime parameters | Source: `bridge/bridgeMain.ts` |
+| PID file management | `~/.claude/sessions/{pid}.json` tracks concurrent sessions, including `kind` (interactive/bg/daemon/daemon-worker) and `status` (busy/idle/waiting) | Source: `utils/concurrentSessions.ts` |
 
-**数据面（Data Plane）**——消息传输、双向同步、流式响应：
+**Data Plane** — message transport, bidirectional synchronization, and streaming responses:
 
-| 组件 | 职责 | 证据来源 |
+| Component | Responsibility | Evidence Source |
 |------|------|----------|
-| v1 传输 | WebSocket 读取 + POST 写入 Session-Ingress；指数退避重连（2s→60s，15 分钟放弃） | 源码: `bridge/replBridge.ts` |
-| v2 传输 | SSE 读取 + POST 写入 CCR `/worker/*`；JWT 认证 + 自动刷新 | 源码: `bridge/remoteBridgeCore.ts` |
-| 消息协议 | JSON-lines 格式，21 种 `control_request` 子类型 + 标准 SDK 消息 | 源码: `entrypoints/sdk/controlSchemas.ts` |
-| 历史刷新 | `initialHistoryCap`（默认 200 条，GrowthBook 可调）限制初始历史推送；FlushGate 防止历史消息与实时消息交错 | 源码: `bridge/replBridge.ts` |
-| Echo 去重 | 双层 UUID 保护：`initialMessageUUIDs` + `recentPostedUUIDs`（2000 条环形缓冲），防止消息回声 | 源码: `bridge/replBridge.ts` |
-| 对话持久化 | Session-Ingress API + 乐观并发写入（`Last-Uuid` header + 409 Conflict 自动恢复） | 源码: `services/api/sessionIngress.ts` |
-| WebSocket 心跳 | `keep_alive` 消息，默认 120 秒间隔（`session_keepalive_interval_v2_ms`） | 源码: `bridge/replBridge.ts` |
+| v1 transport | WebSocket reads + POST writes to Session-Ingress; exponential-backoff reconnection (2s->60s, give up after 15 minutes) | Source: `bridge/replBridge.ts` |
+| v2 transport | SSE reads + POST writes to CCR `/worker/*`; JWT authentication + automatic refresh | Source: `bridge/remoteBridgeCore.ts` |
+| Message protocol | JSON-lines format, 21 `control_request` subtypes + standard SDK messages | Source: `entrypoints/sdk/controlSchemas.ts` |
+| History refresh | `initialHistoryCap` (default 200 messages, GrowthBook-adjustable) limits initial history push; FlushGate prevents interleaving history messages with real-time messages | Source: `bridge/replBridge.ts` |
+| Echo deduplication | Two-layer UUID protection: `initialMessageUUIDs` + `recentPostedUUIDs` (2,000-entry ring buffer) to prevent message echoes | Source: `bridge/replBridge.ts` |
+| Conversation persistence | Session-Ingress API + optimistic concurrent writes (`Last-Uuid` header + automatic recovery from 409 Conflict) | Source: `services/api/sessionIngress.ts` |
+| WebSocket heartbeat | `keep_alive` message, default 120-second interval (`session_keepalive_interval_v2_ms`) | Source: `bridge/replBridge.ts` |
 
-**本地状态面（Local State Plane）**——Redux 状态机、环境变量、运行时状态：
+**Local State Plane** — Redux state machine, environment variables, and runtime state:
 
-| 组件 | 职责 | 证据来源 |
+| Component | Responsibility | Evidence Source |
 |------|------|----------|
-| Redux 状态机 | 13 个 `replBridge*` 字段管理桥接生命周期（enabled/connected/active/reconnecting 等） | 源码: `bridge/replBridge.ts` |
-| 客户端类型检测 | 3 层 token 优先级链：env var → FD → well-known file | 源码: `utils/sessionIngressAuth.ts` |
-| 环境变量配置 | 14+ 环境变量控制 RC 行为（认证模式、网络代理、沙箱、远程环境等） | 官方文档 + 源码 |
-| initReplBridge | 核心桥接层，通过 `BridgeCoreParams` 依赖注入 7 个回调函数 | 源码: `bridge/initReplBridge.ts` |
-| 崩溃恢复 | Bridge pointer 文件（`{sessionId, environmentId, source}`），进程 crash 后下次启动可恢复 | 源码: `bridge/replBridge.ts` |
-| 睡眠检测 | `setTimeout` 超时阈值 60+ 秒 → 判定系统睡眠 → 重置错误预算 | 源码: `bridge/replBridge.ts` |
-| 会话活动追踪 | refcount 心跳计时器（30 秒间隔），区分 `api_call` / `tool_exec` 活动 | 源码: `utils/sessionActivity.ts` |
+| Redux state machine | 13 `replBridge*` fields manage the bridge lifecycle (enabled/connected/active/reconnecting, etc.) | Source: `bridge/replBridge.ts` |
+| Client type detection | 3-layer token priority chain: env var -> FD -> well-known file | Source: `utils/sessionIngressAuth.ts` |
+| Environment-variable configuration | 14+ environment variables control RC behavior (authentication mode, network proxy, sandbox, remote environment, etc.) | Official documentation + source |
+| initReplBridge | Core bridge layer, with 7 callback functions injected through `BridgeCoreParams` | Source: `bridge/initReplBridge.ts` |
+| Crash recovery | Bridge pointer file (`{sessionId, environmentId, source}`), allowing recovery on the next startup after a process crash | Source: `bridge/replBridge.ts` |
+| Sleep detection | `setTimeout` timeout threshold of 60+ seconds -> system sleep detection -> reset error budget | Source: `bridge/replBridge.ts` |
+| Session activity tracking | Refcount heartbeat timer (30-second interval), distinguishing `api_call` / `tool_exec` activity | Source: `utils/sessionActivity.ts` |
 
-> **设计启示**：三层分离使得**控制面变更不影响消息传输**（如修改传输策略无需改消息格式），**本地状态面独立于网络**（进程崩溃后可从 pointer 文件和对话历史重建部分状态）。源码中 `BridgeCoreParams` 使用依赖注入，所有核心逻辑不直接 import `bootstrap/state` 或 `sessionStorage`，实现了模块间零耦合。
+> **Design insight**: The three-layer separation means **control-plane changes do not affect message transport** (for example, modifying transport policy does not require changing the message format), and the **local state plane is independent of the network** (after a process crash, part of the state can be rebuilt from the pointer file and conversation history). In source, `BridgeCoreParams` uses dependency injection; core logic does not directly import `bootstrap/state` or `sessionStorage`, achieving zero coupling between modules.
 
-### 8.6.2 会话生命周期
+### 8.6.2 Session Lifecycle
 
 ```
 ┌─────────┐     ┌───────────┐     ┌──────────┐     ┌───────────┐     ┌──────────┐
-│ 注册     │ ──→ │ 等待连接   │ ──→ │ 活跃     │ ──→ │ 空闲/断连  │ ──→ │ 过期/退出  │
-│Register  │     │ Waiting   │     │ Active   │     │ Idle      │     │ Expired  │
+│Register │ ──→ │ Waiting   │ ──→ │ Active   │ ──→ │ Idle/     │ ──→ │ Expired/ │
+│         │     │           │     │          │     │Disconnected│     │ Exit     │
 └─────────┘     └───────────┘     └──────────┘     └───────────┘     └──────────┘
-  - OAuth认证      - 显示URL/QR      - 双向消息同步     - 自动重连尝试     - 进程退出
-  - API注册        - 等待客户端       - 工具调用可远程审批  - WS/SSE 断连     - 清理会话文件
-                  - Server模式可      - keep_alive心跳   - 睡眠检测恢复     - 归档会话
-                    接受多个客户端                        - 重连-in-place或
-                                                         新建会话
+  - OAuth auth    - Show URL/QR     - Bidirectional     - Automatic        - Process exits
+  - API register  - Wait for client   message sync        reconnect attempts - Clean session files
+                  - Server mode can - Tool calls can be  - WS/SSE disconnect - Archive session
+                    accept clients    approved remotely - Sleep detection
+                                     - keep_alive         recovery
+                                       heartbeat         - Reconnect-in-place or new session
 ```
 
-**源码中的会话状态**（`server/types.ts`）：`'starting' | 'running' | 'detached' | 'stopping' | 'stopped'`
+**Session states in source** (`server/types.ts`): `'starting' | 'running' | 'detached' | 'stopping' | 'stopped'`
 
-**各阶段详情**：
+**Phase details**:
 
-| 阶段 | 触发 | 行为 |
+| Phase | Trigger | Behavior |
 |------|------|------|
-| **注册** | 启动 `claude remote-control` 或 `/rc` | 使用 full-scope OAuth token 向 Anthropic API 注册会话，获取 `SESSION_ACCESS_TOKEN` |
-| **等待连接** | 注册成功后 | 终端显示会话 URL 和 QR 码。本地进程等待远程客户端连接（v1 通过 polling 等待工作分配；v2 通过 SSE 等待） |
-| **活跃** | 远程客户端连接 | 双向消息同步：远程发送的指令路由到本地执行，本地输出实时推送到远程。权限请求通过 `control_request`（`can_use_tool` 子类型）桥接到远程审批 | 源码确认 |
-| **空闲/断连** | 网络中断、笔记本睡眠 | 自动尝试重连（指数退避，2s→60s）。**睡眠检测**：`setTimeout` 超时 60+ 秒判定系统睡眠，重置错误预算。v1 策略：重连-in-place（`reuseEnvironmentId`）或新建会话；v2 策略：SSE 401 触发 OAuth 刷新 + 凭证重取 | 源码确认 |
-| **过期/退出** | 超时或进程终止 | v1: `stopWork()` + `archiveSession()` + 清理 PID 文件；v2: transport 关闭 + archive。Perpetual 模式下不发送 result，让后端 TTL（300s）到期后重新排队 | 源码确认 |
+| **Registration** | Start `claude remote-control` or `/rc` | Uses a full-scope OAuth token to register the session with the Anthropic API and obtain `SESSION_ACCESS_TOKEN` |
+| **Waiting for connection** | After successful registration | The terminal shows the session URL and QR code. The local process waits for a remote client connection (v1 waits for work assignment through polling; v2 waits through SSE) |
+| **Active** | Remote client connects | Bidirectional message sync: remote instructions are routed to local execution, and local output is pushed to the remote side in real time. Permission requests are bridged to remote approval through `control_request` (`can_use_tool` subtype) | Confirmed by source |
+| **Idle/disconnected** | Network interruption or laptop sleep | Automatically attempts reconnection (exponential backoff, 2s->60s). **Sleep detection**: a `setTimeout` timeout of 60+ seconds indicates system sleep and resets the error budget. v1 strategy: reconnect-in-place (`reuseEnvironmentId`) or create a new session; v2 strategy: SSE 401 triggers OAuth refresh + credential refetch | Confirmed by source |
+| **Expired/exit** | Timeout or process termination | v1: `stopWork()` + `archiveSession()` + cleanup of PID files; v2: transport close + archive. In Perpetual mode, no result is sent, allowing the backend TTL (300s) to expire and requeue | Confirmed by source |
 
-### 8.6.3 会话文件与本地存储
+### 8.6.3 Session Files and Local Storage
 
-| 路径 | 内容 | 所属面 | 生命周期 | 可恢复性 | 来源 |
+| Path | Contents | Plane | Lifecycle | Recoverability | Source |
 |------|------|--------|----------|----------|------|
-| `~/.claude/sessions/{pid}.json` | 会话元数据：`pid`、`sessionId`、`cwd`、`startedAt`、`kind`（interactive/bg/daemon/daemon-worker）、`entrypoint`、`name`、`status`（busy/idle/waiting）、`logPath`、`agent`、`messagingSocketPath`、`bridgeSessionId` | 控制面 + 本地状态面 | 每个 interactive process 一个文件；进程退出后残留但无意义 | 进程退出后文件残留。`countConcurrentSessions()` 会清理 stale PID 文件（WSL 除外）。**进程重启不会自动恢复** | 源码: `utils/concurrentSessions.ts` |
-| `/tmp/cc-socks/*.sock` | Unix domain socket，用于本地进程间消息传递（如 UI bridge、多客户端复用） | 数据面（本地 IPC） | 随进程创建/销毁；进程退出即失效 | ❌ 不可恢复：Unix socket 文件随进程退出失效，重新连接需建立新 socket | GitHub Issues |
-| `~/.claude/projects/<project-hash>/` | 会话对话历史（`.jsonl` 格式），包含完整对话流；`cleanupPeriodDays`（默认 30 天）后自动清理 | 数据面（持久化） | 独立于 Remote Control 生命周期；与普通会话共享存储 | ✅ 可恢复：对话历史在磁盘上持久化，可用于 `/continue` 或 `/teleport` 恢复上下文 | [EVIDENCE.md](./EVIDENCE.md) |
+| `~/.claude/sessions/{pid}.json` | Session metadata: `pid`, `sessionId`, `cwd`, `startedAt`, `kind` (interactive/bg/daemon/daemon-worker), `entrypoint`, `name`, `status` (busy/idle/waiting), `logPath`, `agent`, `messagingSocketPath`, `bridgeSessionId` | Control plane + local state plane | One file per interactive process; remains after process exit but is meaningless | The file remains after process exit. `countConcurrentSessions()` cleans up stale PID files (except on WSL). **Process restart does not automatically recover it** | Source: `utils/concurrentSessions.ts` |
+| `/tmp/cc-socks/*.sock` | Unix domain socket for local inter-process messaging (such as UI bridge and multi-client reuse) | Data plane (local IPC) | Created/destroyed with the process; invalid once the process exits | Not recoverable: Unix socket files become invalid when the process exits; reconnecting requires establishing a new socket | GitHub Issues |
+| `~/.claude/projects/<project-hash>/` | Session conversation history (`.jsonl` format), containing the complete conversation stream; automatically cleaned after `cleanupPeriodDays` (default 30 days) | Data plane (persistence) | Independent of the Remote Control lifecycle; shared with normal sessions | Recoverable: conversation history persists on disk and can be used by `/continue` or `/teleport` to restore context | [EVIDENCE.md](./EVIDENCE.md) |
 
-> **实现者注意事项**：
-> - PID 文件命名（`{pid}.json`）意味着**每个 OS 进程一个远程会话**，而非每个 bridge session 一个 state file。Server 模式 `--spawn` 创建的子进程各自有独立的 PID 文件
-> - `messagingSocketPath` 字段存储在 PID 文件中，表明 Unix socket 路径是**服务端/客户端协商结果**，而非硬编码
-> - `bridgeSessionId` 与 `sessionId` 是不同概念：`sessionId` 是本地会话 ID，`bridgeSessionId` 是中继服务器分配的桥接 ID
-> - 源码中 `registerCleanup` 确保进程退出时 unlink PID 文件；文件名严格校验 `/^\d+\.json$/` 防止误删非 PID 文件
-> - **Bridge pointer 文件**（`bridge/bridgeMain.ts`）独立于 PID 文件，用于崩溃恢复：包含 `{sessionId, environmentId, source}`，mtime 每小时刷新
+> **Implementer notes**:
+> - PID file naming (`{pid}.json`) means **one remote session per OS process**, not one state file per bridge session. Child processes created by Server mode `--spawn` each have their own PID file
+> - The `messagingSocketPath` field is stored in the PID file, indicating that the Unix socket path is a **server/client negotiation result**, not hard-coded
+> - `bridgeSessionId` and `sessionId` are different concepts: `sessionId` is the local session ID, while `bridgeSessionId` is the bridge ID assigned by the relay server
+> - In source, `registerCleanup` ensures the PID file is unlinked when the process exits; the filename is strictly validated with `/^\d+\.json$/` to avoid deleting non-PID files by mistake
+> - The **Bridge pointer file** (`bridge/bridgeMain.ts`) is independent of the PID file and is used for crash recovery: it contains `{sessionId, environmentId, source}` and refreshes mtime every hour
 
-### 8.6.4 `--spawn` 多会话架构
+### 8.6.4 `--spawn` Multi-Session Architecture
 
-Server 模式支持通过 `--spawn` 参数管理多个并发远程会话：
+Server mode supports managing multiple concurrent remote sessions through the `--spawn` option:
 
-| 模式 | 行为 | 适用场景 |
+| Mode | Behavior | Use Case |
 |------|------|----------|
-| `same-dir`（默认） | 所有会话共享当前工作目录 | 多人远程操控同一项目不同任务 |
-| `worktree` | 每个按需会话获得独立 Git worktree | 需要文件隔离的并行开发任务 |
+| `same-dir` (default) | All sessions share the current working directory | Multiple people remotely control different tasks in the same project |
+| `worktree` | Each on-demand session gets an independent Git worktree | Parallel development tasks that need file isolation |
 
-**运行时切换**：在 Server 模式中按 `w` 键可动态切换 spawn 模式。
+**Runtime switching**: In Server mode, press `w` to dynamically switch the spawn mode.
 
-**容量控制**：`--capacity <N>` 限制最大并发会话数（默认 32），防止资源耗尽。`capacityWake` 信号在会话完成时中断 at-capacity 睡眠，立即接受新工作。
+**Capacity control**: `--capacity <N>` limits the maximum number of concurrent sessions (default 32), preventing resource exhaustion. The `capacityWake` signal interrupts at-capacity sleep when a session completes, accepting new work immediately.
 
-**会话跟踪**（源码: `bridge/bridgeMain.ts`）：运行时维护 9 个 Map/Set 数据结构：
+**Session tracking** (Source: `bridge/bridgeMain.ts`): The runtime maintains 9 Map/Set data structures:
 
-| 数据结构 | 用途 |
+| Data Structure | Purpose |
 |----------|------|
-| `activeSessions: Map<string, SessionHandle>` | 活跃会话句柄 |
-| `sessionStartTimes: Map<string, number>` | 会话启动时间 |
-| `sessionWorkIds: Map<string, string>` | 会话→工作项映射 |
-| `sessionIngressTokens: Map<string, string>` | 会话→Ingress token |
-| `sessionTimers: Map<string, Timeout>` | 会话超时定时器 |
-| `completedWorkIds: Set<string>` | 已完成工作项（防重复） |
-| `sessionWorktrees: Map<string, WorktreeInfo>` | worktree 隔离信息 |
-| `timedOutSessions: Set<string>` | 超时会话 |
-| `v2Sessions: Set<string>` | v2 传输会话 |
+| `activeSessions: Map<string, SessionHandle>` | Active session handles |
+| `sessionStartTimes: Map<string, number>` | Session start times |
+| `sessionWorkIds: Map<string, string>` | Session-to-work-item mapping |
+| `sessionIngressTokens: Map<string, string>` | Session-to-Ingress-token mapping |
+| `sessionTimers: Map<string, Timeout>` | Session timeout timers |
+| `completedWorkIds: Set<string>` | Completed work items (deduplication) |
+| `sessionWorktrees: Map<string, WorktreeInfo>` | Worktree isolation information |
+| `timedOutSessions: Set<string>` | Timed-out sessions |
+| `v2Sessions: Set<string>` | v2 transport sessions |
 
-> **与 CCR（Claude Code Remote）的区别**：`--spawn` 创建的是**本地多会话**（通过 worktree 隔离），而 `/schedule` 使用的 `RemoteTrigger` 工具创建的是**云端隔离会话**（CCR），在 Anthropic 基础设施上独立运行（[命令详解](./02-commands.md)）。
+> **Difference from CCR (Claude Code Remote)**: `--spawn` creates **local multi-sessions** (isolated by worktree), while the `RemoteTrigger` tool used by `/schedule` creates **cloud-isolated sessions** (CCR) that run independently on Anthropic infrastructure ([command details](./02-commands.md)).
 
-### 8.6.5 安全模型纵深
+### 8.6.5 Defense-in-Depth Security Model
 
-Remote Control 的安全架构采用多层防护：
+Remote Control uses a multilayer security architecture:
 
-| 层级 | 机制 | 说明 |
+| Layer | Mechanism | Description |
 |------|------|------|
-| **1. 认证门槛** | claude.ai OAuth full-scope token | API Key、`setup-token`、Bedrock/Vertex/Foundry 均被拒绝 |
-| **2. 管理员门控** | `claude.ai/admin-settings/claude-code` 开关 | Team/Enterprise 默认关闭；合规配置可阻止启用 |
-| **3. 凭证隔离** | v1: OAuth + environment_secret；v2: JWT（`session_id` + `worker` role），多短期凭证、单用途作用域 | 源码: `bridge/replBridge.ts`、`bridge/remoteBridgeCore.ts` |
-| **4. 网络隔离** | 仅出站 WebSocket/SSE + POST，零入站端口 | 显著降低网络暴露面 |
-| **5. 传输加密** | 全程 TLS | 与普通 Claude Code 会话相同 |
-| **6. 可选沙箱** | `--sandbox` 启用文件系统+网络隔离 | 默认关闭，Server 模式可启用 |
-| **7. 权限桥接** | `can_use_tool` control_request 通过中继转发到远程客户端审批，响应经 `control_response` 返回 | 源码: `bridge/bridgeMessaging.ts` |
-| **8. 会话 Ingress 认证** | 3 层 token 优先级链：env var → FD → well-known file；session key 用 Cookie，JWT 用 Bearer | 源码: `utils/sessionIngressAuth.ts` |
-| **9. Echo 去重** | 双层 UUID 保护（`initialMessageUUIDs` + 2000 条环形缓冲），防止消息回声 | 源码: `bridge/replBridge.ts` |
-| **10. 安全分类器** | auto mode 双层防御（服务端 probe + 客户端分类器） | [工程博客](https://anthropic.com/engineering/claude-code-auto-mode)，Sonnet 4.6 驱动 |
+| **1. Authentication gate** | claude.ai OAuth full-scope token | API Key, `setup-token`, Bedrock/Vertex/Foundry are all rejected |
+| **2. Administrator gate** | `claude.ai/admin-settings/claude-code` toggle | Disabled by default for Team/Enterprise; compliance configuration can block enablement |
+| **3. Credential isolation** | v1: OAuth + environment_secret; v2: JWT (`session_id` + `worker` role), multiple short-lived credentials with single-purpose scopes | Source: `bridge/replBridge.ts`, `bridge/remoteBridgeCore.ts` |
+| **4. Network isolation** | Outbound-only WebSocket/SSE + POST, zero inbound ports | Significantly reduces the network exposure surface |
+| **5. Transport encryption** | TLS throughout | Same as normal Claude Code sessions |
+| **6. Optional sandbox** | `--sandbox` enables file-system + network isolation | Disabled by default; available in Server mode |
+| **7. Permission bridge** | `can_use_tool` control_request is relayed to the remote client for approval, and the response returns through `control_response` | Source: `bridge/bridgeMessaging.ts` |
+| **8. Session Ingress authentication** | 3-layer token priority chain: env var -> FD -> well-known file; session key uses Cookie, JWT uses Bearer token | Source: `utils/sessionIngressAuth.ts` |
+| **9. Echo deduplication** | Two-layer UUID protection (`initialMessageUUIDs` + 2,000-entry ring buffer) prevents message echoes | Source: `bridge/replBridge.ts` |
+| **10. Safety classifier** | Auto mode uses two-layer defense (server-side probe + client-side classifier) | [Engineering blog](https://anthropic.com/engineering/claude-code-auto-mode), powered by Sonnet 4.6 |
 
-**遥测耦合现象**：设置 `DISABLE_TELEMETRY=1` 后 Remote Control 注册失败（[GitHub #41189](https://github.com/anthropics/claude-code/issues/41189)），表现为 eligibility check 不通过。当前证据不足以确认根因是"资格检查走遥测通道"，标记为**疑似实现耦合**。
+**Telemetry coupling phenomenon**: Setting `DISABLE_TELEMETRY=1` causes Remote Control registration to fail ([GitHub #41189](https://github.com/anthropics/claude-code/issues/41189)), appearing as a failed eligibility check. Current evidence is insufficient to confirm that the root cause is "eligibility checks use the telemetry channel"; it is marked as **suspected implementation coupling**.
 
-### 8.6.6 相关 API 端点
+### 8.6.6 Related API Endpoints
 
-| 端点 | 用途 | 来源 |
+| Endpoint | Purpose | Source |
 |------|------|------|
-| `claude.ai/api/claude_code/settings` | 远程设置获取 | [EVIDENCE.md](./EVIDENCE.md) |
-| `claude.ai/api/claude_code/policy_limits` | 策略限制查询（RC 管理员门控检查） | [EVIDENCE.md](./EVIDENCE.md) |
-| `claude.ai/api/oauth/authorize` | OAuth 认证（RC 注册需 full-scope token） | [EVIDENCE.md](./EVIDENCE.md) |
-| `api.anthropic.com/api/claude_code/metrics` | 遥测上报（资格检查依赖此通道） | [EVIDENCE.md](./EVIDENCE.md) |
-| `claude.ai/api/ws/speech_to_text/voice_stream` | 语音转文字（共用 WebSocket 基础设施） | [EVIDENCE.md](./EVIDENCE.md) |
-| `POST /v1/sessions` | CCR v2 会话创建（含 `anthropic-beta: ccr-byoc-2025-07-29` header） | 源码: `utils/teleport.tsx` |
-| `POST /v1/session_ingress/session/{id}` | 对话日志追加写入（`Last-Uuid` 乐观并发控制） | 源码: `services/api/sessionIngress.ts` |
-| `GET /v1/session_ingress/session/{id}` | 对话日志读取 | 源码: `services/api/sessionIngress.ts` |
-| `GET /v1/sessions/{id}/events` | CCR v2 事件流（游标分页，1000 条/页，最多 100 页） | 源码: `utils/teleport.tsx` |
-| `POST /v1/sessions/{id}/archive` | 归档远程会话（409 = 已归档，视为成功） | 源码: `utils/teleport.tsx` |
-| `GET /v1/sessions/{id}/teleport-events` | Teleport 事件流（Spanner v2 / threadstore 回退） | 源码: `services/api/sessionIngress.ts` |
-| `api.anthropic.com/admin_requests/eligibility` | 资格检查端点（RC 启用前的资格判定） | 源码: `services/api/adminRequests.ts` |
-| `api.anthropic.com/api/claude_code_grove` | Grove 端点（用途待确认） | EVIDENCE.md |
-| `api.anthropic.com/api/claude_code_penguin_mode` | 快速模式端点 | EVIDENCE.md |
-| `api.anthropic.com/api/claude_code_shared_session_transcripts` | 共享会话转录 | EVIDENCE.md |
-| `api.anthropic.com/api/claude_code/team_memory` | 团队记忆 | EVIDENCE.md |
+| `claude.ai/api/claude_code/settings` | Fetch remote settings | [EVIDENCE.md](./EVIDENCE.md) |
+| `claude.ai/api/claude_code/policy_limits` | Query policy limits (RC administrator-gate check) | [EVIDENCE.md](./EVIDENCE.md) |
+| `claude.ai/api/oauth/authorize` | OAuth authentication (RC registration requires a full-scope token) | [EVIDENCE.md](./EVIDENCE.md) |
+| `api.anthropic.com/api/claude_code/metrics` | Telemetry reporting (eligibility check depends on this channel) | [EVIDENCE.md](./EVIDENCE.md) |
+| `claude.ai/api/ws/speech_to_text/voice_stream` | Speech-to-text (shared WebSocket infrastructure) | [EVIDENCE.md](./EVIDENCE.md) |
+| `POST /v1/sessions` | CCR v2 session creation (with `anthropic-beta: ccr-byoc-2025-07-29` header) | Source: `utils/teleport.tsx` |
+| `POST /v1/session_ingress/session/{id}` | Append conversation logs (`Last-Uuid` optimistic concurrency control) | Source: `services/api/sessionIngress.ts` |
+| `GET /v1/session_ingress/session/{id}` | Read conversation logs | Source: `services/api/sessionIngress.ts` |
+| `GET /v1/sessions/{id}/events` | CCR v2 event stream (cursor pagination, 1,000 items/page, up to 100 pages) | Source: `utils/teleport.tsx` |
+| `POST /v1/sessions/{id}/archive` | Archive a remote session (409 = already archived, treated as success) | Source: `utils/teleport.tsx` |
+| `GET /v1/sessions/{id}/teleport-events` | Teleport event stream (Spanner v2 / threadstore fallback) | Source: `services/api/sessionIngress.ts` |
+| `api.anthropic.com/admin_requests/eligibility` | Eligibility-check endpoint (eligibility decision before RC enablement) | Source: `services/api/adminRequests.ts` |
+| `api.anthropic.com/api/claude_code_grove` | Grove endpoint (purpose pending confirmation) | EVIDENCE.md |
+| `api.anthropic.com/api/claude_code_penguin_mode` | Fast-mode endpoint | EVIDENCE.md |
+| `api.anthropic.com/api/claude_code_shared_session_transcripts` | Shared session transcripts | EVIDENCE.md |
+| `api.anthropic.com/api/claude_code/team_memory` | Team memory | EVIDENCE.md |
 
-> **注意**：Remote Control 专用的会话注册和消息中继端点 URL 未在源码中明文暴露（可能通过拼接构造或从服务端动态获取）。上述端点为源码和 EVIDENCE.md 中确认的基础设施端点。
+> **Note**: Remote Control-specific session registration and message relay endpoint URLs are not exposed as plaintext in the source (they may be constructed by concatenation or dynamically obtained from the server). The endpoints above are infrastructure endpoints confirmed in source and EVIDENCE.md.
 
-### 8.6.7 相关环境变量
+### 8.6.7 Related Environment Variables
 
-前 7 项来自 [Anthropic 官方文档](https://docs.anthropic.com/en/docs/claude-code/remote-control)；其余来自源码分析（`bridge/`、`utils/` 等目录）。
+The first 7 items come from [Anthropic official documentation](https://docs.anthropic.com/en/docs/claude-code/remote-control); the rest come from source analysis (`bridge/`, `utils/`, and related directories).
 
-| 变量 | 影响 | 来源 |
+| Variable | Effect | Source |
 |------|------|------|
-| `ANTHROPIC_API_KEY` | 阻止 Remote Control；需清除并使用 OAuth 登录 | 官方文档 |
-| `CLAUDE_CODE_OAUTH_TOKEN` | 提供有限范围 token；与 Remote Control 不兼容 | 官方文档 |
-| `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | 可能破坏资格检查 | 官方文档 |
-| `DISABLE_TELEMETRY` | 阻止 Remote Control 注册（疑似实现耦合，[GitHub #41189](https://github.com/anthropics/claude-code/issues/41189)） | 官方文档 + 社区观察 |
-| `CLAUDE_CODE_USE_BEDROCK` | 不兼容——Remote Control 要求 claude.ai 认证 | 官方文档 |
-| `CLAUDE_CODE_USE_VERTEX` | 不兼容——Remote Control 要求 claude.ai 认证 | 官方文档 |
-| `CLAUDE_CODE_USE_FOUNDRY` | 不兼容——Remote Control 要求 claude.ai 认证 | 官方文档 |
-| `CLAUDE_CODE_SESSION_ACCESS_TOKEN` | 会话访问凭证；存在时客户端类型被判定为 "remote" | 源码: `utils/sessionIngressAuth.ts` |
-| `CLAUDE_CODE_WEBSOCKET_AUTH_FILE_DESCRIPTOR` | WebSocket 认证（文件描述符传递）；存在时客户端类型被判定为 "remote" | 源码: `utils/sessionIngressAuth.ts` |
-| `CLAUDE_CODE_ENTRYPOINT` | 值为 `"remote"` 时标记为远程入口，改变客户端类型行为 | 源码: `utils/concurrentSessions.ts` |
-| `CLAUDE_CODE_REMOTE` | 存在时影响 auto-memory 行为；传递给 teammate spawn 环境 | 源码: `bridge/replBridge.ts` |
-| `CLAUDE_CODE_ENVIRONMENT_KIND` | 值为 `"bridge"` 时标识为桥接子进程 | 源码: `bridge/replBridge.ts` |
-| `CLAUDE_CODE_POST_FOR_SESSION_INGRESS_V2` | 值为 `"1"` 时启用 V2 会话入口协议 | 源码: `bridge/remoteBridgeCore.ts` |
-| `SSE_PORT` | SSE 本地端口（源码提取，可能用于 Remote Control 或 MCP SSE 传输） | EVIDENCE.md |
+| `ANTHROPIC_API_KEY` | Blocks Remote Control; must be cleared and OAuth login used | Official documentation |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Provides a limited-scope token; incompatible with Remote Control | Official documentation |
+| `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | May break eligibility checks | Official documentation |
+| `DISABLE_TELEMETRY` | Blocks Remote Control registration (suspected implementation coupling, [GitHub #41189](https://github.com/anthropics/claude-code/issues/41189)) | Official documentation + community observation |
+| `CLAUDE_CODE_USE_BEDROCK` | Incompatible: Remote Control requires claude.ai authentication | Official documentation |
+| `CLAUDE_CODE_USE_VERTEX` | Incompatible: Remote Control requires claude.ai authentication | Official documentation |
+| `CLAUDE_CODE_USE_FOUNDRY` | Incompatible: Remote Control requires claude.ai authentication | Official documentation |
+| `CLAUDE_CODE_SESSION_ACCESS_TOKEN` | Session access credential; when present, client type is classified as "remote" | Source: `utils/sessionIngressAuth.ts` |
+| `CLAUDE_CODE_WEBSOCKET_AUTH_FILE_DESCRIPTOR` | WebSocket authentication (file-descriptor passing); when present, client type is classified as "remote" | Source: `utils/sessionIngressAuth.ts` |
+| `CLAUDE_CODE_ENTRYPOINT` | When set to `"remote"`, marks a remote entrypoint and changes client-type behavior | Source: `utils/concurrentSessions.ts` |
+| `CLAUDE_CODE_REMOTE` | Affects auto-memory behavior when present; passed to teammate spawn environments | Source: `bridge/replBridge.ts` |
+| `CLAUDE_CODE_ENVIRONMENT_KIND` | Identifies a bridge child process when set to `"bridge"` | Source: `bridge/replBridge.ts` |
+| `CLAUDE_CODE_POST_FOR_SESSION_INGRESS_V2` | Enables the V2 session ingress protocol when set to `"1"` | Source: `bridge/remoteBridgeCore.ts` |
+| `SSE_PORT` | Local SSE port (extracted from source; may be used by Remote Control or MCP SSE transport) | EVIDENCE.md |
 
-### 8.6.8 实现者 Checklist：设计决策表
+### 8.6.8 Implementer Checklist: Design Decision Table
 
-> 以下清单提炼自源码分析和官方文档。每个条目对应实现一个 Remote Control 类功能时**必须做出的设计决策**，Claude Code 的选择作为参考标注。
+> The following checklist is distilled from source analysis and official documentation. Each item corresponds to a design decision that **must be made** when implementing a Remote Control-like capability; Claude Code's choice is included as a reference.
 
-| # | 设计决策 | Claude Code 的选择 | 实现考量 |
+| # | Design Decision | Claude Code's Choice | Implementation Considerations |
 |---|----------|-------------------|----------|
-| **1** | **本地与云端谁持有会话状态（source of truth）？** | **云端是控制面 source of truth**（资格检查、策略执行、配置下发均在服务端）；本地持有数据面状态（对话历史 `.jsonl`、PID 文件） | 云端控制面允许运行时调整（如 poll 间隔）无需客户端升级；但需要网络可用才能启动 |
-| **2** | **资格检查是否复用遥测通道？** | **疑似耦合**：`DISABLE_TELEMETRY=1` 阻止 RC 注册（[#41189](https://github.com/anthropics/claude-code/issues/41189)），根因未确认 | 解耦更安全——遥测开关不应影响功能可用性；但共享通道可简化实现 |
-| **3** | **多客户端鉴权是共享 token 还是分 scope token？** | **分 scope token**：`SESSION_ACCESS_TOKEN`（会话访问）、`WEBSOCKET_AUTH_FILE_DESCRIPTOR`（WebSocket 认证），各独立过期 | 多 token 增加管理复杂度，但降低凭证泄露影响面 |
-| **4** | **Poll 间隔是硬编码还是服务端可调？** | **服务端下发，Zod schema 校验**，TTL 5 分钟缓存 | 服务端可调允许根据负载动态调整（满容量时从 2s 切到 10min），但需考虑配置服务可用性 |
-| **5** | **网络/代理环境是否一等公民支持？** | **部分支持**：`HOST_HTTP_PROXY_PORT`、`HOST_SOCKS_PROXY_PORT` 存在于二进制中，但 RC 在代理环境下的连接问题仍被报告（[#41324](https://github.com/anthropics/claude-code/issues/41324)） | 企业代理是常见障碍；出站 HTTPS 需正确处理 CONNECT 方法、证书链、认证代理 |
-| **6** | **进程崩溃后状态可恢复吗？** | **部分可恢复**：对话历史 `.jsonl` 可通过 `/continue` 恢复；但桥接状态（`replBridge*`）纯内存，进程退出即丢失；PID 文件残留但服务端 5s 后视为废弃 | 需区分「对话上下文恢复」（容易）和「桥接会话恢复」（需要云端配合） |
-| **7** | **并发会话如何隔离？** | `--spawn same-dir`（共享 CWD）或 `--spawn worktree`（独立 Git worktree），`--capacity` 上限 32 | 文件隔离是基本需求；worktree 方案允许并行修改不同分支但增加磁盘占用 |
-| **8** | **诊断日志写到哪里？** | `--debug-file <path>` 参数指定调试输出文件；`--verbose` 控制连接/会话日志详细度 | 生产环境中需要可开关的详细日志，用于排查连接循环、凭证刷新失败等问题 |
+| **1** | **Who holds session state (source of truth), local or cloud?** | **The cloud is the control-plane source of truth** (eligibility checks, policy enforcement, and configuration delivery all happen server-side); local holds data-plane state (conversation history `.jsonl`, PID files) | Cloud control plane allows runtime adjustments (such as poll interval) without client upgrades, but network availability is required to start |
+| **2** | **Should eligibility checks reuse the telemetry channel?** | **Suspected coupling**: `DISABLE_TELEMETRY=1` blocks RC registration ([#41189](https://github.com/anthropics/claude-code/issues/41189)); root cause unconfirmed | Decoupling is safer: telemetry switches should not affect feature availability; shared channels can simplify implementation |
+| **3** | **Should multi-client authentication use a shared token or scoped tokens?** | **Scoped tokens**: `SESSION_ACCESS_TOKEN` (session access), `WEBSOCKET_AUTH_FILE_DESCRIPTOR` (WebSocket authentication), each expiring independently | Multiple tokens increase management complexity but reduce the blast radius of credential leakage |
+| **4** | **Is the poll interval hard-coded or server-adjustable?** | **Delivered by server and validated by Zod schema**, cached with a 5-minute TTL | Server adjustability allows dynamic tuning based on load (for example, switching from 2s to 10min at full capacity), but configuration-service availability must be considered |
+| **5** | **Are network/proxy environments first-class supported?** | **Partial support**: `HOST_HTTP_PROXY_PORT` and `HOST_SOCKS_PROXY_PORT` exist in the binary, but connection issues under proxy environments are still reported ([#41324](https://github.com/anthropics/claude-code/issues/41324)) | Enterprise proxies are a common obstacle; outbound HTTPS must correctly handle CONNECT, certificate chains, and authenticated proxies |
+| **6** | **Can state recover after a process crash?** | **Partially recoverable**: conversation history `.jsonl` can be restored with `/continue`; bridge state (`replBridge*`) is in-memory only and lost on process exit; PID files remain, but the server treats them as abandoned after 5s | Distinguish "conversation context recovery" (easy) from "bridge session recovery" (requires cloud cooperation) |
+| **7** | **How are concurrent sessions isolated?** | `--spawn same-dir` (shared CWD) or `--spawn worktree` (independent Git worktree), with a `--capacity` limit of 32 | File isolation is a basic requirement; worktrees allow parallel edits on different branches but increase disk usage |
+| **8** | **Where do diagnostic logs go?** | The `--debug-file <path>` option specifies debug output; `--verbose` controls connection/session log verbosity | Production environments need switchable detailed logs for diagnosing connection loops, credential-refresh failures, and similar issues |
 
 ## 8.7 Remote Control vs Claude Code on the Web
 
-两者经常混淆，但本质不同：
+They are often confused, but they are fundamentally different:
 
 | | Remote Control | Claude Code on the Web |
 |---|---|---|
-| **执行位置** | 你的本地机器 | Anthropic 云端基础设施 |
-| **本地工具/MCP** | ✅ 可用（文件系统、MCP 服务器等） | ❌ 不可用 |
-| **安装要求** | 需要本地运行 Claude Code 进程 | 无需本地安装 |
-| **适合场景** | 在其他设备上继续进行中的工作 | 无本地环境时启动新任务，并行任务 |
-| **启动方式** | `claude remote-control` / `--rc` / `/rc` | `claude --remote "任务描述"` |
-| **反向操作** | — | `claude --teleport`（拉回 Web 会话到终端） |
+| **Execution location** | Your local machine | Anthropic cloud infrastructure |
+| **Local tools/MCP** | Available (file system, MCP servers, etc.) | Not available |
+| **Installation requirement** | Requires a local Claude Code process | No local installation required |
+| **Best for** | Continuing in-progress work from another device | Starting new tasks when no local environment exists, parallel tasks |
+| **Startup method** | `claude remote-control` / `--rc` / `/rc` | `claude --remote "task description"` |
+| **Reverse operation** | — | `claude --teleport` (pull a Web session back into the terminal) |
 
-### 8.7.1 跨设备工作流全景
+### 8.7.1 Cross-Device Workflow Overview
 
-Claude Code 提供了多种跨设备工作方式，各有侧重：
+Claude Code provides multiple cross-device workflows, each with a different focus:
 
-| 方式 | 触发方式 | 运行位置 | 适用场景 |
+| Method | Trigger | Run Location | Use Case |
 |------|----------|----------|----------|
-| **Dispatch** | 从 Claude Mobile App 发送消息 | 本地机器（Desktop） | 离开工位时委派任务 |
-| **Remote Control** | 从浏览器/Mobile 操控运行中的会话 | 本地机器（CLI/VS Code） | 远程操控进行中的工作 |
-| **Channels** | 从 Telegram/Discord 推送事件 | 本地机器（CLI） | 响应外部事件 |
-| **Slack** | 团队频道中 `@Claude` 提及 | Anthropic 云端 | 从团队聊天处理 PR/审查 |
-| **Scheduled Tasks** | 设置定时计划 | CLI / Desktop / 云端 | 周期性自动化 |
-| **`--remote`** | CLI 推送任务到 Web | Anthropic 云端 | 启动 Web 会话 |
-| **`/teleport`** | 在 Web 端启动长任务后拉入终端 | 本地机器 | 将云端会话拉到本地继续（CLI 等价：`claude --teleport`） |
+| **Dispatch** | Send a message from Claude Mobile App | Local machine (Desktop) | Delegate tasks while away from the workstation |
+| **Remote Control** | Control a running session from browser/Mobile | Local machine (CLI/VS Code) | Remotely control work in progress |
+| **Channels** | Push events from Telegram/Discord | Local machine (CLI) | Respond to external events |
+| **Slack** | `@Claude` mention in a team channel | Anthropic cloud | Handle PRs/reviews from team chat |
+| **Scheduled Tasks** | Set a schedule | CLI / Desktop / cloud | Periodic automation |
+| **`--remote`** | CLI pushes task to Web | Anthropic cloud | Start a Web session |
+| **`/teleport`** | Pull a long-running Web task into the terminal | Local machine | Pull a cloud session back locally to continue (CLI equivalent: `claude --teleport`) |
 
-## 8.8 限制
+## 8.8 Limitations
 
-| 限制 | 说明 |
+| Limitation | Description |
 |------|------|
-| **单远程会话/进程** | 交互模式（非 Server 模式）下每个进程仅一个远程会话。需多会话时用 `--spawn` |
-| **终端必须保持打开** | 关闭终端或终止进程会结束会话 |
-| **网络超时** | 若机器在线但网络不可达持续约 10 分钟，会话超时并退出进程 |
-| **不支持 API Key** | 必须使用 claude.ai OAuth 认证 |
-| **不支持第三方提供商** | Bedrock / Vertex / Foundry 用户无法使用 |
+| **One remote session per process** | In interactive mode (non-Server mode), each process has only one remote session. Use `--spawn` when multiple sessions are needed |
+| **Terminal must stay open** | Closing the terminal or terminating the process ends the session |
+| **Network timeout** | If the machine is online but the network remains unreachable for about 10 minutes, the session times out and the process exits |
+| **API Key unsupported** | Must use claude.ai OAuth authentication |
+| **Third-party providers unsupported** | Bedrock / Vertex / Foundry users cannot use it |
 
-## 8.9 已知问题（社区反馈）
+## 8.9 Known Issues (Community Feedback)
 
-以下问题来自 GitHub Issues，为社区观察到的现象，**根因未经官方确认**：
+The following issues come from GitHub Issues and are community-observed phenomena; **root causes have not been officially confirmed**:
 
-| 问题 | 观察到的现象 / 推测原因 | 影响 | 来源 |
+| Issue | Observed Phenomenon / Suspected Cause | Impact | Source |
 |------|------|------|------|
-| **Pidfile 竞态** | `concurrentSessions.ts` 中 `updatePidFile()` 非原子 read-modify-write（缺少 tmp+rename） | 并发会话时 JSON 文件损坏，Bun `fallocate` 可产生 null 字节截断 | [#41195](https://github.com/anthropics/claude-code/issues/41195) |
-| **遥测耦合** | 设置 `DISABLE_TELEMETRY=1` 后 RC 注册失败（疑似 eligibility check 与遥测共享代码路径） | RC 失败但报错信息误导为"未启用" | [#41189](https://github.com/anthropics/claude-code/issues/41189) |
-| **僵尸进程** | 服务端关闭连接后客户端进程不退出（观察到 `CLOSE_WAIT` TCP 状态，推测可能缺少 TCP read timeout 或 `CLOSE_WAIT` 检测） | 服务端关闭后客户端仍占用 1+ GB 内存，无自动退出 | [#41024](https://github.com/anthropics/claude-code/issues/41024) |
-| **连接循环** | Connecting/Disconnected 循环，可能与凭证刷新或网络代理有关 | 远程客户端无法稳定连接 | [#41324](https://github.com/anthropics/claude-code/issues/41324) |
-| **移动端 stale 连接** | Mobile App 复用过期的 WebSocket/session token | 空闲会话在移动端不可恢复，但 CLI 端正常 | [#41128](https://github.com/anthropics/claude-code/issues/41128) |
-| **VS Code 配置缺口** | 扩展未读取 `remoteControlAtStartup` 设置 | `/config` 全局启用在 VS Code 扩展中不生效 | [#41036](https://github.com/anthropics/claude-code/issues/41036) |
-| **Windows MCP 兼容** | Cloud MCP + RC 在 Windows 上加载失败 | Windows 用户无法同时使用 MCP 和 Remote Control | [#41044](https://github.com/anthropics/claude-code/issues/41044) |
-| **活跃 turn 丢消息** | Agent 正在执行 turn 时，stdin 消息可能丢失 | 远程发送的指令在 agent 忙碌时可能不被处理 | [#41230](https://github.com/anthropics/claude-code/issues/41230) |
+| **Pidfile race** | Non-atomic read-modify-write in `updatePidFile()` in `concurrentSessions.ts` (missing tmp+rename) | JSON file corruption during concurrent sessions; Bun `fallocate` may produce null-byte truncation | [#41195](https://github.com/anthropics/claude-code/issues/41195) |
+| **Telemetry coupling** | RC registration fails after setting `DISABLE_TELEMETRY=1` (suspected shared code path between eligibility check and telemetry) | RC fails but the error message misleadingly says "not enabled" | [#41189](https://github.com/anthropics/claude-code/issues/41189) |
+| **Zombie process** | Client process does not exit after the server closes the connection (observed `CLOSE_WAIT` TCP state; suspected missing TCP read timeout or `CLOSE_WAIT` detection) | Client still consumes 1+ GB memory after server closure, with no automatic exit | [#41024](https://github.com/anthropics/claude-code/issues/41024) |
+| **Connection loop** | Connecting/Disconnected loop, possibly related to credential refresh or network proxies | Remote client cannot connect stably | [#41324](https://github.com/anthropics/claude-code/issues/41324) |
+| **Mobile stale connection** | Mobile App reuses expired WebSocket/session token | Idle sessions cannot be restored on mobile, while the CLI side works normally | [#41128](https://github.com/anthropics/claude-code/issues/41128) |
+| **VS Code configuration gap** | Extension does not read the `remoteControlAtStartup` setting | Global enablement through `/config` does not take effect in the VS Code extension | [#41036](https://github.com/anthropics/claude-code/issues/41036) |
+| **Windows MCP compatibility** | Cloud MCP + RC fails to load on Windows | Windows users cannot use MCP and Remote Control together | [#41044](https://github.com/anthropics/claude-code/issues/41044) |
+| **Message loss during active turn** | stdin messages may be lost while the Agent is executing a turn | Instructions sent remotely may not be processed while the agent is busy | [#41230](https://github.com/anthropics/claude-code/issues/41230) |
 
-## 8.10 故障排查
+## 8.10 Troubleshooting
 
-| 错误信息 | 原因与解决 |
+| Error Message | Cause and Fix |
 |----------|-----------|
-| *"Requires a claude.ai subscription"* | 未通过 claude.ai 认证。运行 `claude auth login`，选择 claude.ai。如设置了 `ANTHROPIC_API_KEY` 需先清除 |
-| *"Requires a full-scope login token"* | 使用了 `claude setup-token` 或 `CLAUDE_CODE_OAUTH_TOKEN` 产生的有限 token。运行 `claude auth login` 获取完整 session token |
-| *"Unable to determine your organization"* | 缓存的账户信息过期。运行 `claude auth login` 刷新 |
-| *"Not yet enabled for your account"* | 检查是否设置了 `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`、`DISABLE_TELEMETRY`、`CLAUDE_CODE_USE_BEDROCK` 等——清除它们。否则 `/logout` 后重新 `/login` |
-| *"Disabled by your organization's policy"* | 三种原因：(1) 使用 API Key → 切换为 claude.ai OAuth；(2) Team/Enterprise 管理员未启用 `claude.ai/admin-settings/claude-code` 的开关；(3) 管理员开关灰色 → 数据保留/合规配置阻止，联系 Anthropic 支持 |
-| *"Remote credentials fetch failed"* | 使用 `--verbose` 查看详情。常见：未登录、防火墙/代理阻止出站 HTTPS 443 端口、订阅不活跃 |
+| *"Requires a claude.ai subscription"* | Not authenticated through claude.ai. Run `claude auth login` and select claude.ai. If `ANTHROPIC_API_KEY` is set, clear it first |
+| *"Requires a full-scope login token"* | A limited token from `claude setup-token` or `CLAUDE_CODE_OAUTH_TOKEN` is being used. Run `claude auth login` to obtain a full session token |
+| *"Unable to determine your organization"* | Cached account information is expired. Run `claude auth login` to refresh it |
+| *"Not yet enabled for your account"* | Check whether `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, `DISABLE_TELEMETRY`, `CLAUDE_CODE_USE_BEDROCK`, etc. are set; clear them. Otherwise `/logout` and then `/login` again |
+| *"Disabled by your organization's policy"* | Three possible causes: (1) API Key is used -> switch to claude.ai OAuth; (2) the Team/Enterprise administrator has not enabled the `claude.ai/admin-settings/claude-code` toggle; (3) the administrator toggle is grayed out -> data retention/compliance configuration blocks it; contact Anthropic support |
+| *"Remote credentials fetch failed"* | Use `--verbose` for details. Common causes: not logged in, firewall/proxy blocks outbound HTTPS port 443, inactive subscription |
 
-## 8.11 与 `/session` 命令的关系
+## 8.11 Relationship with the `/session` Command
 
-`/session`（别名 `/remote`）是另一个与远程相关的命令，但功能不同于 Remote Control：
+`/session` (alias `/remote`) is another remote-related command, but it differs from Remote Control:
 
-| 命令 | 功能 |
+| Command | Function |
 |------|------|
-| `/remote-control` `/rc` | 启用双向远程控制——从浏览器/Mobile 实时操控终端会话 |
-| `/session` `/remote` | 显示远程会话 URL 和 QR 码——用于在其他设备上查看/连接会话 |
-| `/remote-env` | 配置远程环境设置（远程服务器上的 Claude Code 实例） |
-| `/desktop` `/app` | 将当前会话转交到 Claude Desktop 应用继续 |
-| `/mobile` `/ios` `/android` | 显示下载 Claude Mobile 应用的 QR 码 |
+| `/remote-control` `/rc` | Enables bidirectional remote control: real-time control of a terminal session from browser/Mobile |
+| `/session` `/remote` | Shows the remote session URL and QR code for viewing/connecting to the session from other devices |
+| `/remote-env` | Configures remote environment settings (Claude Code instances on remote servers) |
+| `/desktop` `/app` | Hands the current session off to the Claude Desktop app to continue |
+| `/mobile` `/ios` `/android` | Shows a QR code for downloading the Claude Mobile app |
 
-## 8.12 行业对比
+## 8.12 Industry Comparison
 
-在 19 款对比的 AI 编程 Agent 中，Remote Control 为 **Claude Code 独有**功能：
+Among the 19 compared AI programming Agents, Remote Control is **unique to Claude Code**:
 
-| Agent | 远程控制能力 |
+| Agent | Remote-Control Capability |
 |-------|-------------|
-| **Claude Code** | ✅ `/remote-control` + Server 模式 + `--spawn` 多会话 |
-| **Copilot CLI** | ❌ 无（有 VS Code 集成但无终端远程操控） |
-| **Codex CLI** | ❌ 无 |
-| **Gemini CLI** | ❌ 无 |
-| **Qwen Code** | ❌ 无（[功能缺口分析](../../comparison/qwen-code-feature-gaps.md)，需从零构建） |
-| **Kimi CLI** | ❌ 无（有 Wire 协议但未实现远程控制） |
-| **其他 Agent** | ❌ 无 |
+| **Claude Code** | Yes: `/remote-control` + Server mode + `--spawn` multi-session |
+| **Copilot CLI** | No (has VS Code integration but no terminal remote control) |
+| **Codex CLI** | No |
+| **Gemini CLI** | No |
+| **Qwen Code** | No ([feature gap analysis](../../comparison/qwen-code-feature-gaps.md); must be built from scratch) |
+| **Kimi CLI** | No (has the Wire protocol but has not implemented remote control) |
+| **Other Agents** | No |
 
-## 8.13 实现参考：面向 Code Agent 开发者
+## 8.13 Implementation Reference for Code Agent Developers
 
-> 以下数据来自源码分析（`bridge/`、`remote/`、`utils/`、`entrypoints/` 等目录，约 35,000 行 TypeScript）。源码文件名和行号可直接追溯。
+> The following data comes from source analysis (`bridge/`, `remote/`, `utils/`, `entrypoints/`, and related directories; about 35,000 lines of TypeScript). Source filenames and line numbers are directly traceable.
 >
-> **适用场景**：其他 Code Agent 开发者实现类似"远程控制"功能时，可将本节作为架构参考。Claude Code 的实现是经过生产验证的方案，但并非唯一可行路径。
+> **Applicable scenario**: When developers of other Code Agents implement a similar "remote control" feature, this section can be used as an architecture reference. Claude Code's implementation is production-validated, but it is not the only feasible path.
 
-### 8.13.1 内部状态机（Redux Store）
+### 8.13.1 Internal State Machine (Redux Store)
 
-Remote Control 在 Redux AppState 中维护 13 个桥接状态字段（源码: `bridge/replBridge.ts`）：
+Remote Control maintains 13 bridge state fields in Redux AppState (Source: `bridge/replBridge.ts`):
 
 ```javascript
-// 源码: bridge/replBridge.ts — AppState 初始状态
-replBridgeEnabled: false,          // 是否启用桥接（旧字段，已迁移至 remoteControlAtStartup）
-replBridgeExplicit: false,         // 用户是否主动启用（vs 自动启用）
-replBridgeOutboundOnly: false,     // 仅出站模式：可推送消息但不接受远程控制指令
-replBridgeConnected: false,        // 与中继服务器的连接状态
-replBridgeSessionActive: false,    // 是否有活跃的远程客户端会话
-replBridgeReconnecting: false,     // 是否正在重连中
-replBridgeConnectUrl: undefined,   // 远程客户端连接 URL（供 QR 码/链接使用）
-replBridgeSessionUrl: undefined,   // 会话管理 URL
-replBridgeEnvironmentId: undefined,// 运行环境标识（用于 spawn 多会话路由）
-replBridgeSessionId: undefined,    // 当前桥接会话 ID
-replBridgeError: undefined,        // 最近错误信息
-replBridgeInitialName: undefined,  // 初始会话名称（--name 参数值）
-showRemoteCallout: false           // UI 标志：是否显示远程控制提示
+// Source: bridge/replBridge.ts — initial AppState
+replBridgeEnabled: false,          // Whether bridging is enabled (legacy field, migrated to remoteControlAtStartup)
+replBridgeExplicit: false,         // Whether the user explicitly enabled it (vs automatic enablement)
+replBridgeOutboundOnly: false,     // Outbound-only mode: can push messages but does not accept remote-control commands
+replBridgeConnected: false,        // Connection state with the relay server
+replBridgeSessionActive: false,    // Whether an active remote-client session exists
+replBridgeReconnecting: false,     // Whether reconnection is in progress
+replBridgeConnectUrl: undefined,   // Remote-client connection URL (for QR codes/links)
+replBridgeSessionUrl: undefined,   // Session management URL
+replBridgeEnvironmentId: undefined,// Runtime environment identifier (for spawn multi-session routing)
+replBridgeSessionId: undefined,    // Current bridge session ID
+replBridgeError: undefined,        // Most recent error message
+replBridgeInitialName: undefined,  // Initial session name (--name argument value)
+showRemoteCallout: false           // UI flag: whether to show the remote-control prompt
 ```
 
-**状态迁移逻辑**（源码: `migrations/migrateReplBridgeEnabledToRemoteControlAtStartup.ts`）：
+**State migration logic** (Source: `migrations/migrateReplBridgeEnabledToRemoteControlAtStartup.ts`):
 
 ```javascript
-// 源码: migrations/migrateReplBridgeEnabledToRemoteControlAtStartup.ts
+// Source: migrations/migrateReplBridgeEnabledToRemoteControlAtStartup.ts
 function migrateBridgeConfig(state) {
   if (state.replBridgeEnabled === undefined) return state;
   if (state.remoteControlAtStartup !== undefined) return state;
@@ -490,173 +492,173 @@ function migrateBridgeConfig(state) {
 }
 ```
 
-**实现要点**：
-- `replBridgeEnabled` 是旧字段名，当前版本使用 `remoteControlAtStartup`（选项：`"true"` / `"false"` / `"default"`）
-- `replBridgeOutboundOnly` 为 `true` 时，用户界面显示 "This session is outbound-only. Enable Remote Control locally to allow inbound control."
-- `replBridgeReconnecting` 用于 UI 展示重连状态（Connecting/Disconnected 循环问题与此状态相关）
+**Implementation notes**:
+- `replBridgeEnabled` is the legacy field name; current versions use `remoteControlAtStartup` (options: `"true"` / `"false"` / `"default"`)
+- When `replBridgeOutboundOnly` is `true`, the UI displays "This session is outbound-only. Enable Remote Control locally to allow inbound control."
+- `replBridgeReconnecting` is used by the UI to display reconnection state (Connecting/Disconnected loop issues are related to this state)
 
-### 8.13.2 Polling 配置参数（服务端可调 / GrowthBook 动态下发）
+### 8.13.2 Polling Configuration Parameters (Server-Adjustable / Dynamically Delivered by GrowthBook)
 
-服务端下发 polling 配置，客户端通过 Zod schema 校验后使用。以下为源码中的默认值和校验规则（源码: `bridge/pollConfigDefaults.ts` + `bridge/pollConfig.ts`）：
+The server delivers polling configuration, and the client validates it with a Zod schema before use. The following are default values and validation rules in source (Source: `bridge/pollConfigDefaults.ts` + `bridge/pollConfig.ts`):
 
 ```javascript
-// 源码: bridge/pollConfigDefaults.ts — 默认 polling 配置
+// Source: bridge/pollConfigDefaults.ts — default polling configuration
 const DEFAULT_POLL_CONFIG = {
-  poll_interval_ms_not_at_capacity: 2000,           // 未满容量时：2 秒轮询
-  poll_interval_ms_at_capacity: 600000,              // 满容量时：10 分钟心跳（或 0=禁用）
-  non_exclusive_heartbeat_interval_ms: 0,             // 非独占心跳：默认关闭
-  multisession_poll_interval_ms_not_at_capacity: 2000, // 多会话未满：2 秒
-  multisession_poll_interval_ms_partial_capacity: 2000, // 多会话部分满：2 秒
-  multisession_poll_interval_ms_at_capacity: 600000,    // 多会话满：10 分钟
-  reclaim_older_than_ms: 5000,                        // 回收阈值：5 秒后回收废弃会话
-  session_keepalive_interval_v2_ms: 120000            // WebSocket ping/pong：2 分钟
+  poll_interval_ms_not_at_capacity: 2000,           // Not at capacity: poll every 2 seconds
+  poll_interval_ms_at_capacity: 600000,              // At capacity: 10-minute heartbeat (or 0 = disabled)
+  non_exclusive_heartbeat_interval_ms: 0,             // Non-exclusive heartbeat: disabled by default
+  multisession_poll_interval_ms_not_at_capacity: 2000, // Multi-session not at capacity: 2 seconds
+  multisession_poll_interval_ms_partial_capacity: 2000, // Multi-session partially at capacity: 2 seconds
+  multisession_poll_interval_ms_at_capacity: 600000,    // Multi-session at capacity: 10 minutes
+  reclaim_older_than_ms: 5000,                        // Reclaim threshold: reclaim abandoned sessions after 5 seconds
+  session_keepalive_interval_v2_ms: 120000            // WebSocket ping/pong: 2 minutes
 };
 ```
 
-**Zod 校验 schema**（`hM9`）：
+**Zod validation schema** (`hM9`):
 
-| 参数 | 类型 | 约束 | 默认值 |
+| Parameter | Type | Constraint | Default |
 |------|------|------|--------|
-| `poll_interval_ms_not_at_capacity` | `int` | `≥ 100` | `2000` |
-| `poll_interval_ms_at_capacity` | `int` | `= 0 或 ≥ 100` | `600000` |
-| `non_exclusive_heartbeat_interval_ms` | `int` | `≥ 0` | `0` |
-| `reclaim_older_than_ms` | `int` | `≥ 1` | `5000` |
-| `session_keepalive_interval_v2_ms` | `int` | `≥ 0` | `120000` |
+| `poll_interval_ms_not_at_capacity` | `int` | `>= 100` | `2000` |
+| `poll_interval_ms_at_capacity` | `int` | `= 0 or >= 100` | `600000` |
+| `non_exclusive_heartbeat_interval_ms` | `int` | `>= 0` | `0` |
+| `reclaim_older_than_ms` | `int` | `>= 1` | `5000` |
+| `session_keepalive_interval_v2_ms` | `int` | `>= 0` | `120000` |
 
-**配置加载机制**：
+**Configuration loading mechanism**:
 
 ```javascript
-// 通过远程配置服务加载，TTL 5 分钟
+// Load through the remote configuration service, TTL 5 minutes
 loadConfig("tengu_bridge_poll_interval_config", DEFAULT_POLL_CONFIG, 300000);
 ```
 
-**实现要点**：
-- Poll 间隔是**服务端可调**的，客户端不应硬编码——通过远程配置服务动态下发
-- 满容量时（`at_capacity`）poll 间隔从 2s 切换到 10min，实质进入"心跳保活"模式
-- `reclaim_older_than_ms: 5000` 意味着服务器 5 秒无响应即可判定会话废弃——实现者需注意网络抖动场景
-- `session_keepalive_interval_v2_ms` 是 WebSocket 层的 ping/pong，与 HTTP 层的 poll 互补
+**Implementation notes**:
+- Poll intervals are **server-adjustable**; clients should not hard-code them. Deliver them dynamically through a remote configuration service
+- At capacity (`at_capacity`), the poll interval switches from 2s to 10min, effectively entering a "heartbeat keepalive" mode
+- `reclaim_older_than_ms: 5000` means the server can mark a session abandoned after 5 seconds without a response; implementers should consider network jitter scenarios
+- `session_keepalive_interval_v2_ms` is the WebSocket-layer ping/pong and complements HTTP-layer polling
 
-### 8.13.3 消息协议（Wire Format）
+### 8.13.3 Message Protocol (Wire Format)
 
-Remote Control 使用 JSON-lines 格式进行消息传输。以下消息类型来自源码（`entrypoints/sdk/controlSchemas.ts`，约 510 行 Zod v4 schema 定义）：
+Remote Control uses JSON-lines for message transport. The following message types come from source (`entrypoints/sdk/controlSchemas.ts`, about 510 lines of Zod v4 schema definitions):
 
-**消息信封**（Envelope）：
+**Message envelope**:
 
-| Schema | `type` 字段 | 用途 |
+| Schema | `type` Field | Purpose |
 |--------|------------|------|
-| `SDKControlRequestSchema` | `control_request` | 从远程端发来的控制请求，含 `request_id` + `request` 内含 `subtype` |
-| `SDKControlResponseSchema` | `control_response` | 控制请求的响应，含 `subtype`（`success`/`error`）+ 对应数据 |
-| `SDKControlCancelRequestSchema` | `control_cancel_request` | 取消待处理的控制请求 |
-| `SDKKeepAliveMessageSchema` | `keep_alive` | 心跳保活 |
-| `SDKUpdateEnvironmentVariablesMessageSchema` | `update_environment_variables` | 父进程向子进程注入环境变量更新 |
+| `SDKControlRequestSchema` | `control_request` | Control request from the remote side, containing `request_id` + `request` with an inner `subtype` |
+| `SDKControlResponseSchema` | `control_response` | Response to a control request, containing `subtype` (`success`/`error`) + corresponding data |
+| `SDKControlCancelRequestSchema` | `control_cancel_request` | Cancels a pending control request |
+| `SDKKeepAliveMessageSchema` | `keep_alive` | Heartbeat keepalive |
+| `SDKUpdateEnvironmentVariablesMessageSchema` | `update_environment_variables` | Parent process injects environment-variable updates into child process |
 
-**Control Request 子类型**（21 种，源码完整列表）：
+**Control Request subtypes** (21 types, complete list from source):
 
-| 子类型 | 用途 | 源码 |
+| Subtype | Purpose | Source |
 |--------|------|------|
-| `initialize` | 会话初始化（hooks、MCP 服务器、agents、system prompt） | `SDKControlInitializeRequestSchema` |
-| `interrupt` | 中断当前 turn | `SDKControlInterruptRequestSchema` |
-| `can_use_tool` | 工具权限审批请求（含 `tool_name`、`input`、`tool_use_id`） | `SDKControlPermissionRequestSchema` |
-| `set_permission_mode` | 设置权限模式 | `SDKControlSetPermissionModeRequestSchema` |
-| `set_model` | 切换模型 | `SDKControlSetModelRequestSchema` |
-| `set_max_thinking_tokens` | 设置 thinking token 上限 | `SDKControlSetMaxThinkingTokensRequestSchema` |
-| `mcp_status` | 查询 MCP 服务器状态 | `SDKControlMcpStatusRequestSchema` |
-| `get_context_usage` | 获取上下文窗口分析（含分类、总量、百分比、网格可视化数据） | `SDKControlGetContextUsageRequestSchema` |
-| `rewind_files` | 回退文件变更到指定用户消息 | `SDKControlRewindFilesRequestSchema` |
-| `cancel_async_message` | 丢弃待处理的异步用户消息 | `SDKControlCancelAsyncMessageRequestSchema` |
-| `seed_read_state` | 预填充 readFileState 缓存 | `SDKControlSeedReadStateRequestSchema` |
-| `hook_callback` | 投递 hook 回调 | `SDKHookCallbackRequestSchema` |
-| `mcp_message` | 发送 JSON-RPC 到 MCP 服务器 | `SDKControlMcpMessageRequestSchema` |
-| `mcp_set_servers` | 替换动态 MCP 服务器 | `SDKControlMcpSetServersRequestSchema` |
-| `reload_plugins` | 从磁盘重新加载插件 | `SDKControlReloadPluginsRequestSchema` |
-| `mcp_reconnect` | 重连失败的 MCP 服务器 | `SDKControlMcpReconnectRequestSchema` |
-| `mcp_toggle` | 启用/禁用 MCP 服务器 | `SDKControlMcpToggleRequestSchema` |
-| `stop_task` | 停止运行中的任务 | `SDKControlStopTaskRequestSchema` |
-| `apply_flag_settings` | 合并 flag settings | `SDKControlApplyFlagSettingsRequestSchema` |
-| `get_settings` | 获取有效设置（含 per-source 分层：user/project/local/flag/policy） | `SDKControlGetSettingsRequestSchema` |
-| `elicitation` | MCP elicitation（用户输入请求） | `SDKControlElicitationRequestSchema` |
+| `initialize` | Session initialization (hooks, MCP servers, agents, system prompt) | `SDKControlInitializeRequestSchema` |
+| `interrupt` | Interrupt the current turn | `SDKControlInterruptRequestSchema` |
+| `can_use_tool` | Tool-permission approval request (with `tool_name`, `input`, `tool_use_id`) | `SDKControlPermissionRequestSchema` |
+| `set_permission_mode` | Set permission mode | `SDKControlSetPermissionModeRequestSchema` |
+| `set_model` | Switch model | `SDKControlSetModelRequestSchema` |
+| `set_max_thinking_tokens` | Set thinking-token limit | `SDKControlSetMaxThinkingTokensRequestSchema` |
+| `mcp_status` | Query MCP server status | `SDKControlMcpStatusRequestSchema` |
+| `get_context_usage` | Get context-window analysis (including categories, totals, percentages, and grid visualization data) | `SDKControlGetContextUsageRequestSchema` |
+| `rewind_files` | Revert file changes to a specified user message | `SDKControlRewindFilesRequestSchema` |
+| `cancel_async_message` | Discard a pending asynchronous user message | `SDKControlCancelAsyncMessageRequestSchema` |
+| `seed_read_state` | Prepopulate the readFileState cache | `SDKControlSeedReadStateRequestSchema` |
+| `hook_callback` | Deliver a hook callback | `SDKHookCallbackRequestSchema` |
+| `mcp_message` | Send JSON-RPC to an MCP server | `SDKControlMcpMessageRequestSchema` |
+| `mcp_set_servers` | Replace dynamic MCP servers | `SDKControlMcpSetServersRequestSchema` |
+| `reload_plugins` | Reload plugins from disk | `SDKControlReloadPluginsRequestSchema` |
+| `mcp_reconnect` | Reconnect failed MCP servers | `SDKControlMcpReconnectRequestSchema` |
+| `mcp_toggle` | Enable/disable an MCP server | `SDKControlMcpToggleRequestSchema` |
+| `stop_task` | Stop a running task | `SDKControlStopTaskRequestSchema` |
+| `apply_flag_settings` | Merge flag settings | `SDKControlApplyFlagSettingsRequestSchema` |
+| `get_settings` | Get effective settings (including per-source layering: user/project/local/flag/policy) | `SDKControlGetSettingsRequestSchema` |
+| `elicitation` | MCP elicitation (user input request) | `SDKControlElicitationRequestSchema` |
 
-> **iOS 兼容层**：旧版 iOS App 发送 camelCase `requestId`（因 Swift CodingKeys 缺失），源码通过 `normalizeControlMessageKeys()` 将 `requestId` → `request_id` 进行兼容。snake_case 优先级高于 camelCase。
+> **iOS compatibility layer**: Older iOS App versions send camelCase `requestId` (because Swift CodingKeys are missing). Source uses `normalizeControlMessageKeys()` to convert `requestId` -> `request_id` for compatibility. snake_case has higher priority than camelCase.
 
-### 8.13.4 Token 刷新系统
+### 8.13.4 Token Refresh System
 
-源码揭示了两代独立的 token 刷新策略：
+The source reveals two independent generations of token refresh strategies:
 
-**v1（OAuth 刷新）**——`bridge/replBridge.ts`：
-- `clearOAuthTokenCache()` + `checkAndRefreshOAuthTokenIfNeeded()` 刷新 OAuth token
-- 通过 `refreshHeaders` 回调将新 token 注入 WebSocket 连接
-- 子进程通过 `update_environment_variables` stdin 消息更新 `CLAUDE_CODE_SESSION_ACCESS_TOKEN`
+**v1 (OAuth refresh)** — `bridge/replBridge.ts`:
+- `clearOAuthTokenCache()` + `checkAndRefreshOAuthTokenIfNeeded()` refresh the OAuth token
+- New token is injected into the WebSocket connection through the `refreshHeaders` callback
+- Child processes update `CLAUDE_CODE_SESSION_ACCESS_TOKEN` through an `update_environment_variables` stdin message
 
-**v2（JWT 刷新）**——`bridge/remoteBridgeCore.ts`：
-- `createTokenRefreshScheduler` 在 JWT 过期前 5 分钟触发
-- 调用 `/bridge` 端点刷新凭证，每次调用 bump epoch（防双刷：`authRecoveryInFlight` 标志序列化并发请求）
-- SSE 401 触发应急刷新：`onAuth401` → 重新获取 OAuth → 重取凭证 → 重建 transport
-- `initialFlushDone` 重置为 false，确保历史消息重传
+**v2 (JWT refresh)** — `bridge/remoteBridgeCore.ts`:
+- `createTokenRefreshScheduler` triggers 5 minutes before JWT expiration
+- Calls the `/bridge` endpoint to refresh credentials and bumps epoch on each call (double-refresh prevention: the `authRecoveryInFlight` flag serializes concurrent requests)
+- SSE 401 triggers emergency refresh: `onAuth401` -> fetch OAuth again -> refetch credentials -> rebuild transport
+- `initialFlushDone` is reset to false to ensure history messages are resent
 
-| 参数 | v1 值 | v2 值 | 说明 |
+| Parameter | v1 Value | v2 Value | Description |
 |------|-------|-------|------|
-| 刷新提前量 | — | 过期前 5 分钟 | JWT expiry 驱动 |
-| 最大重试 | 3 次 | — | 刷新失败后放弃 |
-| 重试延迟 | 60 秒 | 指数退避 | — |
-| 睡眠恢复 | 预算重置 | epoch bump | 笔记本睡眠唤醒后 |
+| Refresh lead time | — | 5 minutes before expiration | Driven by JWT expiry |
+| Maximum retries | 3 | — | Give up after refresh failure |
+| Retry delay | 60 seconds | Exponential backoff | — |
+| Sleep recovery | Budget reset | epoch bump | After laptop wakes from sleep |
 
-**刷新策略**：基于 JWT expiry 的定时调度——在 token 过期前 5 分钟触发刷新，最多失败 3 次后放弃。
+**Refresh strategy**: Scheduled based on JWT expiry; refresh is triggered 5 minutes before token expiration and gives up after at most 3 failures.
 
-### 8.13.5 Bridge 初始化接口（initReplBridge）
+### 8.13.5 Bridge Initialization Interface (initReplBridge)
 
-源码提取的 `initReplBridge` 回调接口（`bridge/initReplBridge.ts`，569 行）。这是 Remote Control 的核心桥接层，通过 `BridgeCoreParams` 依赖注入所有外部依赖：
+The extracted `initReplBridge` callback interface from source (`bridge/initReplBridge.ts`, 569 lines). This is the core Remote Control bridge layer and injects all external dependencies through `BridgeCoreParams`:
 
-**`BridgeCoreParams`（注入参数）**：
-- `createSession` — 创建新会话
-- `archiveSession` — 归档会话
-- `toSDKMessages` — 内部消息→SDK 消息转换
-- `onAuth401` — 401 认证失败回调
-- `getPollIntervalConfig` — 获取 GrowthBook 下发的 polling 参数
-- `onSetPermissionMode` — 权限模式变更回调
-- `onEnvironmentLost` — 环境丢失回调
+**`BridgeCoreParams` (injected parameters)**:
+- `createSession` — create a new session
+- `archiveSession` — archive a session
+- `toSDKMessages` — convert internal messages to SDK messages
+- `onAuth401` — 401 authentication-failure callback
+- `getPollIntervalConfig` — get GrowthBook-delivered polling parameters
+- `onSetPermissionMode` — permission-mode change callback
+- `onEnvironmentLost` — environment-lost callback
 
-**`ReplBridgeHandle`（返回的统一句柄）**：
-- 只读属性：`bridgeSessionId`、`environmentId`、`sessionIngressUrl`
-- `writeMessages(Message[])` — 写入原始消息
-- `writeSdkMessages(SDKMessage[])` — 写入 SDK 格式消息
-- `sendControlRequest` / `sendControlResponse` / `sendControlCancelRequest` — 权限桥接
-- `sendResult` — 发送会话结束信号
-- `teardown()` — 清理资源
+**`ReplBridgeHandle` (returned unified handle)**:
+- Read-only properties: `bridgeSessionId`, `environmentId`, `sessionIngressUrl`
+- `writeMessages(Message[])` — write raw messages
+- `writeSdkMessages(SDKMessage[])` — write SDK-format messages
+- `sendControlRequest` / `sendControlResponse` / `sendControlCancelRequest` — permission bridge
+- `sendResult` — send session-end signal
+- `teardown()` — clean up resources
 
-**关键设计**：源码中 `BridgeCoreParams` 不直接 import `bootstrap/state` 或 `sessionStorage`，所有外部依赖通过注入传入，实现了核心桥接逻辑与 UI/存储层的零耦合。
+**Key design**: In source, `BridgeCoreParams` does not directly import `bootstrap/state` or `sessionStorage`; all external dependencies are passed by injection, achieving zero coupling between core bridge logic and the UI/storage layer.
 
-### 8.13.6 Bridge 子进程环境变量
+### 8.13.6 Bridge Child-Process Environment Variables
 
-Server 模式下 `--spawn` 创建的子进程继承以下环境变量（源码: `bridge/replBridge.ts`）：
+Child processes created by `--spawn` in Server mode inherit the following environment variables (Source: `bridge/replBridge.ts`):
 
 ```javascript
-// spawn 子进程的环境变量设置
+// Environment-variable settings for spawned child processes
 {
-  CLAUDE_CODE_OAUTH_TOKEN: undefined,              // 显式清除，防止子进程用 OAuth token 重新注册
-  CLAUDE_CODE_ENVIRONMENT_KIND: "bridge",          // 标识为桥接子进程
-  CLAUDE_CODE_SESSION_ACCESS_TOKEN: accessToken,   // 传递会话访问凭证
-  CLAUDE_CODE_POST_FOR_SESSION_INGRESS_V2: "1",    // 启用 V2 会话入口协议
-  CLAUDE_CODE_USE_CCR_V2: "1",                     // 使用 CCR V2（如果 useCcrV2=true）
-  CLAUDE_CODE_WORKER_EPOCH: String(workerEpoch),    // Worker epoch（如果 useCcrV2=true）
-  CLAUDE_CODE_FORCE_SANDBOX: "1"                    // 强制沙箱（如果 --sandbox）
+  CLAUDE_CODE_OAUTH_TOKEN: undefined,              // Explicitly clear it to prevent child processes from re-registering with the OAuth token
+  CLAUDE_CODE_ENVIRONMENT_KIND: "bridge",          // Identify as a bridge child process
+  CLAUDE_CODE_SESSION_ACCESS_TOKEN: accessToken,   // Pass the session access credential
+  CLAUDE_CODE_POST_FOR_SESSION_INGRESS_V2: "1",    // Enable the V2 session ingress protocol
+  CLAUDE_CODE_USE_CCR_V2: "1",                     // Use CCR V2 (if useCcrV2=true)
+  CLAUDE_CODE_WORKER_EPOCH: String(workerEpoch),    // Worker epoch (if useCcrV2=true)
+  CLAUDE_CODE_FORCE_SANDBOX: "1"                    // Force sandboxing (if --sandbox)
 }
 ```
 
-**实现要点**：
-- `CLAUDE_CODE_OAUTH_TOKEN` 被显式设为 `undefined`——子进程不应使用父进程的 OAuth 凭证重新注册，而应通过 `SESSION_ACCESS_TOKEN` 接管会话
-- `CLAUDE_CODE_ENVIRONMENT_KIND: "bridge"` 让子进程知道自己在桥接模式下运行，调整行为（如不启动自己的 WebSocket/SSE 连接）
-- `CLAUDE_CODE_POST_FOR_SESSION_INGRESS_V2: "1"` 启用更新的会话入口协议
+**Implementation notes**:
+- `CLAUDE_CODE_OAUTH_TOKEN` is explicitly set to `undefined`; child processes should not use the parent process's OAuth credentials to register again, and should instead take over the session through `SESSION_ACCESS_TOKEN`
+- `CLAUDE_CODE_ENVIRONMENT_KIND: "bridge"` lets the child process know it is running in bridge mode and adjust behavior (for example, not starting its own WebSocket/SSE connection)
+- `CLAUDE_CODE_POST_FOR_SESSION_INGRESS_V2: "1"` enables the newer session ingress protocol
 
-### 8.13.7 并发会话管理（PID File）
+### 8.13.7 Concurrent Session Management (PID File)
 
-源码提取的会话注册文件格式和更新逻辑（`utils/concurrentSessions.ts`，205 行）：
+Extracted session registration file format and update logic from source (`utils/concurrentSessions.ts`, 205 lines):
 
-**PID 文件路径**：`$CONFIG_DIR/sessions/{process.pid}.json`
+**PID file path**: `$CONFIG_DIR/sessions/{process.pid}.json`
 
-**注册时写入**：
+**Written during registration**:
 
 ```javascript
-// 会话注册：写入 PID 文件
+// Session registration: write PID file
 await fs.writeFile(pidFilePath, JSON.stringify({
   pid: process.pid,
   sessionId: getSessionId(),
@@ -664,14 +666,14 @@ await fs.writeFile(pidFilePath, JSON.stringify({
   startedAt: Date.now(),
   kind: sessionKind,                              // "interactive" | "server" | ...
   entrypoint: process.env.CLAUDE_CODE_ENTRYPOINT,  // "cli" | "remote" | ...
-  name: sessionName                                // 可选
+  name: sessionName                                // optional
 }));
 ```
 
-**更新逻辑**（`gv7` 函数）：
+**Update logic** (`gv7` function):
 
 ```javascript
-// 非原子更新：read → merge → write（存在竞态条件）
+// Non-atomic update: read -> merge -> write (has a race condition)
 async function updatePidFile(updates) {
   const path = join(configDir(), `${process.pid}.json`);
   try {
@@ -683,107 +685,111 @@ async function updatePidFile(updates) {
 }
 ```
 
-**已知问题**：此 read-modify-write 操作**非原子**（缺少 tmp+rename），在并发场景下可能导致 JSON 文件损坏（[GitHub #41195](https://github.com/anthropics/claude-code/issues/41195)）。实现者应使用 `writeFileSync(tmp, data)` + `renameSync(tmp, path)` 的原子写入模式。
+**Known issue**: This read-modify-write operation is **non-atomic** (missing tmp+rename) and can corrupt JSON files under concurrency ([GitHub #41195](https://github.com/anthropics/claude-code/issues/41195)). Implementers should use an atomic write pattern such as `writeFileSync(tmp, data)` + `renameSync(tmp, path)`.
 
-### 8.13.8 Bridge 会话注册 Schema
+### 8.13.8 Bridge Session Registration Schema
 
-源码提取的 Zod schema（源码: `bridge/createSession.ts`），用于注册桥接会话：
+Extracted Zod schema from source (Source: `bridge/createSession.ts`) for registering bridge sessions:
 
 ```javascript
-// 会话注册请求体 schema
+// Session registration request-body schema
 const bridgeSessionSchema = z.object({
-  session_id: z.string(),         // 会话唯一标识
-  ws_url: z.string(),             // WebSocket 连接 URL
-  work_dir: z.string().optional() // 工作目录（可选）
+  session_id: z.string(),         // Unique session identifier
+  ws_url: z.string(),             // WebSocket connection URL
+  work_dir: z.string().optional() // Working directory (optional)
 });
 ```
 
-### 8.13.9 CLI 完整参数（remote-control 子命令）
+### 8.13.9 Complete CLI Options (`remote-control` Subcommand)
 
-源码提取的 `claude remote-control` 完整参数列表（源码: `bridge/bridgeMain.ts`）：
+Complete `claude remote-control` option list extracted from source (Source: `bridge/bridgeMain.ts`):
 
 ```
 claude remote-control [options]
-  --spawn <mode>                      Spawn 模式：same-dir | worktree | session
-  --capacity <N>                      最大并发会话数
-  --create-session-in-dir <path>      在指定目录创建会话
-  --session-id <id>                  恢复指定会话 ID
-  --continue                          继续上次会话
-  --permission-mode <mode>            权限模式
-  --name <name>                       会话名称
-  --verbose                           详细日志
-  --sandbox                           启用沙箱
-  --debug-file <path>                 调试输出文件
-  --session-timeout-ms <ms>           会话超时（毫秒）
+  --spawn <mode>                      Spawn mode: same-dir | worktree | session
+  --capacity <N>                      Maximum number of concurrent sessions
+  --create-session-in-dir <path>      Create a session in the specified directory
+  --session-id <id>                   Resume the specified session ID
+  --continue                          Continue the previous session
+  --permission-mode <mode>            Permission mode
+  --name <name>                       Session name
+  --verbose                           Verbose logs
+  --sandbox                           Enable sandbox
+  --debug-file <path>                 Debug output file
+  --session-timeout-ms <ms>           Session timeout (milliseconds)
 ```
 
-**新增发现**（相比官方文档）：
+**New findings** (compared with official documentation):
 
-| 参数 | 官方文档 | 源码发现 |
+| Option | Official Documentation | Source Finding |
 |------|----------|-----------|
-| `--spawn session` | 未提及 | 第三种 spawn 模式 |
-| `--create-session-in-dir` | 未提及 | 在指定目录创建会话 |
-| `--session-id` | 未提及 | 恢复特定会话 ID |
-| `--session-timeout-ms` | 未提及 | 精确控制会话超时时间 |
-| `--debug-file` | 未提及 | 调试输出到文件 |
+| `--spawn session` | Not mentioned | Third spawn mode |
+| `--create-session-in-dir` | Not mentioned | Creates a session in the specified directory |
+| `--session-id` | Not mentioned | Resumes a specific session ID |
+| `--session-timeout-ms` | Not mentioned | Precisely controls session timeout |
+| `--debug-file` | Not mentioned | Writes debug output to a file |
 
-### 8.13.10 遥测事件
+### 8.13.10 Telemetry Events
 
-Remote Control 相关的遥测事件前缀为 `tengu_bridge_*`，源码提取到以下事件名（源码: `bridge/bridgeMain.ts`）：
+Remote Control-related telemetry event prefixes are `tengu_bridge_*`; the following event names were extracted from source (Source: `bridge/bridgeMain.ts`):
 
-| 事件名 | 用途 |
+| Event Name | Purpose |
 |--------|------|
-| `tengu_bridge_token_refreshed` | Token 刷新成功/失败追踪 |
-| `tengu_bridge_multi_session_denied` | 多会话访问被拒绝（capacity 已满） |
-| `tengu_bridge_poll_interval_config` | Polling 配置加载追踪 |
-| `tengu_concurrent_sessions` | 并发会话状态追踪 |
+| `tengu_bridge_token_refreshed` | Tracks token refresh success/failure |
+| `tengu_bridge_multi_session_denied` | Multi-session access denied (capacity full) |
+| `tengu_bridge_poll_interval_config` | Tracks polling configuration loading |
+| `tengu_concurrent_sessions` | Tracks concurrent session state |
 
-### 8.13.11 客户端类型检测
+### 8.13.11 Client Type Detection
 
-源码提取的客户端类型判定逻辑（源码: `utils/sessionIngressAuth.ts` + `bridge/replBridge.ts`）：
+Client type detection logic extracted from source (Source: `utils/sessionIngressAuth.ts` + `bridge/replBridge.ts`):
 
 ```javascript
-// 客户端类型检测
+// Client type detection
 function detectClientType() {
   const hasSessionToken = process.env.CLAUDE_CODE_SESSION_ACCESS_TOKEN
                        || process.env.CLAUDE_CODE_WEBSOCKET_AUTH_FILE_DESCRIPTOR;
   if (process.env.CLAUDE_CODE_ENTRYPOINT === "remote" || hasSessionToken) {
-    return "remote";  // Remote Control 桥接客户端
+    return "remote";  // Remote Control bridge client
   }
-  // ... 其他类型判断
+  // ... Other type checks
 }
 ```
 
-**关键环境变量**：
+**Key environment variables**:
 
-| 变量 | 说明 | 来源 |
+| Variable | Description | Source |
 |------|------|------|
-| `CLAUDE_CODE_SESSION_ACCESS_TOKEN` | 存在时标记为 "remote" 客户端类型 | 源码: `utils/sessionIngressAuth.ts` |
-| `CLAUDE_CODE_WEBSOCKET_AUTH_FILE_DESCRIPTOR` | 存在时标记为 "remote" 客户端类型（文件描述符方式传递 WebSocket 认证） | 源码: `utils/sessionIngressAuth.ts` |
-| `CLAUDE_CODE_ENTRYPOINT` | 值为 `"remote"` 时标记为远程入口 | 源码: `utils/concurrentSessions.ts` |
-| `CLAUDE_CODE_REMOTE` | 存在时影响 auto-memory 行为；传递给 teammate spawn 环境 | 源码: `bridge/replBridge.ts` |
+| `CLAUDE_CODE_SESSION_ACCESS_TOKEN` | Marks the client type as "remote" when present | Source: `utils/sessionIngressAuth.ts` |
+| `CLAUDE_CODE_WEBSOCKET_AUTH_FILE_DESCRIPTOR` | Marks the client type as "remote" when present (file-descriptor passing for WebSocket authentication) | Source: `utils/sessionIngressAuth.ts` |
+| `CLAUDE_CODE_ENTRYPOINT` | Marks a remote entrypoint when set to `"remote"` | Source: `utils/concurrentSessions.ts` |
+| `CLAUDE_CODE_REMOTE` | Affects auto-memory behavior when present; passed to teammate spawn environments | Source: `bridge/replBridge.ts` |
 
-### 8.13.12 实现建议：架构模式总结
+### 8.13.12 Implementation Recommendations: Architecture Pattern Summary
 
-基于源码分析（`bridge/` 目录 12,613 行 + `remote/` 目录 1,127 行），实现类似 Remote Control 功能的推荐架构模式：
+Based on source analysis (`bridge/` directory: 12,613 lines + `remote/` directory: 1,127 lines), the recommended architecture pattern for implementing a Remote Control-like capability is:
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│                      推荐架构模式                                 │
+│                  Recommended Architecture Pattern                 │
 ├──────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  ┌─────────┐    ① Register       ┌──────────────┐               │
+│  ┌─────────┐    1. Register      ┌──────────────┐               │
 │  │  Local   │ ──────────────────→ │              │               │
 │  │  Agent   │ ←────────────────── │   Relay      │               │
-│  │  Process │    ② Token + URL    │   Server     │               │
+│  │  Process │    2. Token + URL   │   Server     │               │
 │  │          │                     │              │               │
-│  │          │    ③ HTTPS Poll     │  - 消息路由   │               │
-│  │          │ ──────────────────→ │  - 凭证管理   │               │
-│  │          │ ←────────────────── │  - 会话追踪   │               │
-│  │          │    ④ Stream Msgs    │  - 配置下发   │               │
+│  │          │    3. HTTPS Poll    │  - Message   │               │
+│  │          │ ──────────────────→ │    routing   │               │
+│  │          │ ←────────────────── │  - Credential│               │
+│  │          │    4. Stream Msgs   │    management│               │
+│  │          │                     │  - Session   │               │
+│  │          │                     │    tracking  │               │
+│  │          │                     │  - Config    │               │
+│  │          │                     │    delivery  │               │
 │  └─────────┘                     └──────┬───────┘               │
 │                                         │                        │
-│                                    ⑤ WebSocket/HTTPS            │
+│                                    5. WebSocket/HTTPS            │
 │                                         │                        │
 │                                  ┌──────▼───────┐               │
 │                                  │   Remote      │               │
@@ -791,152 +797,152 @@ function detectClientType() {
 │                                  │  (Web/Mobile) │               │
 │                                  └──────────────┘               │
 │                                                                  │
-│  关键设计决策：                                                    │
-│  1. 本地仅出站 HTTPS → 企业防火墙穿透                              │
-│  2. 服务端下发 poll 配置 → 运行时可调                              │
-│  3. JWT + 短期凭证 → 定时刷新 (过期前 5min)                        │
-│  4. JSON-lines 消息协议 → 简单可扩展                               │
-│  5. PID file 并发注册 → 需原子写入（tmp+rename）                    │
-│  6. 子进程显式清除 OAuth token → 防止重复注册                       │
-│  7. keep_alive 空操作 → 降低无用处理开销                            │
-│  8. 客户端类型检测 → 区分 local/remote/bridge 行为                  │
+│  Key design decisions:                                           │
+│  1. Local outbound-only HTTPS -> enterprise firewall traversal    │
+│  2. Server-delivered poll config -> runtime adjustability         │
+│  3. JWT + short-lived credentials -> scheduled refresh (5min before expiry) │
+│  4. JSON-lines message protocol -> simple and extensible          │
+│  5. PID file concurrent registration -> requires atomic write (tmp+rename) │
+│  6. Child process explicitly clears OAuth token -> prevents duplicate registration │
+│  7. keep_alive no-op -> reduces useless processing overhead       │
+│  8. Client type detection -> distinguishes local/remote/bridge behavior │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-### 8.13.13 与 Gemini CLI 的对比参考
+### 8.13.13 Comparison Reference with Gemini CLI
 
-Qwen Code 基于 Gemini CLI 分叉（[Qwen Code EVIDENCE](../qwen-code/EVIDENCE.md)），Gemini CLI 使用 Google Cloud relay 实现 `--remote` 功能。两者实现路径对比：
+Qwen Code is forked from Gemini CLI ([Qwen Code EVIDENCE](../qwen-code/EVIDENCE.md)). Gemini CLI uses Google Cloud relay to implement the `--remote` feature. The implementation paths differ as follows:
 
-| 维度 | Claude Code | Gemini CLI / Qwen Code |
+| Dimension | Claude Code | Gemini CLI / Qwen Code |
 |------|-------------|----------------------|
-| **中继架构** | Anthropic API 中继 | Google Cloud relay |
-| **本地传输** | WebSocket (v1) / SSE (v2)，服务端可调 | SSE (Server-Sent Events) |
-| **认证** | claude.ai OAuth full-scope | Google OAuth |
-| **消息格式** | JSON-lines（8+ 消息类型） | SSE stream |
-| **状态管理** | Redux 13 字段状态机 | — |
-| **Token 刷新** | JWT expiry - 5min 提前刷新 | — |
-| **多会话** | `--spawn` + `--capacity` + PID file | — |
+| **Relay architecture** | Anthropic API relay | Google Cloud relay |
+| **Local transport** | WebSocket (v1) / SSE (v2), server-adjustable | SSE (Server-Sent Events) |
+| **Authentication** | claude.ai OAuth full-scope | Google OAuth |
+| **Message format** | JSON-lines (8+ message types) | SSE stream |
+| **State management** | Redux 13-field state machine | — |
+| **Token refresh** | JWT expiry - refresh 5min early | — |
+| **Multi-session** | `--spawn` + `--capacity` + PID file | — |
 
-> **注意**：Gemini CLI 的 `--remote` 实现细节未公开源码，对比数据来自 CLI help 输出和行为观察，标注 `⚠️` 的条目为推断。
+> **Note**: Gemini CLI's `--remote` implementation details are not public source. Comparison data comes from CLI help output and behavioral observation; items marked `⚠️` are inferred.
 
-## 8.14 评价与优缺点分析
+## 8.14 Evaluation and Pros/Cons Analysis
 
-### 8.14.1 核心优势
+### 8.14.1 Core Strengths
 
-**1. 唯一实现"终端会话远程操控"的 Agent**
+**1. The only Agent that implements "remote control of terminal sessions"**
 
-Claude Code 的 Remote Control 在所有 19 款 Agent 中独树一帜——它不是简单的 Web UI 或 API 暴露，而是将一个**正在运行的终端交互会话**双向桥接到浏览器/手机。这意味着远程端可以完整使用本地文件系统、MCP 服务器、项目配置，实现真正的"离开工位不中断工作"。
+Claude Code's Remote Control stands apart among all 19 Agents. It is not a simple Web UI or API exposure; it bidirectionally bridges a **running terminal interactive session** to a browser/phone. This means the remote side can fully use the local file system, MCP servers, and project configuration, enabling true "leave the workstation without interrupting work" behavior.
 
-**2. 安全架构设计审慎**
+**2. Careful security architecture design**
 
-- 仅出站 HTTPS，零入站端口——企业防火墙友好
-- 强制 claude.ai OAuth full-scope token——排除 API Key / 第三方提供商
-- Team/Enterprise 管理员门控——组织级管控
-- 多短期凭证隔离——防止凭证泄露横向移动
+- Outbound-only HTTPS and zero inbound ports: enterprise-firewall friendly
+- Mandatory claude.ai OAuth full-scope token: excludes API Key / third-party providers
+- Team/Enterprise administrator gate: organization-level control
+- Multiple short-lived isolated credentials: prevents lateral movement after credential leakage
 
-**3. 多模式灵活适配**
+**3. Flexible multi-mode adaptation**
 
-三种启动方式（Server 模式 / 交互式 / 会话内）覆盖不同场景：长时间无人值守用 Server 模式，日常开发用交互式，临时需要用会话内。`--spawn worktree` 支持多会话文件隔离，`--capacity` 防止资源耗尽。
+Three startup methods (Server mode / interactive / in-session) cover different scenarios: Server mode for long unattended tasks, interactive mode for daily development, and in-session enablement for temporary needs. `--spawn worktree` supports file isolation across multiple sessions, and `--capacity` prevents resource exhaustion.
 
-**4. 跨设备生态完整**
+**4. Complete cross-device ecosystem**
 
-Remote Control 不是孤立功能，而是 Claude Code 跨设备矩阵的一部分——配合 `--remote`（推到 Web）、`/teleport`（拉回终端）、Dispatch（手机委派）、Channels（Telegram/Discord 推送）、`/schedule`（定时任务），形成从"实时远程操控"到"异步事件驱动"的完整工作流覆盖。
+Remote Control is not an isolated feature; it is part of Claude Code's cross-device matrix. Together with `--remote` (push to Web), `/teleport` (pull back to terminal), Dispatch (mobile delegation), Channels (Telegram/Discord push), and `/schedule` (scheduled tasks), it forms complete workflow coverage from "real-time remote control" to "asynchronous event-driven automation".
 
-### 8.14.2 核心短板
+### 8.14.2 Core Weaknesses
 
-**1. 强绑定 claude.ai 生态**
+**1. Strong binding to the claude.ai ecosystem**
 
-- 不支持 API Key、Bedrock、Vertex、Foundry——企业私有化部署场景被排除
-- `DISABLE_TELEMETRY` 会意外阻止注册——隐私敏感用户被迫在遥测和远程控制之间二选一
-- Team/Enterprise 默认关闭，部分合规配置不可覆盖
+- Does not support API Key, Bedrock, Vertex, or Foundry, excluding enterprise private-deployment scenarios
+- `DISABLE_TELEMETRY` unexpectedly blocks registration, forcing privacy-sensitive users to choose between telemetry and remote control
+- Disabled by default for Team/Enterprise, and some compliance configurations cannot be overridden
 
-**2. 稳定性问题**
+**2. Stability issues**
 
-截至 v2.1.81，社区反馈了 8 个已知问题（见上文），其中几个影响实际使用：
-- 僵尸进程：服务端关闭后客户端不退出，内存不释放
-- 连接循环：Connecting/Disconnected 反复，无法稳定工作
-- 移动端 stale 连接：WebSocket/session token 过期后不可恢复
-- VS Code 扩展忽略 `remoteControlAtStartup` 配置
+As of v2.1.81, the community has reported 8 known issues (see above), several of which affect real-world use:
+- Zombie process: client does not exit after server closure, and memory is not released
+- Connection loop: repeated Connecting/Disconnected state, preventing stable operation
+- Mobile stale connection: cannot recover after WebSocket/session token expiration
+- VS Code extension ignores the `remoteControlAtStartup` configuration
 
-**3. 本地进程强依赖**
+**3. Strong dependency on the local process**
 
-- 终端必须保持打开，关闭即断
-- 网络断连 ~10 分钟后超时退出
-- 不如 `/schedule`（CCR 云端执行）那样能"关机后继续跑"
+- Terminal must remain open; closing it disconnects the session
+- Times out and exits after about 10 minutes of network disconnection
+- Unlike `/schedule` (CCR cloud execution), it cannot "keep running after shutdown"
 
-**4. 闭源且证据有限**
+**4. Closed source with limited evidence**
 
-通信协议细节（WebSocket/SSE 双代传输、消息格式、端点 URL）未公开文档化，但已通过源码分析完整揭示。安全审计已可基于源码进行独立验证。
+Communication protocol details (two-generation WebSocket/SSE transport, message format, endpoint URLs) are not publicly documented, but have been fully revealed through source analysis. Security auditing can already be independently verified from source.
 
-### 8.14.3 设计权衡总结
+### 8.14.3 Design Trade-Off Summary
 
-| 设计决策 | 收益 | 代价 |
+| Design Decision | Benefit | Cost |
 |----------|------|------|
-| 本地执行 + 远程操控 | 完整本地环境可用 | 终端必须在线 |
-| WebSocket/SSE 中继 | 零入站端口，企业友好 | 双代传输增加维护复杂度 |
-| claude.ai OAuth 强绑定 | 统一认证、管理员管控 | 排除 API Key / 第三方用户 |
-| 多短期凭证 | 凭证泄露影响面小 | 增加注册失败点 |
-| 遥测与资格检查耦合 | — | 会导致隐私用户被意外阻断 |
+| Local execution + remote control | Full local environment is available | Terminal must be online |
+| WebSocket/SSE relay | Zero inbound ports, enterprise-friendly | Two-generation transport increases maintenance complexity |
+| Strong binding to claude.ai OAuth | Unified authentication and administrator control | Excludes API Key / third-party users |
+| Multiple short-lived credentials | Small blast radius for credential leakage | More registration failure points |
+| Telemetry coupled with eligibility checks | — | Can unexpectedly block privacy-sensitive users |
 
-## 8.15 竞品对比：远程访问能力全景
+## 8.15 Competitor Comparison: Remote Access Capability Overview
 
-Claude Code Remote Control 在"跨设备远程操控终端会话"维度上独有，但"远程访问"本身在其他 Agent 中有不同形态的实现：
+Claude Code Remote Control is unique in the dimension of "cross-device remote control of terminal sessions", but "remote access" itself appears in different forms in other Agents:
 
-### 8.15.1 功能对比矩阵
+### 8.15.1 Feature Comparison Matrix
 
-> **维度说明**：本表统一按「是否具备该能力」横向对比。各能力定义如下——
-> - **终端会话远程操控**：从其他设备实时操控一个正在运行的 CLI 会话
-> - **Web/浏览器 UI**：提供可通过浏览器访问的图形界面
-> - **多客户端同时连接**：同一会话可被多种客户端（TUI/Web/Desktop/Mobile）同时连接
-> - **原生移动端 App**：iOS/Android 原生应用（非移动浏览器访问 Web UI）
-> - **零入站端口**：无需在本地开放任何监听端口
+> **Dimension definitions**: This table compares capabilities horizontally by whether each capability exists. The capabilities are defined as follows:
+> - **Terminal session remote control**: Real-time control of a running CLI session from another device
+> - **Web/browser UI**: A graphical interface accessible through a browser
+> - **Multiple clients connected simultaneously**: The same session can be connected by multiple client types (TUI/Web/Desktop/Mobile) at the same time
+> - **Native mobile App**: Native iOS/Android application (not mobile-browser access to a Web UI)
+> - **Zero inbound ports**: No local listening port needs to be opened
 
-| 能力 | Claude Code | Kimi CLI | OpenCode | Goose | Codex CLI | Copilot CLI | Aider |
+| Capability | Claude Code | Kimi CLI | OpenCode | Goose | Codex CLI | Copilot CLI | Aider |
 |------|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| **终端会话远程操控** | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| **Web/浏览器 UI** | ❌ | ✅ FastAPI+React | ✅ SolidJS（实验） | ❌（仅 Desktop App，见 [说明](../goose.md)） | ❌ | ❌ | ❌ |
-| **多客户端同时连接** | ✅ TUI+浏览器+Mobile | ✅ Wire 四客户端 | ✅ TUI+Web+Desktop | ✅ CLI+Desktop | ❌ | ❌ | ❌ |
-| **原生移动端 App** | ✅ iOS/Android | ❌（移动浏览器可访问 Web UI） | ❌ | ❌ | ❌ | ❌ | ❌ |
-| **零入站端口** | ✅（outbound-only 中继） | ❌（开端口） | ❌（开端口） | ❌（开端口） | ❌ | N/A | N/A |
-| **远程 IDE 集成** | ✅ VS Code | ✅ ACP | ❌ | ❌ | ✅ app-server | ✅ 原生 | ❌ |
-| **协议** | WebSocket/SSE + 中继 | Wire v1.6 (WS) | Hono HTTP+WS+SSE | REST (Axum) | JSON-RPC (WS) | CLI only | CLI only |
+| **Terminal session remote control** | Yes | No | No | No | No | No | No |
+| **Web/browser UI** | No | Yes, FastAPI+React | Yes, SolidJS (experimental) | No (Desktop App only; see [note](../goose.md)) | No | No | No |
+| **Multiple clients connected simultaneously** | Yes, TUI+browser+Mobile | Yes, Wire four clients | Yes, TUI+Web+Desktop | Yes, CLI+Desktop | No | No | No |
+| **Native mobile App** | Yes, iOS/Android | No (mobile browser can access Web UI) | No | No | No | No | No |
+| **Zero inbound ports** | Yes (outbound-only relay) | No (opens a port) | No (opens a port) | No (opens a port) | No | N/A | N/A |
+| **Remote IDE integration** | Yes, VS Code | Yes, ACP | No | No | Yes, app-server | Yes, native | No |
+| **Protocol** | WebSocket/SSE + relay | Wire v1.6 (WS) | Hono HTTP+WS+SSE | REST (Axum) | JSON-RPC (WS) | CLI only | CLI only |
 
-### 8.15.2 竞品关键差异
+### 8.15.2 Key Competitor Differences
 
-**Kimi CLI**（最完整的 Web UI）：
-- `kimi web` 启动 FastAPI + React Web UI（默认 `localhost:5494`），支持多会话管理、实时 diff 预览、审批对话框
-  （来源：[Kimi CLI 架构文档](../kimi-cli/03-architecture.md)）
-- Wire v1.6 协议统一 TUI / Web / IDE / 自定义 UI 四种客户端
-  （来源：[Kimi CLI 架构文档](../kimi-cli/03-architecture.md)）
-- 支持 `--network`、`--lan-only`、`--public` 三种网络模式，token 认证
-- **劣势**：需要在本地开放端口（不像 Claude Code 的 outbound-only），无原生移动 App
+**Kimi CLI** (most complete Web UI):
+- `kimi web` starts a FastAPI + React Web UI (default `localhost:5494`) with multi-session management, real-time diff preview, and approval dialogs
+  (Source: [Kimi CLI architecture documentation](../kimi-cli/03-architecture.md))
+- The Wire v1.6 protocol unifies four clients: TUI / Web / IDE / custom UI
+  (Source: [Kimi CLI architecture documentation](../kimi-cli/03-architecture.md))
+- Supports three network modes: `--network`, `--lan-only`, and `--public`, with token authentication
+- **Weakness**: Requires opening a local port (unlike Claude Code's outbound-only model) and has no native mobile App
 
-**OpenCode**（多客户端架构）：
-- TUI + Web Console（SolidJS）+ Desktop（Tauri v2 / Electron）三客户端共享 Hono HTTP 后端
-  （来源：[OpenCode 架构文档](../opencode/03-architecture.md)）
-- MDNS 本地网络设备发现
-- **劣势**：远程 workspace 仍为实验性功能，稳定性待验证
+**OpenCode** (multi-client architecture):
+- TUI + Web Console (SolidJS) + Desktop (Tauri v2 / Electron) share a Hono HTTP backend
+  (Source: [OpenCode architecture documentation](../opencode/03-architecture.md))
+- MDNS local-network device discovery
+- **Weakness**: Remote workspace remains experimental, and stability still needs validation
 
-**Goose**（REST API 驱动）：
-- `goose-server`（Axum HTTP）提供 REST API，Electron Desktop App 作为 GUI 客户端
-  （来源：[Goose 架构文档](../goose/03-architecture.md)、[EVIDENCE](../goose/EVIDENCE.md)）
-- 仓库文档宣称支持 CLI/Web/Desktop 三种客户端（[Goose 概述](../goose.md)），但实际源码中仅有 CLI (`goose-cli`) 和 Desktop (`ui/desktop/`) 两个具体客户端实现；"Web" 标签指 `goose-server` 的 HTTP API 可供 Web 客户端连接，但无独立浏览器前端
-- **劣势**：无独立浏览器 Web UI（仅有 HTTP API）、无移动端
+**Goose** (REST API-driven):
+- `goose-server` (Axum HTTP) provides a REST API, and the Electron Desktop App acts as a GUI client
+  (Source: [Goose architecture documentation](../goose/03-architecture.md), [EVIDENCE](../goose/EVIDENCE.md))
+- Repository documentation claims support for CLI/Web/Desktop clients ([Goose overview](../goose.md)), but the actual source contains only two concrete client implementations: CLI (`goose-cli`) and Desktop (`ui/desktop/`). The "Web" label means the `goose-server` HTTP API can be connected to by a Web client, but there is no standalone browser frontend
+- **Weakness**: No standalone browser Web UI (only HTTP API) and no mobile client
 
-**Codex CLI**（IDE 集成导向）：
-- `codex app-server` 提供 JSON-RPC 2.0 over stdio/WebSocket，`--remote` 连接远程实例
-  （来源：[Codex CLI 命令文档](../codex-cli/02-commands.md)、[EVIDENCE](../codex-cli/EVIDENCE.md)）
-- **劣势**：面向 IDE 插件设计，非通用远程访问
+**Codex CLI** (IDE-integration oriented):
+- `codex app-server` provides JSON-RPC 2.0 over stdio/WebSocket, and `--remote` connects to a remote instance
+  (Source: [Codex CLI command documentation](../codex-cli/02-commands.md), [EVIDENCE](../codex-cli/EVIDENCE.md))
+- **Weakness**: Designed for IDE plugins, not general-purpose remote access
 
-### 8.15.3 为什么没有其他 Agent 复制 Remote Control？（作者分析，非源码验证结论）
+### 8.15.3 Why Has No Other Agent Copied Remote Control? (Author Analysis, Not a Source-Verified Conclusion)
 
-> ⚠️ 以下为基于公开信息的分析推测，未经源码或官方声明验证。
+> The following is analytical speculation based on public information and has not been verified by source or official statements.
 
-| 可能原因 | 说明 |
+| Possible Reason | Description |
 |----------|------|
-| **需要云基础设施** ⚠️ 推断 | Anthropic 的中继服务器和 claude.ai/code 平台是 Remote Control 的必要前提。开源 Agent 缺乏同等规模的云中继设施 |
-| **认证体系强绑定** ⚠️ 推断 | 强制 OAuth + 短期凭证 + 管理员门控依赖中心化身份系统，自托管 Agent 难以复制 |
-| **产品定位差异** ⚠️ 推断 | Claude Code 定位"企业级 AI 编程平台"（含 Web/Desktop/Mobile 多端），大多数 Agent 定位"开发者本地工具" |
-| **替代方案成本更低** ⚠️ 推断 | Kimi CLI/OpenCode 等通过本地 Web UI + 开端口的方式提供了基本的远程访问能力，对多数场景已够用 |
+| **Requires cloud infrastructure** (inferred) | Anthropic's relay servers and claude.ai/code platform are prerequisites for Remote Control. Open-source Agents lack cloud relay infrastructure at equivalent scale |
+| **Strong binding to authentication system** (inferred) | Mandatory OAuth + short-lived credentials + administrator gate depend on a centralized identity system, which self-hosted Agents are hard-pressed to replicate |
+| **Different product positioning** (inferred) | Claude Code is positioned as an "enterprise AI programming platform" (including Web/Desktop/Mobile clients), while most Agents are positioned as "local developer tools" |
+| **Lower-cost alternatives** (inferred) | Kimi CLI/OpenCode and similar tools provide basic remote access through local Web UI + opened ports, which is sufficient for many scenarios |
 
-> **免责声明**：以上数据基于 2026 年 Q1 源码分析和官方文档，可能已过时。
+> **Disclaimer**: The data above is based on Q1 2026 source analysis and official documentation and may become outdated.

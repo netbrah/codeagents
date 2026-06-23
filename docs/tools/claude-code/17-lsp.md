@@ -1,61 +1,61 @@
-# 17. LSP 客户端——开发者参考
+# 17. LSP Client: Developer Reference
 
-> Claude Code 内置 LSP（Language Server Protocol）客户端，连接项目的语言服务器获取类型信息、诊断结果、符号定义。这为 Agent 提供了**编译器级别的代码理解**，超越纯文本搜索。
+> Claude Code has a built-in LSP (Language Server Protocol) client that connects to a project's language server to obtain type information, diagnostics, and symbol definitions. This gives the Agent **compiler-level code understanding** beyond plain-text search.
 >
-> **Qwen Code 对标**：Qwen Code 有实验性 LSP 支持（`--experimental-lsp` 启动参数），但默认关闭。Claude Code 的 LSP 集成更成熟。
+> **Qwen Code comparison**: Qwen Code has experimental LSP support (the `--experimental-lsp` startup flag), but it is disabled by default. Claude Code's LSP integration is more mature.
 
-## 一、为什么 Code Agent 需要 LSP
+## 1. Why Code Agents Need LSP
 
-### 问题定义
+### Problem Definition
 
-Agent 的 `grep_search` 工具是文本级搜索——它不理解代码语义：
+An Agent's `grep_search` tool is text-level search: it does not understand code semantics.
 
-| 任务 | grep_search | LSP |
+| Task | grep_search | LSP |
 |------|------------|-----|
-| "找到 `getUserById` 的定义" | 搜索字符串"getUserById"——可能匹配注释、字符串、导入 | `textDocument/definition` → 精确跳转到定义 |
-| "这个函数的参数类型是什么" | 无法获得 | `textDocument/hover` → 完整类型签名 |
-| "这个文件有编译错误吗" | 无法获得 | `textDocument/publishDiagnostics` → 错误列表 |
-| "重命名这个变量的所有引用" | grep 可能遗漏（动态引用、别名） | `textDocument/references` → 语义级全量引用 |
+| "Find the definition of `getUserById`" | Searches for the string "getUserById" and may match comments, strings, or imports | `textDocument/definition` → jumps precisely to the definition |
+| "What is this function's parameter type?" | Cannot obtain it | `textDocument/hover` → full type signature |
+| "Does this file have compilation errors?" | Cannot obtain it | `textDocument/publishDiagnostics` → error list |
+| "Rename all references to this variable" | grep may miss dynamic references or aliases | `textDocument/references` → complete semantic references |
 
-### 实际价值
+### Practical Value
 
-LSP 最大的价值不是让 Agent "更聪明"（LLM 已经能理解代码），而是提供**确定性的编译器诊断**：
+The greatest value of LSP is not making the Agent "smarter" (the LLM already understands code), but providing **deterministic compiler diagnostics**:
 
-- TypeScript 的类型错误
-- Python 的导入错误
-- Java 的编译错误
-- 未使用变量、未解析引用
+- TypeScript type errors
+- Python import errors
+- Java compilation errors
+- Unused variables and unresolved references
 
-这些信息如果能自动注入 Agent 的上下文，等价于"Agent 自带编译器"——不需要手动跑 `tsc --noEmit` 就能发现类型错误。
+If this information can be automatically injected into the Agent's context, it is equivalent to the "Agent having a built-in compiler": type errors can be found without manually running `tsc --noEmit`.
 
-## 二、Claude Code 的 LSP 实现
+## 2. Claude Code's LSP Implementation
 
-源码: `services/lsp/`（7 个文件）
+Source: `services/lsp/` (7 files)
 
-### 核心功能
+### Core Capabilities
 
-| 能力 | LSP 方法 | Agent 如何使用 |
+| Capability | LSP Method | How the Agent Uses It |
 |------|---------|---------------|
-| 诊断（错误/警告） | `textDocument/publishDiagnostics` | 编辑后自动获取编译错误 |
-| 跳转定义 | `textDocument/definition` | 理解函数/类的实现位置 |
-| 查找引用 | `textDocument/references` | 确定影响范围 |
-| 悬停信息 | `textDocument/hover` | 获取类型签名 |
-| 符号搜索 | `workspace/symbol` | 按名称搜索项目符号 |
+| Diagnostics (errors/warnings) | `textDocument/publishDiagnostics` | Automatically obtains compilation errors after edits |
+| Go to definition | `textDocument/definition` | Understands where functions/classes are implemented |
+| Find references | `textDocument/references` | Determines impact scope |
+| Hover information | `textDocument/hover` | Obtains type signatures |
+| Symbol search | `workspace/symbol` | Searches project symbols by name |
 
-### 竞品 LSP 对比
+### LSP Comparison with Competitors
 
-| Agent | LSP 支持 | 默认启用 | 实现方式 |
+| Agent | LSP Support | Enabled by Default | Implementation |
 |-------|---------|---------|---------|
-| **Claude Code** | ✓ | 实验性 | 内置 LSP 客户端 |
+| **Claude Code** | ✓ | Experimental | Built-in LSP client |
 | **Gemini CLI** | — | — | — |
-| **Qwen Code** | ✓ `--experimental-lsp` | 默认关闭 | 内置 LSP 客户端 |
-| **Cursor** | ✓ | ✓ | 继承 VS Code 的完整 LSP 支持 |
+| **Qwen Code** | ✓ `--experimental-lsp` | Disabled by default | Built-in LSP client |
+| **Cursor** | ✓ | ✓ | Inherits VS Code's full LSP support |
 | **Copilot CLI** | — | — | — |
 
-## 三、Qwen Code 改进建议
+## 3. Qwen Code Improvement Suggestions
 
-LSP 的核心价值是**诊断自动注入**——编辑文件后自动获取编译错误并注入上下文。建议：
+The core value of LSP is **automatic diagnostic injection**: after editing a file, automatically obtain compilation errors and inject them into context. Recommendations:
 
-1. 默认启用 LSP（至少对 TypeScript/Python 项目）
-2. 将 `publishDiagnostics` 结果自动附加到 `PostToolUse(Edit)` 的工具输出中
-3. 长期：结合 `/review` 使用 LSP 诊断替代 LLM 检测类型错误
+1. Enable LSP by default (at least for TypeScript/Python projects)
+2. Automatically append `publishDiagnostics` results to the tool output of `PostToolUse(Edit)`
+3. Long term: combine LSP with `/review` and use LSP diagnostics instead of LLMs to detect type errors

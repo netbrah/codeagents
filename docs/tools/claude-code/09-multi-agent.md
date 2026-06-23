@@ -1,76 +1,76 @@
-# 9. 多 Agent 系统——开发者参考
+# 9. Multi-Agent System — Developer Reference
 
-> Leader-Worker 协作、Swarm 三后端（InProcess/tmux/iTerm2）、文件邮箱 IPC、任务管理、Kairos 自治模式。Code Agent 多 Agent 编排的最复杂实现（~20,500 行）。
+> Leader-Worker collaboration, three Swarm backends (InProcess/tmux/iTerm2), file-mailbox IPC, task management, and Kairos autonomous mode. The most complex implementation of multi-agent orchestration among Code Agents (~20,500 lines).
 >
-> **Qwen Code 对标**：Agent Team（PR#2886）、Fork Subagent（PR#2936）正在实现类似能力。本文的 InProcess 隔离（AsyncLocalStorage）、邮箱通信、任务拓扑管理是核心参考。
+> **Qwen Code comparison**: Agent Team (PR#2886) and Fork Subagent (PR#2936) are implementing similar capabilities. The InProcess isolation (AsyncLocalStorage), mailbox communication, and task-topology management in this document are key references.
 
-## 为什么需要多 Agent 系统
+## Why a Multi-Agent System Is Needed
 
-### 问题定义：单 Agent 的天花板
+### Problem Definition: The Ceiling of a Single Agent
 
-单个 Agent 的能力受限于**串行执行**和**单一上下文**：
+A single Agent is limited by **serial execution** and a **single context**:
 
-| 场景 | 单 Agent | 多 Agent |
+| Scenario | Single Agent | Multi-Agent |
 |------|---------|---------|
-| "重构 auth 模块 + 更新测试 + 修改文档" | 串行：重构 → 测试 → 文档，30 分钟 | 3 个 Agent 并行，10 分钟 |
-| "在 5 个文件中应用相同的迁移" | 串行处理每个文件 | 5 个 worktree Agent 并行 |
-| "持续监控 CI + 修复失败" | 用户手动循环 | Kairos 自治模式自动调度 |
-| "代码审查需要多视角" | 单一 prompt 审查 | 4 个维度 Agent 并行 + 验证 Agent |
+| "Refactor the auth module + update tests + modify docs" | Serial: refactor → tests → docs, 30 minutes | 3 Agents in parallel, 10 minutes |
+| "Apply the same migration across 5 files" | Processes each file serially | 5 worktree Agents in parallel |
+| "Continuously monitor CI + fix failures" | Manual user loop | Kairos autonomous mode schedules automatically |
+| "Code review needs multiple perspectives" | Review with a single prompt | 4 dimension-specific Agents in parallel + verification Agent |
 
-### 设计演进
+### Design Evolution
 
-Claude Code 的多 Agent 系统经历了三个阶段：
+Claude Code's multi-Agent system has gone through three stages:
 
-| 阶段 | 时间 | 能力 | 架构 |
+| Stage | Time | Capability | Architecture |
 |------|------|------|------|
-| 1. 基础 Subagent | 2025 | Agent 工具派生子 Agent | 单一进程内执行 |
-| 2. Swarm 系统 | 2025 末 | Leader-Worker + 3 种后端 | tmux/iTerm2/InProcess |
-| 3. Kairos 自治 | 2026 | Cron 调度 + 主动行为 | Always-On daemon 模式 |
+| 1. Basic Subagent | 2025 | Agent tool spawns child Agents | Execution in a single process |
+| 2. Swarm System | Late 2025 | Leader-Worker + 3 backend types | tmux/iTerm2/InProcess |
+| 3. Kairos Autonomy | 2026 | Cron scheduling + proactive behavior | Always-On daemon mode |
 
-### 竞品多 Agent 对比
+### Multi-Agent Comparison with Competitors
 
-| Agent | 多 Agent 模式 | 隔离机制 | IPC | 自治调度 |
+| Agent | Multi-Agent Mode | Isolation Mechanism | IPC | Autonomous Scheduling |
 |-------|-------------|---------|-----|---------|
-| **Claude Code** | Coordinator/Swarm + Fork + Kairos | AsyncLocalStorage + worktree | 文件邮箱 | ✓ Cron + Proactive Tick |
-| **Gemini CLI** | A2A Protocol + Subagent | 进程隔离 | gRPC/REST/JsonRpc | — |
-| **Qwen Code** | Arena + Agent Team + Fork (PR#2936) | CoreToolScheduler 并行 | 文件 IPC | — |
-| **Copilot CLI** | 插件 Agent + Background Agent | GitHub Actions runner | — | ✓ 通过 GitHub Actions |
-| **Cursor** | Background Agent | 云端沙箱 | — | — |
+| **Claude Code** | Coordinator/Swarm + Fork + Kairos | AsyncLocalStorage + worktree | File mailbox | ✓ Cron + Proactive Tick |
+| **Gemini CLI** | A2A Protocol + Subagent | Process isolation | gRPC/REST/JsonRpc | — |
+| **Qwen Code** | Arena + Agent Team + Fork (PR#2936) | CoreToolScheduler parallelism | File IPC | — |
+| **Copilot CLI** | Plugin Agent + Background Agent | GitHub Actions runner | — | ✓ via GitHub Actions |
+| **Cursor** | Background Agent | Cloud sandbox | — | — |
 >
-> **计数规则**：源码行数基于 TypeScript 文件的 `wc -l` 统计。
+> **Counting rule**: Source line counts are based on `wc -l` statistics for TypeScript files.
 
-## 9.1 架构总览
+## 9.1 Architecture Overview
 
-### 9.1.1 子系统全景
+### 9.1.1 Subsystem Panorama
 
-| 子系统 | 目录总规模 | 核心文件（单文件 LOC） | 职责 |
+| Subsystem | Total Directory Size | Core File (single-file LOC) | Responsibility |
 |--------|-----------|----------------------|------|
-| **Swarm 核心** | 7,548 LOC | `utils/swarm/inProcessRunner.ts` (1,552) | 进程内 teammate 执行引擎 |
-| **Swarm 后端** | (含在 Swarm 核心) | `utils/swarm/backends/TmuxBackend.ts` (764) | tmux 分屏管理 |
-| **Swarm 权限** | (含在 Swarm 核心) | `utils/swarm/permissionSync.ts` (928) | 文件级权限委托 |
-| **Swarm 团队** | (含在 Swarm 核心) | `utils/swarm/teamHelpers.ts` (683) | 团队文件管理 |
-| **Agent 工具** | 6,782 LOC | `tools/AgentTool/AgentTool.tsx` (1,397) | Agent 入口（3 种执行路径） |
-| **Agent 执行** | (含在 Agent 工具) | `tools/AgentTool/runAgent.ts` (973) | 子代理执行引擎 |
-| **Agent UI** | (含在 Agent 工具) | `tools/AgentTool/UI.tsx` (871) | React 进度/状态渲染 |
-| **Agent 定义** | (含在 Agent 工具) | `tools/AgentTool/loadAgentsDir.ts` (755) | Agent 定义加载 |
-| **邮箱通信** | 1,183 LOC | `utils/teammateMailbox.ts` (1,183) | 文件邮箱消息总线 |
-| **任务管理** | 862 LOC | `utils/tasks.ts` (862) | 文件级任务列表、原子认领 |
-| **发送消息** | 997 LOC | `tools/SendMessageTool/SendMessageTool.ts` (917) + prompt (49) + UI (30) + constants (1) | 跨代理消息路由 |
-| **远程传送** | 2,020 LOC | `utils/teleport.tsx` (1,225) + UI 5 组件 (795) | 本地↔远程会话迁移 |
-| **协调模式** | 369 LOC | `coordinator/coordinatorMode.ts` (369) | 纯协调者系统提示 |
-| **团队生成** | 1,093 LOC | `tools/shared/spawnMultiAgent.ts` (1,093) | 3 后端 teammate 生成 |
-| **代理 ID** | 99 LOC | `utils/agentId.ts` (99) | 确定性代理 ID 格式 |
+| **Swarm Core** | 7,548 LOC | `utils/swarm/inProcessRunner.ts` (1,552) | In-process teammate execution engine |
+| **Swarm Backends** | (included in Swarm Core) | `utils/swarm/backends/TmuxBackend.ts` (764) | tmux pane management |
+| **Swarm Permissions** | (included in Swarm Core) | `utils/swarm/permissionSync.ts` (928) | File-level permission delegation |
+| **Swarm Teams** | (included in Swarm Core) | `utils/swarm/teamHelpers.ts` (683) | Team file management |
+| **Agent Tool** | 6,782 LOC | `tools/AgentTool/AgentTool.tsx` (1,397) | Agent entry point (3 execution paths) |
+| **Agent Execution** | (included in Agent Tool) | `tools/AgentTool/runAgent.ts` (973) | Subagent execution engine |
+| **Agent UI** | (included in Agent Tool) | `tools/AgentTool/UI.tsx` (871) | React progress/status rendering |
+| **Agent Definitions** | (included in Agent Tool) | `tools/AgentTool/loadAgentsDir.ts` (755) | Agent definition loading |
+| **Mailbox Communication** | 1,183 LOC | `utils/teammateMailbox.ts` (1,183) | File-mailbox message bus |
+| **Task Management** | 862 LOC | `utils/tasks.ts` (862) | File-level task list and atomic claiming |
+| **Send Message** | 997 LOC | `tools/SendMessageTool/SendMessageTool.ts` (917) + prompt (49) + UI (30) + constants (1) | Cross-agent message routing |
+| **Teleport** | 2,020 LOC | `utils/teleport.tsx` (1,225) + 5 UI components (795) | Local ↔ remote session migration |
+| **Coordinator Mode** | 369 LOC | `coordinator/coordinatorMode.ts` (369) | Pure-coordinator system prompt |
+| **Team Spawning** | 1,093 LOC | `tools/shared/spawnMultiAgent.ts` (1,093) | Teammate spawning across 3 backends |
+| **Agent ID** | 99 LOC | `utils/agentId.ts` (99) | Deterministic agent ID format |
 
-### 9.1.2 Leader-Worker 模型
+### 9.1.2 Leader-Worker Model
 
 ```
                     ┌────────────────────────────────────────────┐
-                    │           Leader（team-lead）               │
+                    │           Leader (team-lead)               │
                     │                                            │
                     │  Agent Tool ──▶ spawnTeammate()           │
-                    │  SendMessage ──▶ mailbox 广播              │
-                    │  TaskCreate/Update ──▶ 任务分配            │
-                    │  Coordinator Mode（可选纯协调者）           │
+                    │  SendMessage ──▶ mailbox broadcast         │
+                    │  TaskCreate/Update ──▶ task assignment     │
+                    │  Coordinator Mode (optional pure coordinator)│
                     └──────┬──────────┬──────────┬──────────────┘
                            │          │          │
                     ┌──────▼──┐ ┌─────▼───┐ ┌───▼──────┐
@@ -78,35 +78,37 @@ Claude Code 的多 Agent 系统经历了三个阶段：
                     │         │ │         │ │          │
                     │ Mailbox │ │ Mailbox │ │ Mailbox  │
                     │ Tasks   │ │ Tasks   │ │ Tasks    │
-                    │ Worktree│ │ Worktree│ │ (共享)    │
+                    │ Worktree│ │ Worktree│ │ (shared) │
                     └─────────┘ └─────────┘ └──────────┘
 ```
 
-**三种后端**：
+**Three backends**:
 
-| 后端 | 适用环境 | 隔离级别 | 通信方式 |
+| Backend | Suitable Environment | Isolation Level | Communication Method |
 |------|---------|---------|---------|
-| **In-process** | 无终端分屏或 teammate-mode 配置 | `AsyncLocalStorage` 上下文隔离 | 内存 + 邮箱文件 |
-| **Split-pane** | tmux / iTerm2 | 进程隔离（不同终端面板） | 邮箱文件 |
-| **Separate-window** | tmux | 进程隔离（不同 tmux 窗口） | 邮箱文件 |
+| **In-process** | No terminal panes, or teammate-mode configuration | `AsyncLocalStorage` context isolation | Memory + mailbox files |
+| **Split-pane** | tmux / iTerm2 | Process isolation (different terminal panes) | Mailbox files |
+| **Separate-window** | tmux | Process isolation (different tmux windows) | Mailbox files |
 
-### 9.1.3 多代理生命周期
+### 9.1.3 Multi-Agent Lifecycle
 
 ```
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│  团队创建      │     │  Worker 生成  │     │  任务执行      │     │  清理/解散    │
-│              │     │              │     │              │     │              │
-│ TeamCreate   │────▶│ Agent Tool   │────▶│ 并行执行      │────▶│ TeamDelete   │
-│ config.json  │     │ 3后端自动检测  │     │ Mailbox 通信  │     │ Worktree 清理│
-│ 任务目录初始化 │     │ Worktree 分配 │     │ Task 认领/完成 │     │ PID 清理      │
+│ Team Creation│     │ Worker Spawn │     │ Task Execution│    │ Cleanup/     │
+│              │     │              │     │              │     │ Disbanding   │
+│ TeamCreate   │────▶│ Agent Tool   │────▶│ Parallel     │────▶│ TeamDelete   │
+│ config.json  │     │ 3 backends   │     │ execution    │     │ Worktree     │
+│ Task dir init│     │ auto-detected│     │ Mailbox comm │     │ cleanup      │
+│              │     │ Worktree     │     │ Task claim/  │     │ PID cleanup  │
+│              │     │ assignment   │     │ completion   │     │              │
 └──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘
 ```
 
-## 9.2 Agent 定义系统
+## 9.2 Agent Definition System
 
-### 9.2.1 AgentDefinition 类型层次
+### 9.2.1 AgentDefinition Type Hierarchy
 
-源码：`tools/AgentTool/loadAgentsDir.ts` (755 LOC)
+Source: `tools/AgentTool/loadAgentsDir.ts` (755 LOC)
 
 ```typescript
 type AgentDefinition =
@@ -146,53 +148,53 @@ interface PluginAgentDefinition extends BaseAgentDefinition {
 }
 ```
 
-### 9.2.2 内置 Agent
+### 9.2.2 Built-in Agents
 
-源码：`tools/AgentTool/builtInAgents.ts` (72 LOC)
+Source: `tools/AgentTool/builtInAgents.ts` (72 LOC)
 
-| Agent | 类型 | 工具集 | 模型 | 启用条件 |
+| Agent | Type | Tool Set | Model | Enablement Condition |
 |-------|------|--------|------|---------|
-| **general-purpose** | 通用 | 全部 | 默认 | 始终启用 |
-| **statusline-setup** | 配置 | Read, Edit | Sonnet | 始终启用 |
-| **explore** | 搜索 | Glob/Grep/Read/Bash（只读） | Haiku（外部）/ Inherit（内部） | `BUILTIN_EXPLORE_PLAN_AGENTS` 编译标志 + `tengu_amber_stoat` GrowthBook（默认开） |
-| **plan** | 规划 | 同 explore | Inherit | 同 explore |
-| **claude-code-guide** | 指南 | Read/WebFetch/WebSearch + Glob/Grep（Ant-native 变体用 Bash 替代 Glob/Grep） | Haiku | 非 SDK 入口点（排除 sdk-ts/sdk-py/sdk-cli） |
-| **verification** | 验证 | 全部（禁止编辑/写入） | Inherit | `VERIFICATION_AGENT` 编译标志 + `tengu_hive_evidence` GrowthBook（默认关） |
+| **general-purpose** | General-purpose | All | Default | Always enabled |
+| **statusline-setup** | Configuration | Read, Edit | Sonnet | Always enabled |
+| **explore** | Search | Glob/Grep/Read/Bash (read-only) | Haiku (external) / Inherit (internal) | `BUILTIN_EXPLORE_PLAN_AGENTS` compile flag + `tengu_amber_stoat` GrowthBook (on by default) |
+| **plan** | Planning | Same as explore | Inherit | Same as explore |
+| **claude-code-guide** | Guide | Read/WebFetch/WebSearch + Glob/Grep (Ant-native variant uses Bash instead of Glob/Grep) | Haiku | Non-SDK entry points (excludes sdk-ts/sdk-py/sdk-cli) |
+| **verification** | Verification | All (editing/writing disallowed) | Inherit | `VERIFICATION_AGENT` compile flag + `tengu_hive_evidence` GrowthBook (off by default) |
 
-**Coordinator agents**：当 `COORDINATOR_MODE` 启用时，`getBuiltInAgents()` 替换为 `getCoordinatorAgents()`（动态 `require('../../coordinator/workerAgent.js')`，源码中仅有编译产物路径，`.ts` 源文件未包含在泄露仓库中），上述 6 个 Agent 均不加载。
+**Coordinator agents**: When `COORDINATOR_MODE` is enabled, `getBuiltInAgents()` is replaced with `getCoordinatorAgents()` (dynamic `require('../../coordinator/workerAgent.js')`; the source contains only the compiled artifact path, and the `.ts` source file is not included in the leaked repository). The 6 Agents above are not loaded.
 
-**SDK 覆盖**：`CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS=1` 可在非交互模式下禁用所有内置 Agent。
+**SDK override**: `CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS=1` can disable all built-in Agents in non-interactive mode.
 
-**Feature flag 类型**：
+**Feature flag types**:
 
-| Flag | 类型 | 默认值 | 影响范围 |
+| Flag | Type | Default | Impact Scope |
 |------|------|--------|---------|
-| `BUILTIN_EXPLORE_PLAN_AGENTS` | 编译时 (`bun:bundle`) | 视构建 | explore / plan |
-| `VERIFICATION_AGENT` | 编译时 (`bun:bundle`) | 视构建 | verification |
-| `COORDINATOR_MODE` | 编译时 (`bun:bundle`) | 视构建 | coordinator 全套 |
-| `tengu_amber_stoat` | 运行时 (GrowthBook) | `true` | explore / plan |
-| `tengu_hive_evidence` | 运行时 (GrowthBook) | `false` | verification |
+| `BUILTIN_EXPLORE_PLAN_AGENTS` | Compile time (`bun:bundle`) | Depends on build | explore / plan |
+| `VERIFICATION_AGENT` | Compile time (`bun:bundle`) | Depends on build | verification |
+| `COORDINATOR_MODE` | Compile time (`bun:bundle`) | Depends on build | full coordinator set |
+| `tengu_amber_stoat` | Runtime (GrowthBook) | `true` | explore / plan |
+| `tengu_hive_evidence` | Runtime (GrowthBook) | `false` | verification |
 
-### 9.2.3 自定义 Agent 加载
+### 9.2.3 Custom Agent Loading
 
-源码：`tools/AgentTool/loadAgentsDir.ts` (755 LOC) + `utils/markdownConfigLoader.ts`
+Source: `tools/AgentTool/loadAgentsDir.ts` (755 LOC) + `utils/markdownConfigLoader.ts`
 
-Agent 定义从 4 个文件系统位置加载 `.md` 文件，外加 1 个 CLI 注入路径（优先级从低到高）：
+Agent definitions load `.md` files from 4 filesystem locations plus 1 CLI injection path (priority from low to high):
 
-| 来源 | 路径 | SettingSource | 说明 |
+| Source | Path | SettingSource | Description |
 |------|------|---------------|------|
-| **内置** | `builtInAgents.ts` | `builtIn` | 硬编码，最低优先级 |
-| **插件** | 插件目录 | `plugin` | 第三方扩展 |
-| **用户** | `~/.claude/agents/*.md` | `userSettings` | 私人全局 |
-| **项目** | `.claude/agents/*.md` | `projectSettings` | 团队共享（提交到 Git） |
-| **CLI 注入** | `--agents` 参数（JSON） | `flagSettings` | 程序化注入 |
-| **Policy** | 管理员配置目录 | `policySettings` | 企业策略强制（最高优先级） |
+| **Built-in** | `builtInAgents.ts` | `builtIn` | Hard-coded, lowest priority |
+| **Plugin** | Plugin directory | `plugin` | Third-party extensions |
+| **User** | `~/.claude/agents/*.md` | `userSettings` | Personal global |
+| **Project** | `.claude/agents/*.md` | `projectSettings` | Team-shared (committed to Git) |
+| **CLI injection** | `--agents` argument (JSON) | `flagSettings` | Programmatic injection |
+| **Policy** | Administrator configuration directory | `policySettings` | Enforced enterprise policy (highest priority) |
 
-**文件加载机制**：`loadMarkdownFilesForSubdir('agents', cwd)` 扫描上述目录中的 `.md` 文件。同 `agentType` 名称的高优先级条目覆盖低优先级（`Map.set()`）。
+**File loading mechanism**: `loadMarkdownFilesForSubdir('agents', cwd)` scans `.md` files in the directories above. Higher-priority entries with the same `agentType` name override lower-priority entries (`Map.set()`).
 
-**CLI 注入路径**：`parseAgentsFromJson()` 解析 JSON 格式的 Agent 定义（`--agents` 参数），字段与 frontmatter 镜像。
+**CLI injection path**: `parseAgentsFromJson()` parses JSON-format Agent definitions (the `--agents` argument); fields mirror frontmatter.
 
-每个 `.md` 文件使用 frontmatter 格式定义 Agent：
+Each `.md` file defines an Agent using frontmatter format:
 
 ```markdown
 ---
@@ -207,92 +209,92 @@ memory: project
 You are a custom analysis agent. Focus on...
 ```
 
-**必需字段**：`name`（成为 `agentType`）、`description`（成为 `whenToUse`）。frontmatter 之后的正文内容成为系统提示。缺少 `name` 字段的文件会被静默跳过（视为参考文档）。
+**Required fields**: `name` (becomes `agentType`) and `description` (becomes `whenToUse`). The body content after frontmatter becomes the system prompt. Files missing the `name` field are silently skipped (treated as reference documents).
 
-**可选字段**：`tools`、`disallowedTools`、`model`、`effort`、`permissionMode`、`maxTurns`、`color`、`background`、`memory`、`isolation`、`mcpServers`、`hooks`、`skills`、`initialPrompt`。
+**Optional fields**: `tools`, `disallowedTools`, `model`, `effort`, `permissionMode`, `maxTurns`, `color`, `background`, `memory`, `isolation`, `mcpServers`, `hooks`, `skills`, `initialPrompt`.
 
-## 9.3 Agent 工具（3 种执行路径）
+## 9.3 Agent Tool (3 Execution Paths)
 
-### 9.3.1 输入参数
+### 9.3.1 Input Parameters
 
-源码：`tools/AgentTool/AgentTool.tsx` (1,397 LOC)
+Source: `tools/AgentTool/AgentTool.tsx` (1,397 LOC)
 
 ```typescript
 interface AgentToolInput {
-  description: string       // 必填，3-5 词任务摘要
-  prompt: string            // 必填，完整任务描述
-  subagent_type?: string    // Agent 定义名（省略 = fork 路径）
-  model?: 'sonnet' | 'opus' | 'haiku'  // 模型覆盖
-  run_in_background?: boolean  // 异步启动
-  name?: string             // teammate 名（+ team_name = swarm 路径）
-  team_name?: string        // 团队名
-  mode?: string             // 权限模式
-  isolation?: 'worktree' | 'remote'  // 隔离方式
-  cwd?: string              // 工作目录覆盖
+  description: string       // Required, 3-5 word task summary
+  prompt: string            // Required, complete task description
+  subagent_type?: string    // Agent definition name (omitted = fork path)
+  model?: 'sonnet' | 'opus' | 'haiku'  // Model override
+  run_in_background?: boolean  // Start asynchronously
+  name?: string             // Teammate name (+ team_name = swarm path)
+  team_name?: string        // Team name
+  mode?: string             // Permission mode
+  isolation?: 'worktree' | 'remote'  // Isolation method
+  cwd?: string              // Working-directory override
 }
 ```
 
-### 9.3.2 三路径路由
+### 9.3.2 Three-Path Routing
 
 ```typescript
-// AgentTool.call() 核心路由逻辑（伪代码）
+// Core routing logic in AgentTool.call() (pseudocode)
 if (input.name && input.team_name) {
-  // 路径 1: Swarm/Teammate 生成
+  // Path 1: Swarm/Teammate spawning
   return spawnTeammate(config, context)
 } else if (!input.subagent_type && isForkSubagentEnabled()) {
-  // 路径 2: Fork 子代理（selectedAgent = FORK_AGENT, 调用 runAgent()）
+  // Path 2: Fork subagent (selectedAgent = FORK_AGENT, calls runAgent())
   return runAgent(forkContext)
 } else {
-  // 路径 3: 标准子代理（查找 effectiveType, 调用 runAgent()）
+  // Path 3: Standard subagent (finds effectiveType, calls runAgent())
   return runAgent(standardContext)
 }
 ```
 
-### 9.3.3 路径对比
+### 9.3.3 Path Comparison
 
-| 特性 | Swarm/Teammate | Fork 子代理 | 标准子代理 |
+| Feature | Swarm/Teammate | Fork Subagent | Standard Subagent |
 |------|---------------|------------|-----------|
-| **触发条件** | `name` + `team_name` | `subagent_type` 省略 + feature gate | 显式 `subagent_type` |
-| **上下文** | 完全独立会话 | 继承父级对话（cache-identical 前缀） | 新建独立会话 |
-| **执行** | 异步，后台运行 | 异步，后台运行 | 同步或异步 |
-| **通信** | Mailbox + SendMessage | 无（一次性） | 无（一次性） |
-| **生命周期** | 持久（可多次交互） | 一次性 | 一次性 |
-| **隔离** | 可选 worktree/remote | 无 | 无 |
-| **输出** | `teammate_spawned` | `async_launched` | `completed` / `async_launched` |
+| **Trigger condition** | `name` + `team_name` | `subagent_type` omitted + feature gate | Explicit `subagent_type` |
+| **Context** | Fully independent session | Inherits parent conversation (cache-identical prefix) | New independent session |
+| **Execution** | Asynchronous, background | Asynchronous, background | Synchronous or asynchronous |
+| **Communication** | Mailbox + SendMessage | None (one-shot) | None (one-shot) |
+| **Lifecycle** | Persistent (supports multiple interactions) | One-shot | One-shot |
+| **Isolation** | Optional worktree/remote | None | None |
+| **Output** | `teammate_spawned` | `async_launched` | `completed` / `async_launched` |
 
-### 9.3.4 Fork 子代理
+### 9.3.4 Fork Subagent
 
-源码：`tools/AgentTool/forkSubagent.ts` (210 LOC)
+Source: `tools/AgentTool/forkSubagent.ts` (210 LOC)
 
-Fork 子代理通过 `buildForkedMessages()` 构建 **prompt cache 完全相同**的消息前缀：
+Fork subagents use `buildForkedMessages()` to construct a **prompt-cache-identical** message prefix:
 
 ```typescript
 const FORK_AGENT: BuiltInAgentDefinition = {
   agentType: 'fork',
-  // 严格规则：
-  // - 无元评论（"I'm a sub-agent"）
-  // - 保持在指定范围内
-  // - 500 词以内回复
+  // Strict rules:
+  // - No meta-commentary ("I'm a sub-agent")
+  // - Stay within the specified scope
+  // - Respond in 500 words or fewer
 }
 ```
 
-**关键设计**：fork 复用父级 API 消息前缀，使 prompt cache 命中率最大化，降低 token 成本。
+**Key design**: fork reuses the parent API message prefix to maximize prompt-cache hit rate and reduce token cost.
 
 ### 9.3.5 Agent Memory
 
-源码：`tools/AgentTool/agentMemory.ts` (177 LOC) + `agentMemorySnapshot.ts` (197 LOC)
+Source: `tools/AgentTool/agentMemory.ts` (177 LOC) + `agentMemorySnapshot.ts` (197 LOC)
 
-子代理可通过 `memory` 字段声明持久化记忆，实现跨会话知识积累。Agent Memory 独立于 07-session.md 描述的全局 Memory 系统，是每个 Agent 定义的**局部私有记忆**。
+Subagents can declare persistent memory through the `memory` field, enabling knowledge accumulation across sessions. Agent Memory is independent of the global Memory system described in 07-session.md; it is **local private memory** for each Agent definition.
 
-**作用域**：
+**Scopes**:
 
-| Scope | 存储路径 | 跨项目 | VCS |
+| Scope | Storage Path | Cross-Project | VCS |
 |-------|---------|--------|-----|
 | `user` | `~/.claude/agent-memory/{agentType}/` | ✅ | ❌ |
-| `project` | `{cwd}/.claude/agent-memory/{agentType}/` | ❌ | ✅（提交到 Git） |
+| `project` | `{cwd}/.claude/agent-memory/{agentType}/` | ❌ | ✅ (committed to Git) |
 | `local` | `{cwd}/.claude/agent-memory-local/{agentType}/` | ❌ | ❌ |
 
-**定义方式**：在 Agent 定义的 frontmatter 中声明：
+**Definition method**: declare it in the Agent definition frontmatter:
 
 ```markdown
 ---
@@ -303,147 +305,147 @@ memory: project
 You are a security review agent. Remember vulnerability patterns...
 ```
 
-**Prompt 注入**：`loadAgentMemoryPrompt()` 在 Agent 系统提示中注入记忆指令：
-- **user scope**：保持通用性建议，因跨项目共享
-- **project scope**：鼓励项目特定知识记录，通过 Git 与团队共享
-- **local scope**：记录机器特定配置，不进入 VCS
+**Prompt injection**: `loadAgentMemoryPrompt()` injects memory instructions into the Agent system prompt:
+- **user scope**: keep recommendations general because they are shared across projects
+- **project scope**: encourage recording project-specific knowledge and sharing it with the team through Git
+- **local scope**: record machine-specific configuration and keep it out of VCS
 
-记忆文件为 `MEMORY.md`，存放在对应 scope 目录下。Agent 在每次会话中可读写此文件以积累经验。
+The memory file is `MEMORY.md` and is stored under the corresponding scope directory. The Agent can read and write this file in each session to accumulate experience.
 
-**Snapshot 系统**：
+**Snapshot system**:
 
-源码：`tools/AgentTool/agentMemorySnapshot.ts` (197 LOC)
+Source: `tools/AgentTool/agentMemorySnapshot.ts` (197 LOC)
 
-项目维护者可通过 `.claude/agent-memory-snapshots/{agentType}/` 提供种子记忆：
+Project maintainers can provide seed memory through `.claude/agent-memory-snapshots/{agentType}/`:
 
-| 动作 | 触发条件 | 行为 |
+| Action | Trigger Condition | Behavior |
 |------|---------|------|
-| `initialize` | 本地无记忆文件 | 从 snapshot 复制 `.md` 文件 |
-| `prompt-update` | snapshot 更新时间 > 已同步时间 | 设置 `pendingSnapshotUpdate` 标志 |
-| `none` | 已同步或无 snapshot | 无操作 |
+| `initialize` | No local memory file | Copy `.md` files from snapshot |
+| `prompt-update` | Snapshot update time > synced time | Set the `pendingSnapshotUpdate` flag |
+| `none` | Already synced or no snapshot | No operation |
 
-**Feature gate**：`feature('AGENT_MEMORY_SNAPSHOT') && isAutoMemoryEnabled()`
+**Feature gate**: `feature('AGENT_MEMORY_SNAPSHOT') && isAutoMemoryEnabled()`
 
-**集成点**：
-- 权限系统（`utils/permissions/filesystem.ts`）：`isAgentMemoryPath()` 放行 Agent 记忆路径
-- 记忆检测（`utils/memoryFileDetection.ts`）：分类 Agent 记忆文件用于折叠/徽章显示
-- 附件系统（`utils/attachments.ts`）：`@agent-` 提及时搜索对应 Agent 记忆目录
-- 工具注入：`isAutoMemoryEnabled()` 时自动将文件读/写/编辑工具加入 Agent 的 allowed tools
+**Integration points**:
+- Permission system (`utils/permissions/filesystem.ts`): `isAgentMemoryPath()` allows Agent memory paths
+- Memory detection (`utils/memoryFileDetection.ts`): classifies Agent memory files for folding/badge display
+- Attachment system (`utils/attachments.ts`): searches the corresponding Agent memory directory for `@agent-` mentions
+- Tool injection: when `isAutoMemoryEnabled()` is true, file read/write/edit tools are automatically added to the Agent's allowed tools
 
-## 9.4 Swarm 架构
+## 9.4 Swarm Architecture
 
-### 9.4.1 生成引擎
+### 9.4.1 Spawning Engine
 
-源码：`tools/shared/spawnMultiAgent.ts` (1,093 LOC)
+Source: `tools/shared/spawnMultiAgent.ts` (1,093 LOC)
 
-**`spawnTeammate()` 核心流程**：
+**Core flow of `spawnTeammate()`**:
 
 ```
 spawnTeammate(config, context)
-  ├── 1. 生成确定性 agentId: agentName@teamName
-  ├── 2. 解析模型: inherit → leader模型, undefined → 默认
-  ├── 3. 去重名称: 已存在时追加 -2, -3 后缀
-  ├── 4. 后端选择:
-  │   ├── In-process (AsyncLocalStorage) ─── teammate-mode 或无后端可用
-  │   ├── Split-pane (tmux 30/70 分屏) ─── tmux 或 iTerm2 可用
-  │   └── Separate-window (独立 tmux 窗口) ─── 旧模式
-  ├── 5. 生成 Worktree（如果 isolation: 'worktree'）
-  ├── 6. 分配颜色（round-robin from AGENT_COLORS）
-  ├── 7. 注册到 TeamFile config.json
-  ├── 8. 传播 CLI 标志（model, settings, permissions）
-  └── 9. 发送初始 prompt 到 Mailbox
+  ├── 1. Generate deterministic agentId: agentName@teamName
+  ├── 2. Resolve model: inherit → leader model, undefined → default
+  ├── 3. Deduplicate name: append -2, -3 suffixes when already present
+  ├── 4. Backend selection:
+  │   ├── In-process (AsyncLocalStorage) ─── teammate-mode or no backend available
+  │   ├── Split-pane (tmux 30/70 split) ─── tmux or iTerm2 available
+  │   └── Separate-window (independent tmux window) ─── legacy mode
+  ├── 5. Generate Worktree (if isolation: 'worktree')
+  ├── 6. Assign color (round-robin from AGENT_COLORS)
+  ├── 7. Register in TeamFile config.json
+  ├── 8. Propagate CLI flags (model, settings, permissions)
+  └── 9. Send initial prompt to Mailbox
 ```
 
-**模型解析链**：`resolveTeammateModel(inputModel, leaderModel)`
-- `'inherit'` → 使用 leader 的模型（`leaderModel ?? getDefaultTeammateModel()`）
-- `undefined` → `getDefaultTeammateModel(leaderModel)`（provider-aware 默认值，考虑 leader 模型）
-- 显式指定 → 使用指定模型
+**Model resolution chain**: `resolveTeammateModel(inputModel, leaderModel)`
+- `'inherit'` → use the leader's model (`leaderModel ?? getDefaultTeammateModel()`)
+- `undefined` → `getDefaultTeammateModel(leaderModel)` (provider-aware default that considers the leader model)
+- Explicitly specified → use the specified model
 
-**CLI 标志传播**：`buildInheritedCliFlags()` 将 `--dangerously-skip-permissions`、`--permission-mode`、`--model`、`--settings`、`--plugin-dir`、`--chrome`/`--no-chrome`、`--teammate-mode` 从 leader 传播到 teammate。
+**CLI flag propagation**: `buildInheritedCliFlags()` propagates `--dangerously-skip-permissions`, `--permission-mode`, `--model`, `--settings`, `--plugin-dir`, `--chrome`/`--no-chrome`, and `--teammate-mode` from leader to teammate.
 
-### 9.4.2 后端注册与检测
+### 9.4.2 Backend Registration and Detection
 
-源码：`utils/swarm/backends/registry.ts` (464 LOC)
+Source: `utils/swarm/backends/registry.ts` (464 LOC)
 
-**后端检测优先级**：
+**Backend detection priority**:
 
 ```
-detectAndGetBackend():  // Pane 后端检测（tmux/iTerm2）
-  ├── isInsideTmux() → tmux 内嵌套 → TmuxBackend
-  ├── isInITerm2() && isIt2CliAvailable() → iTerm2 原生 → ITermBackend
-  ├── isTmuxAvailable() → 外部 tmux → TmuxBackend
-  └── 无可用后端 → throw Error（安装指引）
+detectAndGetBackend():  // Pane backend detection (tmux/iTerm2)
+  ├── isInsideTmux() → nested inside tmux → TmuxBackend
+  ├── isInITerm2() && isIt2CliAvailable() → native iTerm2 → ITermBackend
+  ├── isTmuxAvailable() → external tmux → TmuxBackend
+  └── no available backend → throw Error (installation guidance)
 
-isInProcessEnabled():  // In-process 独立判断
-  ├── teammate-mode 配置 → in-process
-  ├── CLAUDE_CODE_TEAMMATE_COMMAND 环境变量 → in-process
-  └── detectAndGetBackend() 抛出异常时 → in-process fallback
+isInProcessEnabled():  // Independent in-process determination
+  ├── teammate-mode configuration → in-process
+  ├── CLAUDE_CODE_TEAMMATE_COMMAND environment variable → in-process
+  └── when detectAndGetBackend() throws → in-process fallback
 ```
 
-### 9.4.3 Tmux 后端
+### 9.4.3 Tmux Backend
 
-源码：`utils/swarm/backends/TmuxBackend.ts` (764 LOC)
+Source: `utils/swarm/backends/TmuxBackend.ts` (764 LOC)
 
-**布局策略**：Leader 占左侧 30%，teammates 占右侧 70%。每个 teammate 在右侧区域内分割。
+**Layout strategy**: Leader occupies the left 30%; teammates occupy the right 70%. Each teammate is split within the right-side region.
 
-| 操作 | tmux 命令 |
+| Operation | tmux Command |
 |------|----------|
-| 创建面板 | `split-window`（水平/垂直） |
-| 隐藏面板 | `break-pane` → `join-pane`（移到隐藏窗口） |
-| 显示面板 | `join-pane` 回主窗口 |
-| 着色边框 | `select-pane -P 'bg=...'` |
-| 标题设置 | `select-pane -T "name"` |
+| Create pane | `split-window` (horizontal/vertical) |
+| Hide pane | `break-pane` → `join-pane` (move to hidden window) |
+| Show pane | `join-pane` back to main window |
+| Color border | `select-pane -P 'bg=...'` |
+| Set title | `select-pane -T "name"` |
 
-### 9.4.4 In-Process 后端
+### 9.4.4 In-Process Backend
 
-源码：`utils/swarm/inProcessRunner.ts` (1,552 LOC) + `spawnInProcess.ts` (328 LOC)
+Source: `utils/swarm/inProcessRunner.ts` (1,552 LOC) + `spawnInProcess.ts` (328 LOC)
 
-进程内 teammate 使用 `AsyncLocalStorage` 实现上下文隔离：
+In-process teammates use `AsyncLocalStorage` for context isolation:
 
 ```typescript
-// 每个 teammate 拥有独立上下文
+// Each teammate has an independent context
 const context = {
-  abortController: new AbortController(),    // 独立中断
-  taskState: new InProcessTeammateTaskState(), // 独立状态
-  // 共享：API client、MCP connections
+  abortController: new AbortController(),    // Independent interrupt
+  taskState: new InProcessTeammateTaskState(), // Independent state
+  // Shared: API client, MCP connections
 }
 ```
 
-**执行引擎** `startInProcessTeammate()` 包含：
-- **Progress tracking**：进度上报到 leader UI
-- **Idle notification**：回合完成时自动通知 leader
-- **Plan mode approval**：通过 leader UI 桥接审批
-- **Permission handling**：通过 `leaderPermissionBridge` 在 leader UI 弹出权限请求
-- **Mailbox polling**：定期检查消息和关闭请求
-- **Auto-compact**：上下文超阈值时自动压缩
-- **Perfetto tracing**：性能追踪
+The **execution engine** `startInProcessTeammate()` includes:
+- **Progress tracking**: reports progress to the leader UI
+- **Idle notification**: automatically notifies the leader when a turn completes
+- **Plan mode approval**: bridges approval through the leader UI
+- **Permission handling**: displays permission requests in the leader UI through `leaderPermissionBridge`
+- **Mailbox polling**: periodically checks for messages and shutdown requests
+- **Auto-compact**: automatically compacts context when it exceeds the threshold
+- **Perfetto tracing**: performance tracing
 
-### 9.4.5 权限委托
+### 9.4.5 Permission Delegation
 
-源码：`utils/swarm/permissionSync.ts` (928 LOC)
+Source: `utils/swarm/permissionSync.ts` (928 LOC)
 
-Worker 发起权限请求 → Leader 审批的文件级协议：
+File-level protocol for Worker permission requests → Leader approval:
 
 ```
 Worker                                    Leader
   │                                         │
-  │─── PermissionRequest ──────────────────▶│ (写入 leader mailbox)
-  │                                         │ (弹出 UI 确认)
-  │◀── PermissionResponse ─────────────────│ (写入 worker mailbox)
+  │─── PermissionRequest ──────────────────▶│ (write to leader mailbox)
+  │                                         │ (show UI confirmation)
+  │◀── PermissionResponse ─────────────────│ (write to worker mailbox)
   │                                         │
 ```
 
-**支持类型**：
-- 标准权限请求（文件读写、命令执行）
-- 沙箱权限请求（网络访问）
+**Supported types**:
+- Standard permission requests (file reads/writes, command execution)
+- Sandbox permission requests (network access)
 
-**文件锁保护**：所有请求/响应文件使用 `proper-lockfile` 保护，防止并发写入冲突。
+**File-lock protection**: all request/response files are protected with `proper-lockfile` to prevent concurrent write conflicts.
 
-### 9.4.6 团队文件管理
+### 9.4.6 Team File Management
 
-源码：`utils/swarm/teamHelpers.ts` (683 LOC)
+Source: `utils/swarm/teamHelpers.ts` (683 LOC)
 
-**TeamFile 结构**：
+**TeamFile structure**:
 
 ```typescript
 interface TeamFile {
@@ -451,7 +453,7 @@ interface TeamFile {
   leadSessionId: string
   hiddenPaneIds: string[]
   teamAllowedPaths: string[]
-  members: TeamMember[]     // 成员列表
+  members: TeamMember[]     // Member list
 }
 
 interface TeamMember {
@@ -461,229 +463,232 @@ interface TeamMember {
   tmuxPaneId?: string
   backendType: BackendType  // 'tmux' | 'iterm2' | 'in-process'
   isActive: boolean
-  mode?: string             // 权限模式
-  subscriptions?: string[]  // PR 订阅
-  worktreePath?: string     // 隔离 worktree 路径
+  mode?: string             // Permission mode
+  subscriptions?: string[]  // PR subscriptions
+  worktreePath?: string     // Isolated worktree path
 }
 ```
 
-**存储位置**：`~/.claude/teams/{team-name}/config.json`
+**Storage location**: `~/.claude/teams/{team-name}/config.json`
 
-### 9.4.7 颜色分配
+### 9.4.7 Color Assignment
 
-源码：`utils/swarm/teammateLayoutManager.ts` (107 LOC)
+Source: `utils/swarm/teammateLayoutManager.ts` (107 LOC)
 
-**调色板** `AGENT_COLORS`：red, blue, green, yellow, purple, orange, pink, cyan（8 色）
+**Palette** `AGENT_COLORS`: red, blue, green, yellow, purple, orange, pink, cyan (8 colors)
 
-Round-robin 分配，leader 恒为默认色。颜色用于：
-- Tmux 面板边框着色
-- UI 中的 agent 标识
-- 消息中嵌入的颜色标记
+Assigned round-robin; the leader always uses the default color. Colors are used for:
+- Tmux pane border coloring
+- Agent identity in the UI
+- Color markers embedded in messages
 
-## 9.5 邮箱通信系统
+## 9.5 Mailbox Communication System
 
-### 9.5.1 架构
+### 9.5.1 Architecture
 
-源码：`utils/teammateMailbox.ts` (1,183 LOC)
+Source: `utils/teammateMailbox.ts` (1,183 LOC)
 
-每个 agent 拥有一个 JSON 格式的收件箱文件：
+Each agent has a JSON-format inbox file:
 
 ```
 ~/.claude/teams/{team}/inboxes/{agent}.json
 ```
 
-**消息结构**：
+**Message structure**:
 
 ```typescript
 interface TeammateMessage {
-  from: string        // 发送者 agent 名
-  text: string        // 消息内容
-  timestamp: number   // 时间戳
-  read: boolean       // 是否已读
-  color?: string      // 发送者颜色
-  summary?: string    // 消息摘要
+  from: string        // Sender agent name
+  text: string        // Message content
+  timestamp: number   // Timestamp
+  read: boolean       // Whether it has been read
+  color?: string      // Sender color
+  summary?: string    // Message summary
 }
 ```
 
-### 9.5.2 结构化消息类型
+### 9.5.2 Structured Message Types
 
-邮箱支持 **14 种结构化协议消息**：
+The mailbox supports **14 structured protocol message types**:
 
-| 消息类型 | 方向 | 用途 |
+| Message Type | Direction | Purpose |
 |---------|------|------|
-| `TeammateMessage` | 双向 | 纯文本消息 |
-| `IdleNotificationMessage` | Worker → Leader | 空闲通知 |
-| `PermissionRequestMessage` | Worker → Leader | 权限请求 |
-| `PermissionResponseMessage` | Leader → Worker | 权限响应 |
-| `SandboxPermissionRequestMessage` | Worker → Leader | 沙箱网络权限请求 |
-| `SandboxPermissionResponseMessage` | Leader → Worker | 沙箱网络权限响应 |
-| `PlanApprovalRequestMessage` | Worker → Leader | 计划审批请求 |
-| `PlanApprovalResponseMessage` | Leader → Worker | 审批结果 |
-| `ShutdownRequestMessage` | Leader → Worker | 关闭请求 |
-| `ShutdownApprovedMessage` | Worker → Leader | 接受关闭 |
-| `ShutdownRejectedMessage` | Worker → Leader | 拒绝关闭 |
-| `TaskAssignmentMessage` | Leader → Worker | 任务分配通知 |
-| `TeamPermissionUpdateMessage` | Leader → 广播 | 权限规则变更 |
-| `ModeSetRequestMessage` | Leader → Worker | 切换权限模式 |
+| `TeammateMessage` | Bidirectional | Plain-text message |
+| `IdleNotificationMessage` | Worker → Leader | Idle notification |
+| `PermissionRequestMessage` | Worker → Leader | Permission request |
+| `PermissionResponseMessage` | Leader → Worker | Permission response |
+| `SandboxPermissionRequestMessage` | Worker → Leader | Sandbox network permission request |
+| `SandboxPermissionResponseMessage` | Leader → Worker | Sandbox network permission response |
+| `PlanApprovalRequestMessage` | Worker → Leader | Plan approval request |
+| `PlanApprovalResponseMessage` | Leader → Worker | Approval result |
+| `ShutdownRequestMessage` | Leader → Worker | Shutdown request |
+| `ShutdownApprovedMessage` | Worker → Leader | Accept shutdown |
+| `ShutdownRejectedMessage` | Worker → Leader | Reject shutdown |
+| `TaskAssignmentMessage` | Leader → Worker | Task assignment notification |
+| `TeamPermissionUpdateMessage` | Leader → broadcast | Permission-rule change |
+| `ModeSetRequestMessage` | Leader → Worker | Switch permission mode |
 
-### 9.5.3 并发保护
+### 9.5.3 Concurrency Protection
 
-所有邮箱操作使用 `proper-lockfile` 保护：
+All mailbox operations are protected with `proper-lockfile`:
 
-| 操作 | 重试次数 | 退避策略 |
+| Operation | Retry Count | Backoff Strategy |
 |------|---------|---------|
-| 读取 | 无锁 | — |
-| 写入 | 10 次 | 指数退避 |
-| 标记已读 | 10 次 | 指数退避 |
-| 清空 | 10 次 | 指数退避 |
+| Read | No lock | — |
+| Write | 10 attempts | Exponential backoff |
+| Mark as read | 10 attempts | Exponential backoff |
+| Clear | 10 attempts | Exponential backoff |
 
-### 9.5.4 SendMessage 工具
+### 9.5.4 SendMessage Tool
 
-源码：`tools/SendMessageTool/SendMessageTool.ts` (917 LOC)
+Source: `tools/SendMessageTool/SendMessageTool.ts` (917 LOC)
 
-**输入**：`{ to: string, summary?: string, message: string | StructuredMessage }`
+**Input**: `{ to: string, summary?: string, message: string | StructuredMessage }`
 
-**特殊路由**：
+**Special routing**:
 
-| 目标格式 | 路由方式 |
+| Target Format | Routing Method |
 |---------|---------|
-| `agentName` | 直接邮箱投递 |
-| `*` | 广播到所有 teammates（跳过自己） |
-| `uds:/path/to.sock` | Unix 域套接字（跨会话） |
-| `bridge:session_...` | Remote Control 桥接（跨机器） |
+| `agentName` | Direct mailbox delivery |
+| `*` | Broadcast to all teammates (skipping self) |
+| `uds:/path/to.sock` | Unix domain socket (cross-session) |
+| `bridge:session_...` | Remote Control bridge (cross-machine) |
 
-**自动恢复**：发送消息给已停止的 agent 时，自动通过 `resumeAgentBackground` 恢复执行。
+**Automatic recovery**: when sending a message to a stopped agent, execution is automatically resumed through `resumeAgentBackground`.
 
-**权限模型**：Bridge 消息需要显式用户同意（安全检查，不可自动审批）。
+**Permission model**: Bridge messages require explicit user consent (security check; cannot be auto-approved).
 
-## 9.6 任务管理系统
+## 9.6 Task Management System
 
-### 9.6.1 任务数据结构
+### 9.6.1 Task Data Structure
 
-源码：`utils/tasks.ts` (862 LOC)
+Source: `utils/tasks.ts` (862 LOC)
 
 ```typescript
 interface Task {
-  id: number               // 单调递增整数
-  subject: string          // 任务标题
-  description?: string     // 详细描述
-  activeForm?: string      // 进行时描述（UI 显示）
-  owner?: string           // 认领者 agentId
+  id: number               // Monotonically increasing integer
+  subject: string          // Task title
+  description?: string     // Detailed description
+  activeForm?: string      // In-progress description (UI display)
+  owner?: string           // Claimant agentId
   status: 'pending' | 'in_progress' | 'completed'
-  blocks: string[]         // 阻塞的任务 ID 列表
-  blockedBy: string[]      // 被哪些任务阻塞
+  blocks: string[]         // List of blocked task IDs
+  blockedBy: string[]      // Tasks that block this task
   metadata?: Record<string, unknown>
 }
 ```
 
-**存储位置**：`~/.claude/tasks/{team-name}/{id}.json`
+**Storage location**: `~/.claude/tasks/{team-name}/{id}.json`
 
-### 9.6.2 原子认领
+### 9.6.2 Atomic Claiming
 
 ```typescript
 claimTaskWithBusyCheck(taskListId, taskId, claimantId):
-  // 1. 获取任务列表级文件锁
-  // 2. 检查 claimant 是否已有 in_progress 任务
-  // 3. 检查任务是否被 blockedBy 中的未完成任务阻塞
-  // 4. 原子更新 status → in_progress, owner → claimantId
-  // 5. 释放锁
+  // 1. Acquire the task-list-level file lock
+  // 2. Check whether claimant already has an in_progress task
+  // 3. Check whether the task is blocked by unfinished tasks in blockedBy
+  // 4. Atomically update status → in_progress, owner → claimantId
+  // 5. Release the lock
 ```
 
-**TOCTOU 防护**：使用任务列表级锁确保「检查 + 认领」的原子性，防止多个 agent 同时认领同一任务。
+**TOCTOU protection**: a task-list-level lock ensures atomicity for "check + claim", preventing multiple agents from claiming the same task simultaneously.
 
-### 9.6.3 依赖图
+### 9.6.3 Dependency Graph
 
-任务支持双向依赖：
+Tasks support bidirectional dependencies:
 
 ```
 blockTask(taskListId, fromId, toId):
-  // fromId 阻塞 toId
+  // fromId blocks toId
   // fromId.blocks.push(toId)
   // toId.blockedBy.push(fromId)
 ```
 
-**认领前置检查**：`claimTaskWithBusyCheck` 在认领前验证所有 `blockedBy` 任务是否已完成。
+**Pre-claim check**: `claimTaskWithBusyCheck` verifies that all `blockedBy` tasks are completed before claiming.
 
-### 9.6.4 任务列表 ID 解析
+### 9.6.4 Task List ID Resolution
 
 ```typescript
-getTaskListId() 优先级:
-  1. CLAUDE_CODE_TASK_LIST_ID 环境变量
-  2. teammate 上下文中的 teamName
-  3. leader 的 teamName
-  4. sessionId（非团队模式的 fallback）
+getTaskListId() priority:
+  1. CLAUDE_CODE_TASK_LIST_ID environment variable
+  2. teamName in teammate context
+  3. leader's teamName
+  4. sessionId (fallback outside team mode)
 ```
 
-### 9.6.5 任务工具集
+### 9.6.5 Task Tool Set
 
-| 工具 | LOC | 功能 |
+| Tool | LOC | Function |
 |------|-----|------|
-| `TaskCreateTool` | 195 | 创建任务（支持 hook 拦截） |
-| `TaskGetTool` | — | 查询单个任务 |
-| `TaskListTool` | — | 列出所有任务 |
-| `TaskUpdateTool` | — | 更新任务状态/描述 |
+| `TaskCreateTool` | 195 | Create tasks (supports hook interception) |
+| `TaskGetTool` | — | Query a single task |
+| `TaskListTool` | — | List all tasks |
+| `TaskUpdateTool` | — | Update task status/description |
 
-**Feature gate**：`isTodoV2Enabled()`（非交互模式或 V2 启用时可用）。
+**Feature gate**: `isTodoV2Enabled()` (available in non-interactive mode or when V2 is enabled).
 
-## 9.7 协调者模式
+## 9.7 Coordinator Mode
 
-### 9.7.1 概述
+### 9.7.1 Overview
 
-源码：`coordinator/coordinatorMode.ts` (369 LOC)
+Source: `coordinator/coordinatorMode.ts` (369 LOC)
 
-**启用条件**：`feature('COORDINATOR_MODE')` **且** `process.env.CLAUDE_CODE_COORDINATOR_MODE=1`
+**Enablement condition**: `feature('COORDINATOR_MODE')` **and** `process.env.CLAUDE_CODE_COORDINATOR_MODE=1`
 
-协调者模式下，Leader **永远不会直接编辑代码**，仅作为纯粹的编排者：
-- 分配任务给 Worker
-- 综合研究结果
-- 决定继续 Worker 对话 vs 生成新 Worker
+In coordinator mode, the Leader **never edits code directly** and acts only as a pure orchestrator:
+- Assign tasks to Workers
+- Synthesize research findings
+- Decide whether to continue a Worker conversation or spawn a new Worker
 
-### 9.7.2 协调者工具集
+### 9.7.2 Coordinator Tool Set
 
-| 工具 | 用途 |
+| Tool | Purpose |
 |------|------|
-| `Agent` | 生成 Worker（`subagent_type: "worker"`） |
-| `SendMessage` | 继续运行中的 Worker 对话 |
-| `TaskStop` | 停止 Worker |
-| `subscribe_pr_activity` / `unsubscribe_pr_activity` | PR 活动监控 |
+| `Agent` | Spawn Worker (`subagent_type: "worker"`) |
+| `SendMessage` | Continue an in-progress Worker conversation |
+| `TaskStop` | Stop Worker |
+| `subscribe_pr_activity` / `unsubscribe_pr_activity` | PR activity monitoring |
 
-### 9.7.3 四阶段工作流
+### 9.7.3 Four-Stage Workflow
 
-> **注意**：以下四阶段是协调者系统提示中的建议工作流，非正式的代码级架构模式。源码中的相关描述仅为 prompt 注释中的非正式提及（如 "research, implementation, or verification"）。
+> **Note**: The following four stages are the recommended workflow in the coordinator system prompt, not a formal code-level architecture pattern. The related descriptions in the source are only informal mentions in prompt comments (such as "research, implementation, or verification").
 
 ```
 ┌───────────────────┐     ┌───────────────────┐
-│ 1. 研究阶段        │     │ 2. 综合阶段        │
+│ 1. Research Stage │     │ 2. Synthesis Stage│
 │                   │     │                   │
-│ 多个 Worker 并行   │────▶│ 协调者汇总发现      │
-│ 搜索/分析/理解     │     │ 识别关键文件        │
-│                   │     │ 制定实施计划        │
+│ Multiple Workers  │────▶│ Coordinator       │
+│ in parallel       │     │ summarizes findings│
+│ Search/analyze/   │     │ Identify key files│
+│ understand        │     │ Create implementation plan│
 └───────────────────┘     └─────────┬─────────┘
                                     │
                           ┌─────────▼─────────┐
-                          │ 3. 实施阶段        │
-                          │                   │
-                          │ Worker 执行修改     │
-                          │ 协调者分配任务      │
+                          │ 3. Implementation│
+                          │ Stage             │
+                          │ Worker performs   │
+                          │ modifications     │
+                          │ Coordinator       │
+                          │ assigns tasks     │
                           └─────────┬─────────┘
                                     │
                           ┌─────────▼─────────┐
-                          │ 4. 验证阶段        │
-                          │                   │
-                          │ Worker 运行测试     │
-                          │ 检查类型/构建       │
+                          │ 4. Verification   │
+                          │ Stage             │
+                          │ Worker runs tests │
+                          │ Check types/build │
                           └───────────────────┘
 ```
 
-**核心原则**（源码 prompt 原文）："Parallelism is a superpower"——研究阶段启动多个并行 Worker 可大幅提升效率。
+**Core principle** (source prompt text): "Parallelism is a superpower" — launching multiple parallel Workers during the research stage can greatly improve efficiency.
 
-### 9.7.4 Continue vs Spawn 决策矩阵
+### 9.7.4 Continue vs Spawn Decision Matrix
 
-源码：`coordinator/coordinatorMode.ts` — Section 5 "Choose continue vs. spawn by context overlap"
+Source: `coordinator/coordinatorMode.ts` — Section 5 "Choose continue vs. spawn by context overlap"
 
-协调者系统提示内置 6 种场景的决策表：
+The coordinator system prompt includes a decision table for 6 scenarios:
 
-| 场景（源码原文） | 决策 | 理由 |
+| Scenario (source text) | Decision | Rationale |
 |------|------|------|
 | Research explored exactly the files that need editing | **Continue** | Worker already has the files in context AND now gets a clear plan |
 | Research was broad but implementation is narrow | **Spawn fresh** | Avoid dragging along exploration noise; focused context is cleaner |
@@ -692,253 +697,253 @@ getTaskListId() 优先级:
 | First implementation attempt used the wrong approach entirely | **Spawn fresh** | Wrong-approach context pollutes the retry; clean slate avoids anchoring |
 | Completely unrelated task | **Spawn fresh** | No useful context to reuse |
 
-**核心原则**（源码原文）："There is no universal default. Think about how much of the worker's context overlaps with the next task. High overlap → continue. Low overlap → spawn fresh."
+**Core principle** (source prompt text): "There is no universal default. Think about how much of the worker's context overlaps with the next task. High overlap → continue. Low overlap → spawn fresh."
 
-**关键规则**：Worker 无法看到协调者的对话。每个 prompt 必须**自包含**——不能说"基于你之前的发现"，而要包含所有必要上下文。
+**Key rule**: Workers cannot see the coordinator's conversation. Every prompt must be **self-contained** — do not say "based on your previous findings"; include all necessary context instead.
 
-## 9.8 远程传送
+## 9.8 Teleport
 
-### 9.8.1 概述
+### 9.8.1 Overview
 
-源码：`utils/teleport.tsx` (1,225 LOC)
+Source: `utils/teleport.tsx` (1,225 LOC)
 
-Teleport 实现本地↔远程 Claude Code Runtime (CCR) 的会话迁移，支持 Agent 工具的 `isolation: "remote"` 路径。
+Teleport implements session migration between local and remote Claude Code Runtime (CCR), supporting the Agent tool's `isolation: "remote"` path.
 
-### 9.8.2 传送流程
+### 9.8.2 Teleport Flow
 
-**上传（本地 → 远程）**：
+**Upload (local → remote)**:
 
 ```
 teleportToRemote():
-  1. Haiku 生成标题和分支名
-  2. git bundle 创建代码快照
-  3. 上传到 Anthropic API
-  4. 远程 CCR 环境启动
-  5. 返回远程 session ID
+  1. Haiku generates title and branch name
+  2. git bundle creates a code snapshot
+  3. Upload to Anthropic API
+  4. Remote CCR environment starts
+  5. Return remote session ID
 ```
 
-**下载（远程 → 本地）**：
+**Download (remote → local)**:
 
 ```
 resumeFromTeleport():
-  1. 获取远程 session 日志
-  2. 重建对话历史
-  3. checkout 远程分支到本地
-  4. 恢复 session 状态
+  1. Fetch remote session logs
+  2. Reconstruct conversation history
+  3. checkout remote branch locally
+  4. Restore session state
 ```
 
-### 9.8.3 Teleport UI 组件
+### 9.8.3 Teleport UI Components
 
-| 组件 | LOC | 功能 |
+| Component | LOC | Function |
 |------|-----|------|
-| `TeleportError.tsx` | 188 | 前置条件检查（登录、stash） |
-| `TeleportResumeWrapper.tsx` | 166 | 恢复加载编排 |
-| `TeleportProgress.tsx` | 139 | 5 步进度指示 |
-| `TeleportStash.tsx` | 115 | Git stash 对话框 |
-| `TeleportRepoMismatchDialog.tsx` | 103 | 仓库不匹配对话框 |
-| `useTeleportResume.tsx` | 84 | 恢复状态管理 Hook |
+| `TeleportError.tsx` | 188 | Precondition checks (login, stash) |
+| `TeleportResumeWrapper.tsx` | 166 | Resume-loading orchestration |
+| `TeleportProgress.tsx` | 139 | 5-step progress indicator |
+| `TeleportStash.tsx` | 115 | Git stash dialog |
+| `TeleportRepoMismatchDialog.tsx` | 103 | Repository mismatch dialog |
+| `useTeleportResume.tsx` | 84 | Resume state-management Hook |
 
-**进度步骤**：`validating` → `fetching_logs` → `fetching_branch` → `checking_out` → `done`
+**Progress steps**: `validating` → `fetching_logs` → `fetching_branch` → `checking_out` → `done`
 
-### 9.8.4 认证
+### 9.8.4 Authentication
 
-使用 OAuth 进行身份验证，支持 Anthropic 账户授权。
+Uses OAuth for authentication and supports Anthropic account authorization.
 
-## 9.9 代理 ID 系统
+## 9.9 Agent ID System
 
-源码：`utils/agentId.ts` (99 LOC)
+Source: `utils/agentId.ts` (99 LOC)
 
-### 9.9.1 ID 格式
+### 9.9.1 ID Format
 
-| ID 类型 | 格式 | 示例 |
+| ID Type | Format | Example |
 |---------|------|------|
 | Agent ID | `{agentName}@{teamName}` | `researcher@my-project` |
 | Request ID | `{type}-{timestamp}@{agentId}` | `shutdown-1702500000000@researcher@my-project` |
 
-**确定性**：相同的 `agentName` + `teamName` 始终产生相同的 `agentId`。
+**Determinism**: the same `agentName` + `teamName` always produces the same `agentId`.
 
-**约束**：`@` 是保留分隔符——agent 名称会被净化以移除 `@` 字符。
+**Constraint**: `@` is a reserved separator — agent names are sanitized to remove the `@` character.
 
-### 9.9.2 ID 作用
+### 9.9.2 ID Purposes
 
-- **会话恢复**：崩溃/重启后通过确定性 ID 重新关联 teammate
-- **邮箱路由**：`~/.claude/teams/{team}/inboxes/{agentName}.json`
-- **任务归属**：`Task.owner` 字段使用 agentId
-- **调试追踪**：Perfetto trace 中的 agent 标识
+- **Session recovery**: deterministic IDs reconnect teammates after crashes/restarts
+- **Mailbox routing**: `~/.claude/teams/{team}/inboxes/{agentName}.json`
+- **Task ownership**: the `Task.owner` field uses agentId
+- **Debug tracing**: agent identity in Perfetto traces
 
-## 9.10 集成点
+## 9.10 Integration Points
 
-### 9.10.1 与会话系统
+### 9.10.1 With the Session System
 
-源码：`utils/swarm/reconnection.ts` (119 LOC) + `teammateInit.ts` (129 LOC)
+Source: `utils/swarm/reconnection.ts` (119 LOC) + `teammateInit.ts` (129 LOC)
 
-- `computeInitialTeamContext()` 在 `main.tsx` 中注入团队上下文到初始 React 状态
-- Teammate 初始化时注册 Stop hook，回合结束时发送空闲通知
-- `parentSessionId` 关联每个 teammate 到 leader 的 session UUID
+- `computeInitialTeamContext()` injects team context into the initial React state in `main.tsx`
+- During teammate initialization, registers a Stop hook and sends an idle notification when the turn ends
+- `parentSessionId` associates each teammate with the leader's session UUID
 
-### 9.10.2 与工具系统
+### 9.10.2 With the Tool System
 
-- `AgentTool` 是 Swarm 的主入口（07-session.md 已描述）
-- `SendMessage` 处理所有跨代理通信
-- `TeamCreateTool` / `TeamDeleteTool` 管理团队生命周期
-- `TaskCreateTool` / `TaskUpdateTool` 管理任务列表
-- `TaskStopTool` 停止运行中的 agent
-- In-process teammate 的权限请求通过 `leaderPermissionBridge` 路由到 leader UI
+- `AgentTool` is the main Swarm entry point (described in 07-session.md)
+- `SendMessage` handles all cross-agent communication
+- `TeamCreateTool` / `TeamDeleteTool` manage the team lifecycle
+- `TaskCreateTool` / `TaskUpdateTool` manage task lists
+- `TaskStopTool` stops running agents
+- In-process teammate permission requests are routed to the leader UI through `leaderPermissionBridge`
 
-### 9.10.3 与远程控制
+### 9.10.3 With Remote Control
 
-- Teleport 启用 `isolation: "remote"` 路径
-- `RemoteAgentTask` 管理远程 agent 生命周期
-- `CLAUDE_CODE_REMOTE` 环境变量传播到 pane-based teammate
-- Bridge 消息通过 Remote Control 基础设施路由
+- Teleport enables the `isolation: "remote"` path
+- `RemoteAgentTask` manages the remote agent lifecycle
+- The `CLAUDE_CODE_REMOTE` environment variable propagates to pane-based teammates
+- Bridge messages are routed through the Remote Control infrastructure
 
-### 9.10.4 与 Worktree 隔离
+### 9.10.4 With Worktree Isolation
 
-- `isolation: 'worktree'` 为 teammate 创建独立 git worktree
-- Worktree 清理在 team 解散时自动触发
-- Fail-closed 策略：有未提交变更时拒绝删除
+- `isolation: 'worktree'` creates an independent git worktree for the teammate
+- Worktree cleanup is triggered automatically when the team is disbanded
+- Fail-closed strategy: deletion is refused when uncommitted changes are present
 
-## 9.11 常量参考
+## 9.11 Constants Reference
 
-### 9.11.1 Swarm 常量
+### 9.11.1 Swarm Constants
 
-源码：`utils/swarm/constants.ts` (33 LOC)
+Source: `utils/swarm/constants.ts` (33 LOC)
 
-| 常量 | 值 | 用途 |
+| Constant | Value | Purpose |
 |------|---|------|
-| `TEAM_LEAD_NAME` | `"team-lead"` | Leader 的默认名称 |
-| `SWARM_SESSION_NAME` | `"claude-swarm"` | tmux 会话名 |
-| `CLAUDE_CODE_TEAMMATE_COMMAND` | 环境变量 | 自定义 teammate 启动命令 |
-| `CLAUDE_CODE_AGENT_COLOR` | 环境变量 | 自定义 agent 颜色 |
-| `CLAUDE_CODE_PLAN_MODE_REQUIRED` | 环境变量 | 强制 plan mode |
+| `TEAM_LEAD_NAME` | `"team-lead"` | Leader's default name |
+| `SWARM_SESSION_NAME` | `"claude-swarm"` | tmux session name |
+| `CLAUDE_CODE_TEAMMATE_COMMAND` | Environment variable | Custom teammate launch command |
+| `CLAUDE_CODE_AGENT_COLOR` | Environment variable | Custom agent color |
+| `CLAUDE_CODE_PLAN_MODE_REQUIRED` | Environment variable | Force plan mode |
 
-### 9.11.2 邮箱常量
+### 9.11.2 Mailbox Constants
 
-| 常量 | 值 | 用途 |
+| Constant | Value | Purpose |
 |------|---|------|
-| 锁重试次数 | 10-30 | `proper-lockfile` 退避 |
-| 退避范围 | 5-100ms | 指数退避区间 |
+| Lock retry count | 10-30 | `proper-lockfile` backoff |
+| Backoff range | 5-100ms | Exponential backoff interval |
 
-### 9.11.3 Tmux 布局
+### 9.11.3 Tmux Layout
 
-| 参数 | 值 | 说明 |
+| Parameter | Value | Description |
 |------|---|------|
-| Leader 面板比例 | 30% | 左侧 |
-| Teammates 面板比例 | 70% | 右侧 |
+| Leader pane ratio | 30% | Left side |
+| Teammates pane ratio | 70% | Right side |
 
-### 9.11.4 Agent 颜色调色板
+### 9.11.4 Agent Color Palette
 
-| 颜色 | 使用场景 |
+| Color | Use Case |
 |------|---------|
-| red, blue, green, yellow, purple, orange, pink, cyan | Round-robin teammate 分配 |
+| red, blue, green, yellow, purple, orange, pink, cyan | Round-robin teammate assignment |
 
-## 9.12 实现者 Checklist
+## 9.12 Implementer Checklist
 
-### Agent 定义
-- [ ] 类型化 AgentDefinition 层次（内置/自定义/插件）
-- [ ] 支持多位置加载（全局/项目/插件/策略）
-- [ ] Frontmatter 格式的 Markdown 定义文件
-- [ ] Feature gate 控制内置 agent 启用
-- [ ] Agent Memory 局部持久化（3 scope + snapshot 种子）
+### Agent Definitions
+- [ ] Typed AgentDefinition hierarchy (built-in/custom/plugin)
+- [ ] Support multi-location loading (global/project/plugin/policy)
+- [ ] Markdown definition files in frontmatter format
+- [ ] Feature gates control built-in agent enablement
+- [ ] Agent Memory local persistence (3 scopes + snapshot seeds)
 
-### 多代理生成
-- [ ] 三后端架构（in-process / split-pane / separate-window）
-- [ ] 环境自动检测与 fallback
-- [ ] 确定性 agent ID（支持崩溃恢复）
-- [ ] CLI 标志传播（模型、设置、权限）
-- [ ] 名称去重（追加后缀）
+### Multi-Agent Spawning
+- [ ] Three-backend architecture (in-process / split-pane / separate-window)
+- [ ] Automatic environment detection and fallback
+- [ ] Deterministic agent ID (supports crash recovery)
+- [ ] CLI flag propagation (model, settings, permissions)
+- [ ] Name deduplication (append suffixes)
 
-### 通信系统
-- [ ] 文件邮箱（JSON 格式，锁保护）
-- [ ] 10+ 结构化消息类型（覆盖所有协议需求）
-- [ ] 广播、直接消息、跨会话路由
-- [ ] 自动恢复已停止 agent
+### Communication System
+- [ ] File mailbox (JSON format, lock-protected)
+- [ ] 10+ structured message types (covering all protocol needs)
+- [ ] Broadcast, direct messages, and cross-session routing
+- [ ] Automatic recovery of stopped agents
 
-### 任务管理
-- [ ] 单调递增整数 ID（高位水印 + 文件锁）
-- [ ] 双向依赖图（blocks / blockedBy）
-- [ ] 原子认领（TOCTOU 防护）
-- [ ] 忙碌检查（防止同时执行多个任务）
+### Task Management
+- [ ] Monotonically increasing integer IDs (high-water mark + file lock)
+- [ ] Bidirectional dependency graph (blocks / blockedBy)
+- [ ] Atomic claiming (TOCTOU protection)
+- [ ] Busy check (prevents executing multiple tasks simultaneously)
 
-### 协调模式
-- [ ] 纯编排者（永不直接编辑代码）
-- [ ] Continue vs Spawn 决策矩阵
-- [ ] 自包含 prompt（Worker 无法看到协调者对话）
-- [ ] 四阶段工作流（研究 → 综合 → 实施 → 验证）
+### Coordinator Mode
+- [ ] Pure orchestrator (never edits code directly)
+- [ ] Continue vs Spawn decision matrix
+- [ ] Self-contained prompts (Workers cannot see the coordinator conversation)
+- [ ] Four-stage workflow (research → synthesis → implementation → verification)
 
-### 隔离与安全
-- [ ] Worktree 隔离（独立 git 工作区）
-- [ ] 远程隔离（CCR 环境传送）
-- [ ] 权限委托（Worker → Leader UI 桥接）
-- [ ] Bridge 消息需显式用户同意
+### Isolation and Security
+- [ ] Worktree isolation (independent git workspace)
+- [ ] Remote isolation (CCR environment teleport)
+- [ ] Permission delegation (Worker → Leader UI bridge)
+- [ ] Bridge messages require explicit user consent
 
-### 清理与恢复
-- [ ] 团队解散时清理 worktree、PID、mailbox
-- [ ] Fail-closed 策略（有活跃成员时拒绝解散）
-- [ ] 会话恢复时重建 team context
+### Cleanup and Recovery
+- [ ] Clean up worktree, PID, and mailbox when the team is disbanded
+- [ ] Fail-closed strategy (refuse disbanding when active members exist)
+- [ ] Rebuild team context during session recovery
 
-## 9.13 设计哲学与架构权衡
+## 9.13 Design Philosophy and Architecture Trade-offs
 
-### 9.13.1 核心权衡矩阵
+### 9.13.1 Core Trade-off Matrix
 
-| 决策 | 选择 | 替代方案 | 权衡 |
+| Decision | Choice | Alternative | Trade-off |
 |------|------|----------|------|
-| 通信方式 | 文件邮箱 | 消息队列 / 共享内存 | 无需额外依赖、跨进程安全；延迟略高 |
-| 生成后端 | 三后端 + 自动检测 | 单一后端 | 最大兼容性；实现复杂度高 |
-| 协调模式 | 纯编排者 | 可编辑的半协调者 | 避免协调者与 Worker 职责模糊；增加 Worker 生成成本 |
-| Agent ID | 确定性字符串 | UUID | 可读性好、支持崩溃恢复；名称冲突需去重 |
-| 任务系统 | 文件级 + 高位水印 | 数据库 | 无需额外依赖；并发依赖文件锁性能 |
-| Fork 子代理 | 共享 prompt cache 前缀 | 完全独立会话 | 降低 token 成本；上下文可能过重 |
-| 权限委托 | Leader UI 桥接 | 自动审批 | 安全性高；增加用户交互 |
-| Agent Memory | 3-scope 文件存储 | 全局 KV 存储 | 代码级隔离清晰；文件粒度较粗 |
-| 上下文隔离 | AsyncLocalStorage | 独立进程 | 共享 API/MCP 资源；实现复杂 |
+| Communication method | File mailbox | Message queue / shared memory | No extra dependencies and cross-process safe; slightly higher latency |
+| Spawning backend | Three backends + auto-detection | Single backend | Maximum compatibility; high implementation complexity |
+| Coordinator mode | Pure orchestrator | Editable semi-coordinator | Avoids blurred responsibilities between coordinator and Worker; increases Worker spawn cost |
+| Agent ID | Deterministic string | UUID | Readable and supports crash recovery; name conflicts require deduplication |
+| Task system | File-level + high-water mark | Database | No extra dependencies; concurrency depends on file-lock performance |
+| Fork subagent | Shared prompt-cache prefix | Fully independent session | Reduces token cost; context may be too heavy |
+| Permission delegation | Leader UI bridge | Auto-approval | High security; increases user interaction |
+| Agent Memory | 3-scope file storage | Global KV storage | Clear code-level isolation; file granularity is relatively coarse |
+| Context isolation | AsyncLocalStorage | Independent process | Shares API/MCP resources; complex implementation |
 
-### 9.13.2 文件邮箱 vs 消息队列
+### 9.13.2 File Mailbox vs Message Queue
 
-源码：`utils/teammateMailbox.ts`
+Source: `utils/teammateMailbox.ts`
 
-Claude Code 选择基于文件的邮箱而非 IPC 消息队列（如 Unix socket、gRPC）：
+Claude Code chooses a file-based mailbox instead of IPC message queues (such as Unix sockets or gRPC):
 
-- **优势**：零额外依赖；tmux/iTerm2 后端天然无法共享内存；JSON 格式便于调试（直接 `cat` 邮箱文件）；进程崩溃后消息不丢失
-- **代价**：文件锁（`proper-lockfile`）引入 10-30 次重试的并发开销；写入延迟受文件系统影响（通常 <1ms）；高频消息场景下性能瓶颈
+- **Advantages**: zero extra dependencies; tmux/iTerm2 backends naturally cannot share memory; JSON format is easy to debug (directly `cat` the mailbox file); messages are not lost after process crashes
+- **Costs**: file locking (`proper-lockfile`) introduces concurrency overhead with 10-30 retries; write latency is affected by the filesystem (usually <1ms); performance bottlenecks in high-frequency messaging scenarios
 
-### 9.13.3 三后端兼容性策略
+### 9.13.3 Three-Backend Compatibility Strategy
 
-源码：`utils/swarm/backends/registry.ts` (464 LOC)
+Source: `utils/swarm/backends/registry.ts` (464 LOC)
 
-后端检测优先级（tmux 嵌套 > iTerm2 原生 > tmux 外部 > in-process fallback）体现了"最大兼容性"原则：
+The backend detection priority (tmux nested > native iTerm2 > external tmux > in-process fallback) reflects the principle of "maximum compatibility":
 
-- **In-process**：最低门槛，但共享进程资源
-- **Split-pane**：最佳体验（可视多面板），但依赖 tmux/iTerm2
-- **Separate-window**：旧模式，保持向后兼容
+- **In-process**: lowest barrier, but shares process resources
+- **Split-pane**: best experience (visible multi-pane UI), but depends on tmux/iTerm2
+- **Separate-window**: legacy mode, retained for backward compatibility
 
-实现复杂度的代价：`spawnMultiAgent.ts` (1,093 LOC) 是多代理子系统第二大的文件，主要因为需要同时处理 3 种后端的差异化逻辑。
+The cost of implementation complexity: `spawnMultiAgent.ts` (1,093 LOC) is the second-largest file in the multi-agent subsystem, mainly because it must handle differentiated logic across all 3 backends.
 
-### 9.13.4 Fork 子代理的 Prompt Cache 优化
+### 9.13.4 Prompt Cache Optimization for Fork Subagents
 
-源码：`tools/AgentTool/forkSubagent.ts` (210 LOC)
+Source: `tools/AgentTool/forkSubagent.ts` (210 LOC)
 
-Fork 子代理是 Claude Code 多代理系统中最精细的成本优化设计：
+Fork subagents are the most refined cost-optimization design in Claude Code's multi-agent system:
 
-- **原理**：`buildForkedMessages()` 构建与父级完全相同的消息前缀，使 Anthropic API 的 prompt cache 命中率最大化
-- **约束**：Fork Agent 的系统提示要求"500 词以内回复"，避免过长输出抵消 cache 节省
-- **⚠️ 推断**：这个设计暗示 Anthropic API 的 prompt cache 按**前缀匹配**计费，前缀越长 cache 节省越大
+- **Principle**: `buildForkedMessages()` constructs a message prefix exactly identical to the parent, maximizing the Anthropic API prompt-cache hit rate
+- **Constraint**: the Fork Agent system prompt requires "responses in 500 words or fewer" to prevent overly long output from offsetting cache savings
+- **⚠️ Inference**: this design implies that Anthropic API prompt-cache billing uses **prefix matching**; the longer the prefix, the greater the cache savings
 
-### 9.13.5 确定性 ID 的崩溃恢复语义
+### 9.13.5 Crash-Recovery Semantics of Deterministic IDs
 
-源码：`utils/agentId.ts` (99 LOC)
+Source: `utils/agentId.ts` (99 LOC)
 
-`agentName@teamName` 格式不是随意选择——它使得会话恢复时无需持久化 ID 映射：
+The `agentName@teamName` format is not arbitrary — it allows session recovery without persisting an ID mapping:
 
-- **恢复流程**：进程崩溃后，重启的 teammate 通过相同的 `agentName + teamName` 重新生成 agentId，自动匹配到 `~/.claude/teams/{team}/inboxes/{agentName}.json` 中未读消息
-- **代价**：名称冲突需要去重逻辑（追加 -2, -3 后缀），但这是一次性成本
+- **Recovery flow**: after a process crash, the restarted teammate regenerates the agentId from the same `agentName + teamName`, automatically matching unread messages in `~/.claude/teams/{team}/inboxes/{agentName}.json`
+- **Cost**: name conflicts require deduplication logic (append -2, -3 suffixes), but this is a one-time cost
 
-### 9.13.6 纯协调者 vs 可编辑半协调者
+### 9.13.6 Pure Coordinator vs Editable Semi-Coordinator
 
-源码：`coordinator/coordinatorMode.ts` (369 LOC)
+Source: `coordinator/coordinatorMode.ts` (369 LOC)
 
-协调者模式选择"永不编辑代码"而非"可以介入编辑"：
+Coordinator mode chooses "never edit code" instead of "can intervene with edits":
 
-- **优势**：避免协调者与 Worker 之间的职责模糊；协调者专注于编排，所有代码修改可追踪到具体 Worker
-- **代价**：简单任务（如改一个配置值）也需要生成 Worker，增加 token 成本和延迟
-- **设计信号**：决策矩阵的 6 个场景中有 4 个选择 Spawn fresh，反映"干净上下文 > 上下文复用"的偏好
+- **Advantages**: avoids blurred responsibilities between the coordinator and Workers; the coordinator focuses on orchestration, and every code modification can be traced to a specific Worker
+- **Cost**: even simple tasks (such as changing one configuration value) require spawning a Worker, increasing token cost and latency
+- **Design signal**: 4 of the 6 scenarios in the decision matrix choose Spawn fresh, reflecting the preference for "clean context > context reuse"

@@ -1,167 +1,167 @@
-# 19. 参考速查——数据结构、术语表、实体关系
+# 19. Reference Quick Lookup—Data Structures, Glossary, Entity Relationships
 
-> 开发者在阅读 Claude Code 架构时最常见的困惑不是功能太多，而是**分不清哪些概念属于哪一层**。本文提供三份速查表：核心数据结构、术语表、实体关系图。
+> The most common confusion developers encounter when reading about the Claude Code architecture is not that there are too many features, but that it is **hard to tell which concepts belong to which layer**. This article provides three quick-reference tables: core data structures, a glossary, and an entity relationship diagram.
 >
-> **Qwen Code 对标**：这些概念模型同样适用于 Qwen Code——两者共享工具调用 Agent 的基本架构范式。
+> **Qwen Code comparison**: These conceptual models also apply to Qwen Code—both share the basic architectural paradigm of a tool-calling Agent.
 >
-> **致谢**：本文的概念框架参考了 [learn-claude-code](https://github.com/shareAI-lab/learn-claude-code) 项目的数据结构和术语整理。
+> **Acknowledgments**: The conceptual framework in this article references the data-structure and terminology summaries from the [learn-claude-code](https://github.com/shareAI-lab/learn-claude-code) project.
 
-## 一、核心数据结构速查
+## 1. Core Data Structures Quick Reference
 
-### 设计原则
+### Design Principles
 
-1. **内容状态 vs 控制状态分离**：`messages`、`tool_result` 是内容状态；`turn_count`、`transition` 是控制状态
-2. **持久状态 vs 运行时状态分离**：tasks、memory 是持久的；权限决策、MCP 连接是运行时的
+1. **Separate content state from control state**: `messages` and `tool_result` are content state; `turn_count` and `transition` are control state
+2. **Separate persistent state from runtime state**: tasks and memory are persistent; permission decisions and MCP connections are runtime state
 
-### 查询与对话
+### Queries and Conversations
 
-| 数据结构 | 职责 | 所在层 |
+| Data structure | Responsibility | Layer |
 |---------|------|--------|
-| **Message** | 对话和工具往返历史 | messages 数组 |
-| **NormalizedMessage** | 标准化后的消息（适配模型 API） | API 请求构建 |
-| **QueryParams** | 启动一次查询的外部输入 | 查询引擎入口 |
-| **QueryState** | 随轮次变化的可变状态 | 查询引擎内部 |
-| **TransitionReason** | 解释为什么进入下一轮 | 查询边界 |
-| **CompactSummary** | 压缩后的摘要上下文 | 上下文管理 |
+| **Message** | Conversation and tool round-trip history | `messages` array |
+| **NormalizedMessage** | Normalized messages (adapted for the model API) | API request construction |
+| **QueryParams** | External input for starting a query | Query engine entry point |
+| **QueryState** | Mutable state that changes across turns | Inside the query engine |
+| **TransitionReason** | Explains why the next turn is entered | Query boundary |
+| **CompactSummary** | Compressed summary context | Context management |
 
-### 提示与输入
+### Prompts and Input
 
-| 数据结构 | 职责 | 所在层 |
+| Data structure | Responsibility | Layer |
 |---------|------|--------|
-| **SystemPromptBlock** | 一个稳定的提示片段 | 系统提示构建 |
-| **PromptParts** | 分离的提示片段（组装前） | 提示管线 |
-| **ReminderMessage** | 临时的单轮/单模式注入 | 消息管线 |
+| **SystemPromptBlock** | A stable prompt fragment | System prompt construction |
+| **PromptParts** | Separated prompt fragments (before assembly) | Prompt pipeline |
+| **ReminderMessage** | Temporary single-turn/single-mode injection | Message pipeline |
 
-### 工具与控制平面
+### Tools and Control Plane
 
-| 数据结构 | 职责 | 所在层 |
+| Data structure | Responsibility | Layer |
 |---------|------|--------|
-| **ToolSpec** | 模型对一个工具的认知（name + schema） | 工具注册表 |
-| **ToolDispatchMap** | 名称到处理器的路由表 | 工具分发 |
-| **ToolUseContext** | 工具执行时的共享环境 | 工具运行时 |
-| **ToolResultEnvelope** | 标准化的工具返回结果 | 主循环 |
-| **PermissionRule** | 权限策略（allow/deny/ask） | 权限层 |
-| **PermissionDecision** | 权限门控的结构化输出 | 权限层 |
-| **HookEvent** | 围绕循环发射的生命周期事件 | Hook 系统 |
+| **ToolSpec** | The model's understanding of a tool (name + schema) | Tool registry |
+| **ToolDispatchMap** | Routing table from names to handlers | Tool dispatch |
+| **ToolUseContext** | Shared environment during tool execution | Tool runtime |
+| **ToolResultEnvelope** | Standardized tool return result | Main loop |
+| **PermissionRule** | Permission policy (allow/deny/ask) | Permission layer |
+| **PermissionDecision** | Structured output from permission gating | Permission layer |
+| **HookEvent** | Lifecycle event emitted around the loop | Hook system |
 
-### 持久工作状态
+### Persistent Work State
 
-| 数据结构 | 职责 | 所在层 |
+| Data structure | Responsibility | Layer |
 |---------|------|--------|
-| **TaskRecord** | 持久工作图节点（目标 + 状态 + 依赖） | 任务面板 |
-| **ScheduleRecord** | 描述何时触发工作的规则 | Cron 调度 |
-| **MemoryEntry** | 跨会话保留的知识 | 记忆系统 |
+| **TaskRecord** | Persistent work-graph node (goal + state + dependencies) | Task panel |
+| **ScheduleRecord** | Rule describing when work should trigger | Cron scheduling |
+| **MemoryEntry** | Knowledge retained across sessions | Memory system |
 
-### 运行时执行状态
+### Runtime Execution State
 
-| 数据结构 | 职责 | 所在层 |
+| Data structure | Responsibility | Layer |
 |---------|------|--------|
-| **RuntimeTaskState** | 后台/长时间工作的实时执行槽 | 运行时管理器 |
-| **Notification** | 将运行时结果桥接回主循环 | 通知系统 |
-| **RecoveryState** | 失败后用于连贯恢复的状态 | 错误恢复 |
+| **RuntimeTaskState** | Real-time execution slot for background/long-running work | Runtime manager |
+| **Notification** | Bridges runtime results back to the main loop | Notification system |
+| **RecoveryState** | State used for coherent recovery after failure | Error recovery |
 
-### 团队与平台
+### Team and Platform
 
-| 数据结构 | 职责 | 所在层 |
+| Data structure | Responsibility | Layer |
 |---------|------|--------|
-| **TeamMember** | 持久队友身份 | 团队配置 |
-| **MessageEnvelope** | 队友间的结构化消息 | 邮箱系统 |
-| **RequestRecord** | 审批/关闭/交接等协议工作流 | 请求追踪器 |
-| **WorktreeRecord** | 一个隔离执行通道的记录 | Worktree 索引 |
-| **MCPServerConfig** | 一个外部能力 Provider 的配置 | MCP 配置 |
+| **TeamMember** | Persistent teammate identity | Team configuration |
+| **MessageEnvelope** | Structured messages between teammates | Mailbox system |
+| **RequestRecord** | Protocol workflows such as approval/close/handoff | Request tracker |
+| **WorktreeRecord** | Record of an isolated execution channel | Worktree index |
+| **MCPServerConfig** | Configuration for an external capability provider | MCP configuration |
 
-## 二、术语表
+## 2. Glossary
 
-### 核心循环
+### Core Loop
 
-| 术语 | 含义 |
+| Term | Meaning |
 |------|------|
-| **Query** | 一次完整的"用户输入→Agent 处理→输出"过程，可能跨多轮 |
-| **Turn** | Query 内的一轮：模型响应 + 工具执行 |
-| **Transition** | 从当前轮到下一轮的原因（工具完成/token 截断/压缩/重试/Hook 拦截） |
-| **End Turn** | 模型决定停止（`stop_reason: end_turn`） |
-| **Mid-Turn Drain** | 工具批次之间检查用户是否有新输入 |
-| **Continuation** | Query 仍然存活并应继续推进（但原因各异） |
+| **Query** | One complete "user input → Agent processing → output" process, possibly spanning multiple turns |
+| **Turn** | One round within a Query: model response + tool execution |
+| **Transition** | Reason for moving from the current turn to the next turn (tool completion/token truncation/compaction/retry/Hook interception) |
+| **End Turn** | The model decides to stop (`stop_reason: end_turn`) |
+| **Mid-Turn Drain** | Checking whether the user has new input between tool batches |
+| **Continuation** | The Query is still alive and should continue advancing (for various reasons) |
 
-### 工具系统
+### Tool System
 
-| 术语 | 含义 |
+| Term | Meaning |
 |------|------|
-| **Tool Spec** | 工具的 Schema 定义（发送给模型的 JSON Schema） |
-| **Tool Dispatch** | 将模型返回的 tool_use 路由到实际处理器 |
-| **Tool Control Plane** | 工具的注册/发现/过滤/权限——不是执行本身 |
-| **Tool Execution Runtime** | 工具实际执行时的调度/并发/进度/合并规则 |
-| **ToolSearch** | 延迟加载：模型通过搜索发现不常用工具 |
-| **Streaming Tool Execution** | 在 API 流式返回工具调用时就开始解析和准备执行 |
+| **Tool Spec** | A tool's schema definition (the JSON Schema sent to the model) |
+| **Tool Dispatch** | Routing the `tool_use` returned by the model to the actual handler |
+| **Tool Control Plane** | Tool registration/discovery/filtering/permissions—not execution itself |
+| **Tool Execution Runtime** | Scheduling/concurrency/progress/merge rules during actual tool execution |
+| **ToolSearch** | Lazy loading: the model discovers rarely used tools through search |
+| **Streaming Tool Execution** | Parsing and preparing tool execution while the API streams tool calls |
 
-### 上下文管理
+### Context Management
 
-| 术语 | 含义 |
+| Term | Meaning |
 |------|------|
-| **Compact** | 上下文压缩（裁剪旧工具输出 + 生成摘要） |
-| **Cache Edits** | 最轻量的压缩——只裁剪缓存前缀内的旧编辑 |
-| **Prompt Cache** | API 端缓存匹配的前缀 token，节省成本 |
-| **Static/Dynamic Boundary** | 系统提示中不变部分和易变部分的分界线 |
-| **System Reminder** | 临时注入的 `<system-reminder>` 标签上下文 |
+| **Compact** | Context compaction (trimming old tool outputs + generating a summary) |
+| **Cache Edits** | The lightest compaction—only trims old edits inside the cached prefix |
+| **Prompt Cache** | API-side cache for matching prefix tokens, reducing cost |
+| **Static/Dynamic Boundary** | Boundary between immutable and frequently changing parts of the system prompt |
+| **System Reminder** | Temporarily injected `<system-reminder>` tag context |
 
-### 多 Agent
+### Multi-Agent
 
-| 术语 | 含义 |
+| Term | Meaning |
 |------|------|
-| **Subagent** | 由主 Agent 派生的子 Agent |
-| **Fork** | 继承父 Agent 完整上下文的 Subagent |
-| **Coordinator** | Leader-Worker 模式的协调者 |
-| **Swarm** | 多 Agent 协作系统（InProcess/tmux/iTerm2 后端） |
-| **Teammate** | Swarm 中的一个 Agent 实例 |
-| **Mailbox** | 文件 IPC 的邮箱系统（Teammate 间通信） |
-| **Kairos** | Always-On 自治 Agent 模式 |
+| **Subagent** | A child Agent derived from the main Agent |
+| **Fork** | A Subagent that inherits the parent Agent's full context |
+| **Coordinator** | Coordinator in the Leader-Worker pattern |
+| **Swarm** | Multi-Agent collaboration system (InProcess/tmux/iTerm2 backends) |
+| **Teammate** | One Agent instance in a Swarm |
+| **Mailbox** | File-IPC mailbox system (communication between Teammates) |
+| **Kairos** | Always-On autonomous Agent mode |
 
-### Hook 系统
+### Hook System
 
-| 术语 | 含义 |
+| Term | Meaning |
 |------|------|
-| **PreToolUse** | 工具执行前触发的 Hook 事件 |
-| **Prompt Hook** | 用 LLM 做决策的 Hook 类型（Claude Code 独有） |
-| **Agent Hook** | 创建临时 Agent 做深度验证的 Hook 类型 |
-| **hookify** | 从对话中自动生成 Hook 规则的机制 |
+| **PreToolUse** | Hook event triggered before tool execution |
+| **Prompt Hook** | Hook type that uses an LLM to make decisions (unique to Claude Code) |
+| **Agent Hook** | Hook type that creates a temporary Agent for deep validation |
+| **hookify** | Mechanism that automatically generates Hook rules from conversations |
 
-## 三、实体关系速查
+## 3. Entity Relationship Quick Reference
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    用户层                                │
+│                    User Layer                           │
 │  UserInput → QueryParams → ProcessSlashCommand         │
 └────────────────────┬────────────────────────────────────┘
                      │
 ┌────────────────────▼────────────────────────────────────┐
-│                 查询引擎层                               │
+│                 Query Engine Layer                      │
 │  QueryState ←→ TransitionReason                         │
 │       │                                                 │
 │       ├─→ SystemPromptBlock[] → PromptParts             │
 │       ├─→ NormalizedMessage[] → API Request             │
-│       └─→ ReminderMessage (临时注入)                     │
+│       └─→ ReminderMessage (temporary injection)          │
 └────────────────────┬────────────────────────────────────┘
                      │
 ┌────────────────────▼────────────────────────────────────┐
-│               工具控制平面                                │
+│               Tool Control Plane                        │
 │  ToolSpec → ToolDispatchMap → ToolUseContext             │
 │       │                                                 │
 │       ├─→ PermissionRule → PermissionDecision            │
 │       ├─→ HookEvent (PreToolUse/PostToolUse)            │
-│       └─→ ToolResultEnvelope → 回到 QueryState          │
+│       └─→ ToolResultEnvelope → back to QueryState       │
 └────────────────────┬────────────────────────────────────┘
                      │
 ┌────────────────────▼────────────────────────────────────┐
-│              持久状态层                                   │
-│  TaskRecord (工作图) ←→ RuntimeTaskState (执行槽)        │
-│  MemoryEntry (跨会话) ←→ CompactSummary (压缩)           │
-│  ScheduleRecord (Cron) ←→ Notification (结果桥接)        │
+│              Persistent State Layer                     │
+│  TaskRecord (work graph) ←→ RuntimeTaskState (execution slot) │
+│  MemoryEntry (cross-session) ←→ CompactSummary (compaction)   │
+│  ScheduleRecord (Cron) ←→ Notification (result bridge)        │
 └────────────────────┬────────────────────────────────────┘
                      │
 ┌────────────────────▼────────────────────────────────────┐
-│               团队/平台层                                 │
+│               Team/Platform Layer                       │
 │  TeamMember → MessageEnvelope → Mailbox IPC              │
-│  WorktreeRecord → 隔离执行通道                            │
+│  WorktreeRecord → isolated execution channel             │
 │  MCPServerConfig → CapabilityRoute                       │
 └─────────────────────────────────────────────────────────┘
 ```

@@ -1,219 +1,219 @@
-# Claude Code Dynamic Workflows 深度分析
+# Claude Code Dynamic Workflows Deep Dive
 
-> **核心问题**：Claude Code 2026-05-28 随 Opus 4.8 同日发布的 dynamic workflows 是什么？它在 Claude Code 的并行化抽象谱系中处于什么位置？Qwen Code daemon 系列能借鉴什么？
+> **Core question**: What are the dynamic workflows released by Claude Code on 2026-05-28 alongside Opus 4.8? Where do they sit in Claude Code's spectrum of parallelization abstractions? What can the Qwen Code daemon series borrow from them?
 >
-> 返回 [Deep-Dive 索引](./deep-dive-index.md) · 关联 [多 Agent 架构](./multi-agent-deep-dive.md) · [Coordinator/Swarm 编排](./coordinator-swarm-orchestration-deep-dive.md) · [SubAgent 展示](./subagent-display-deep-dive.md)
+> Back to the [Deep-Dive index](./deep-dive-index.md) · Related: [multi-agent architecture](./multi-agent-deep-dive.md) · [Coordinator/Swarm orchestration](./coordinator-swarm-orchestration-deep-dive.md) · [SubAgent display](./subagent-display-deep-dive.md)
 >
-> **证据强度说明**：本文基于 2026-05-28 公开发布后的官方文档（`code.claude.com/docs/en/workflows`）+ 官方博客 + v2.1.154 release notes + 3 个社区 issue 反编译 + TechCrunch 报道，经多源对抗性验证（10 个 high-confidence claim，0 被反驳）。标注 `[未验证]` 的为找不到独立第二来源的推断。
+> **Evidence-strength note**: This article is based on official documentation published after the 2026-05-28 release (`code.claude.com/docs/en/workflows`) + the official blog + v2.1.154 release notes + decompilation from 3 community issues + TechCrunch reporting, cross-validated adversarially across multiple sources (10 high-confidence claims, 0 refuted). Items marked `[Unverified]` are inferences for which no independent second source was found.
 
 ## TL;DR
 
-**Dynamic Workflows** 是 Anthropic 于 **2026-05-28 在 Claude Code v2.1.154 与 Opus 4.8 同日发布**的 research preview 能力。本质：**让 Claude 即兴写一段 JavaScript 编排脚本、在与对话隔离的后台 runtime 中执行，单次 run 可 fan-out 几十到上百个 subagent**。
+**Dynamic Workflows** are a research-preview capability released by Anthropic on **2026-05-28 in Claude Code v2.1.154 alongside Opus 4.8**. In essence: **Claude improvises a JavaScript orchestration script and executes it in a background runtime isolated from the conversation; a single run can fan out to dozens or hundreds of subagents**.
 
-它不是另一个 subagent / skill 的同义词，而是**新增的一层 orchestration 抽象——「plan holder 从 Claude（逐 turn 决策）搬到代码（脚本决定控制流）」**。覆盖全付费 plan、四 provider、五 surface（CLI / Desktop / IDE / `claude -p` headless / Agent SDK），附带 bundled `/deep-research` workflow 和 `ultracode` effort 档位。灰度由 `CLAUDE_CODE_WORKFLOWS=1` env var + GrowthBook flag `tengu_workflows_enabled` 双层 gate 控制。
+They are not a synonym for another subagent / skill, but **a new layer of orchestration abstraction—"the plan holder moves from Claude (turn-by-turn decisions) to code (the script decides control flow)"**. They cover all paid plans, four providers, and five surfaces (CLI / Desktop / IDE / `claude -p` headless / Agent SDK), with a bundled `/deep-research` workflow and an `ultracode` effort tier. Rollout is controlled by a two-layer gate: the `CLAUDE_CODE_WORKFLOWS=1` env var + the GrowthBook flag `tengu_workflows_enabled`.
 
-> **官方定义**："A dynamic workflow is a JavaScript script that orchestrates subagents at scale. Claude writes the script for the task you describe, and a runtime executes it in the background while your session stays responsive." [source: code.claude.com/docs/en/workflows]
+> **Official definition**: "A dynamic workflow is a JavaScript script that orchestrates subagents at scale. Claude writes the script for the task you describe, and a runtime executes it in the background while your session stays responsive." [source: code.claude.com/docs/en/workflows]
 
 ---
 
-## 一、在 Claude Code 并行化谱系中的位置
+## 1. Position in Claude Code's Parallelization Spectrum
 
-官方 `/agents` 比较页把 Claude Code 的并行化方式归为四类：**subagents / agent view / agent teams / workflows**。workflows 的定位是"a script that runs many subagents and cross-checks their results, **for work too big to coordinate one turn at a time or that needs more than a single pass**"。
+The official `/agents` comparison page categorizes Claude Code's parallelization methods into four types: **subagents / agent view / agent teams / workflows**. Workflows are positioned as "a script that runs many subagents and cross-checks their results, **for work too big to coordinate one turn at a time or that needs more than a single pass**".
 
-| 维度 | Subagents | Skills | **Workflows** |
+| Dimension | Subagents | Skills | **Workflows** |
 |---|---|---|---|
-| 谁决定下一步 | Claude, turn by turn | Claude, 跟 prompt | **The script（代码）** |
-| 中间结果落点 | Claude context | Claude context | **Script variables（不进 context）** |
-| 规模 | 每 turn 几个委托 | 同左 | **几十到上百 agents/run** |
-| 控制流 | LLM 即兴 | LLM 即兴 | **确定性（loop / 条件 / fan-out 写死在脚本）** |
+| Who decides the next step | Claude, turn by turn | Claude, following the prompt | **The script (code)** |
+| Where intermediate results land | Claude context | Claude context | **Script variables (not in context)** |
+| Scale | A few delegations per turn | Same as left | **Dozens to hundreds of agents/run** |
+| Control flow | LLM improvisation | LLM improvisation | **Deterministic (loops / conditions / fan-out hard-coded in the script)** |
 
 [source: code.claude.com/docs/en/workflows]
 
-**「dynamic」的精确含义**：脚本本身是 Claude 为**本次任务临时撰写**的，不是用户预先以 YAML/JSON DSL 声明的 static pipeline。**没有显式 DSL、没有 schema 文件、没有 declarative 配置**——这是它与 LangGraph 那种"预先声明 graph"的根本区别。换句话说，dynamic 不指"运行时动态分支"（那是脚本里的 `if`/`while` 负责），而指"**编排脚本本身由 LLM 在 plan 阶段动态生成**"。
+**The precise meaning of "dynamic"**: the script itself is written by Claude **temporarily for this task**, not declared in advance by the user as a static YAML/JSON DSL pipeline. There is **no explicit DSL, no schema file, and no declarative configuration**—this is the fundamental difference from systems such as LangGraph that "predeclare the graph." In other words, dynamic does not mean "dynamic runtime branching" (that is handled by `if`/`while` in the script), but rather that "**the orchestration script itself is dynamically generated by the LLM during the planning phase**."
 
 ```
-                  谁持有 plan？
+                  Who holds the plan?
    ┌──────────────────┼──────────────────┐
    ▼                  ▼                  ▼
- LLM 逐 turn       脚本（LLM 即兴写）    开发者预声明
- = Subagents       = Dynamic Workflows   = LangGraph / CrewAI
- 灵活但易漂移        确定性 + LLM 灵活      可控但有 DSL 学习成本
+ LLM turn by turn   Script (LLM improvises)   Developer predeclares
+ = Subagents        = Dynamic Workflows       = LangGraph / CrewAI
+ Flexible but drift-prone   Deterministic + LLM-flexible   Controllable but has DSL learning cost
 ```
 
 ---
 
-## 二、技术架构
+## 2. Technical Architecture
 
-### 2.1 Runtime 与隔离
+### 2.1 Runtime and Isolation
 
 > "The workflow runtime executes the script in an isolated environment, separate from your conversation. Intermediate results stay in script variables instead of landing in Claude's context." [source: code.claude.com/docs/en/workflows]
 
-- **隔离环境**：脚本在与对话隔离的 runtime 跑，中间结果留在 script variables，**不污染 Claude 主对话 context**——这是它能 fan-out 上百 agent 而不爆 context 的关键。
-- **后台执行**：run 期间主 session 保持响应；进度通过 task panel / `/workflows` 命令查看。
-- **Resume**：runtime 跟踪每个 agent 的结果，支持**同 session 内** resume；**退出 Claude Code 再启动会从头跑**（不跨 session 持久化）。
-- **基础设施复用**：从 v2.1.154 同 release 的大量 background-session 修复（worktree-isolation guard、idle grace period、pinned session 重生、bg-pty-host orphan）推断，dynamic workflows **复用了既有 background session 基础设施**而非独立子系统 [medium 置信度，source: github.com/anthropics/claude-code/releases/tag/v2.1.154]。
+- **Isolated environment**: the script runs in a runtime isolated from the conversation; intermediate results remain in script variables and **do not pollute Claude's main conversation context**—this is the key to fanning out to hundreds of agents without blowing up context.
+- **Background execution**: the main session remains responsive during the run; progress can be viewed through the task panel / `/workflows` command.
+- **Resume**: the runtime tracks each agent's result and supports resume **within the same session**; **if you exit Claude Code and restart it, the run starts over** (no cross-session persistence).
+- **Infrastructure reuse**: based on the many background-session fixes in the same v2.1.154 release (worktree-isolation guard, idle grace period, pinned session resurrection, bg-pty-host orphan), dynamic workflows likely **reuse the existing background session infrastructure** rather than forming an independent subsystem [medium confidence, source: github.com/anthropics/claude-code/releases/tag/v2.1.154].
 
-### 2.2 API shape（部分披露）
+### 2.2 API Shape (Partially Disclosed)
 
-社区 Issue #63876 披露了 Workflow tool 的调用 API：
+Community Issue #63876 disclosed the invocation API of the Workflow tool:
 
 ```js
-// 按已注册名字调用
+// Invoke by registered name
 Workflow({ name: "deep-research", args: {...} })
-// 按脚本路径调用
+// Invoke by script path
 Workflow({ scriptPath: "/path/to/workflow.mjs", args: {...} })
-// 脚本内通过全局变量读参数
+// Read parameters inside the script through a global variable
 const question = args.question
 ```
 
-- 脚本格式：**`.mjs` ES Module** [source: github.com/anthropics/claude-code/issues/63876]
-- 含 **8 个 primitives** 基础原语，用户自定义 workflow 可在约 220 行 JS 内调用全部 8 个 [medium 置信度，source: github.com/anthropics/claude-code/issues/61637]
-- 具体原语命名（如 `agent` / `parallel` / `pipeline` / `phase` / `log` / `args` / `budget` 等）**官方文档未列举**，`[未验证]`
+- Script format: **`.mjs` ES Module** [source: github.com/anthropics/claude-code/issues/63876]
+- Includes **8 primitive** building blocks; a user-defined workflow can call all 8 within about 220 lines of JS [medium confidence, source: github.com/anthropics/claude-code/issues/61637]
+- The specific primitive names (such as `agent` / `parallel` / `pipeline` / `phase` / `log` / `args` / `budget`) **are not listed in the official docs**, `[Unverified]`
 
-### 2.3 与 Claude Agent SDK 的关系
+### 2.3 Relationship with the Claude Agent SDK
 
-Workflows 在 Agent SDK 中可用，与 CLI / Desktop / IDE / `claude -p` headless 共享同一禁用层级。Agent SDK 调用方可触发 workflow，而 workflow 内部又能反过来调用 session-scoped subagent（subagents 文档定义了 `--agents` JSON flag 与 SDK `agents` option）。**workflow → subagent → tool 形成三层委托链**。[source: code.claude.com/docs/en/workflows, code.claude.com/docs/en/sub-agents]
+Workflows are available in the Agent SDK and share the same disable hierarchy across CLI / Desktop / IDE / `claude -p` headless. An Agent SDK caller can trigger a workflow, and the workflow can in turn call session-scoped subagents (the subagents documentation defines the `--agents` JSON flag and the SDK `agents` option). **workflow → subagent → tool forms a three-layer delegation chain**. [source: code.claude.com/docs/en/workflows, code.claude.com/docs/en/sub-agents]
 
 ---
 
-## 三、典型 use case 与质量 pattern
+## 3. Typical Use Cases and Quality Patterns
 
-### 3.1 官方点名场景
+### 3.1 Officially Named Scenarios
 
 > "Examples include a codebase-wide bug sweep, a 500-file migration, a research question that needs sources cross-checked against each other, and a hard plan worth drafting from several independent angles before you commit to one." [source: code.claude.com/docs/en/workflows]
 
-| 场景 | 为什么适合 workflow |
+| Scenario | Why it fits a workflow |
 |---|---|
-| **Codebase-wide bug sweep** | 需扫描海量文件，单 context 装不下；fan-out N agent 各扫一块 |
-| **500-file migration** | 规模大，需逐文件 transform + 验证；脚本 pipeline 控制 |
-| **研究问题交叉核对** | 需多源搜索 + 相互验证；adversarial pattern |
-| **多角度起草 hard plan** | judge panel：N 个独立方案 + 评分 + 综合 |
+| **Codebase-wide bug sweep** | Needs to scan a huge number of files that cannot fit in a single context; fan out N agents, each scanning one partition |
+| **500-file migration** | Large scale; requires per-file transform + validation; controlled by a script pipeline |
+| **Cross-checking a research question** | Requires multi-source search + mutual verification; adversarial pattern |
+| **Drafting a hard plan from multiple angles** | Judge panel: N independent proposals + scoring + synthesis |
 
-**Hero case**（TechCrunch + 官方博客）：Jarred Sumner 用 workflows 把 **Bun 从 Zig 移植到 Rust**（11 天 / 75 万行 / 99.8% 测试套件兼容）。⚠️ 博客中**无 Jarred 本人直接引语**，是第三方叙述 [source: claude.com/blog/introducing-dynamic-workflows-in-claude-code]。
+**Hero case** (TechCrunch + official blog): Jarred Sumner used workflows to **port Bun from Zig to Rust** (11 days / 750,000 lines / 99.8% test-suite compatibility). ⚠️ The blog contains **no direct quote from Jarred himself**; it is third-party narration [source: claude.com/blog/introducing-dynamic-workflows-in-claude-code].
 
-### 3.2 可重复的质量 pattern
+### 3.2 Repeatable Quality Patterns
 
 > "It can have independent agents adversarially review each other's findings before they're reported, or draft a plan from several angles and weigh them against each other, so you get a more trustworthy result than a single pass." [source: code.claude.com/docs/en/workflows]
 
-| Pattern | 机制 |
+| Pattern | Mechanism |
 |---|---|
-| **Adversarial verify** | spawn N 个独立 skeptic 各自尝试 refute 一个 finding，多数反驳则 kill |
-| **Judge panel** | 从多角度生成 N 个方案 → 并行打分 → 综合 |
-| **Multi-modal sweep** | N 个 agent 各用不同搜索方式（按容器/内容/实体/时间）|
-| **Loop-until-dry** | 持续 spawn finder 直到 K 连续轮无新发现 |
-| **Completeness critic** | 最后一个 agent 问"还缺什么"，发现的成为下一轮工作 |
+| **Adversarial verify** | Spawn N independent skeptics, each trying to refute one finding; kill it if most refute it |
+| **Judge panel** | Generate N proposals from multiple angles → score in parallel → synthesize |
+| **Multi-modal sweep** | N agents each use a different search method (by container/content/entity/time) |
+| **Loop-until-dry** | Continuously spawn finders until K consecutive rounds yield no new findings |
+| **Completeness critic** | The final agent asks "what is still missing"; discoveries become the next round of work |
 
-### 3.3 bundled workflow：`/deep-research`
+### 3.3 Bundled Workflow: `/deep-research`
 
-`/deep-research <question>` 是 Anthropic 内置的示范 workflow：**fan-out web 搜索 → 抓取 → 交叉核对 → 对每条 claim 投票 → 过滤掉未通过验证的 claim → 输出带引用的报告**，需 WebSearch tool 可用 [source: code.claude.com/docs/en/workflows]。
+`/deep-research <question>` is Anthropic's built-in demonstration workflow: **fan-out web search → fetch → cross-check → vote on each claim → filter out claims that fail validation → output a cited report**. It requires the WebSearch tool to be available [source: code.claude.com/docs/en/workflows].
 
-> 本文档本身即用同款模式产出——7 角度并行搜索 → 12 源深度读 → 10 claim 对抗性验证（0 反驳）→ 综合，是 deep-research workflow 的一次实战。
+> This document itself was produced with the same pattern—7-angle parallel search → deep reading of 12 sources → adversarial validation of 10 claims (0 refuted) → synthesis—an actual run of a deep-research workflow.
 
-### 3.4 不适合的场景
+### 3.4 Unsuitable Scenarios
 
-- **需中途人工签字的多阶段流程**："No mid-run user input. Only agent permission prompts can pause a run. For sign-off between stages, run each stage as its own workflow"
-- **小范围、单 turn 即可完成的任务**："Dynamic workflows can consume substantially more tokens than a typical Claude Code session"
+- **Multi-stage processes that require mid-run human sign-off**: "No mid-run user input. Only agent permission prompts can pause a run. For sign-off between stages, run each stage as its own workflow"
+- **Small-scope tasks that can be completed in a single turn**: "Dynamic workflows can consume substantially more tokens than a typical Claude Code session"
 
 ---
 
-## 四、与竞品对比
+## 4. Comparison with Competitors
 
-| 维度 | **Dynamic Workflows** | LangGraph | CrewAI / AutoGen / OpenAI Swarm |
+| Dimension | **Dynamic Workflows** | LangGraph | CrewAI / AutoGen / OpenAI Swarm |
 |---|---|---|---|
-| Plan 来源 | **LLM 即兴撰写 JS** | 开发者预先声明 graph | 开发者声明 agent 角色 + 任务 |
-| 编排载体 | JS 脚本（`.mjs`） | StateGraph + 节点 | Crew / Team 配置 |
-| 中间状态 | Script variables（不进 context） | Channel state | Memory / scratchpad |
-| Resume | 同 session 内自动 | 通过 checkpointer 持久化 | 因框架而异 |
-| Adversarial review | **内置在 quality pattern 推荐里** | 需自行连节点 | 需自行连 agent |
-| Quality gate | 交叉验证 + 投票（deep-research 内置） | 自行实现 | 自行实现 |
-| 集成形态 | **嵌进 IDE / CLI / Desktop / SDK 全 surface** | 独立 Python framework | 独立 framework |
+| Plan source | **LLM improvises JS** | Developer predeclares a graph | Developer declares agent roles + tasks |
+| Orchestration carrier | JS script (`.mjs`) | StateGraph + nodes | Crew / Team configuration |
+| Intermediate state | Script variables (not in context) | Channel state | Memory / scratchpad |
+| Resume | Automatic within the same session | Persistent via checkpointer | Varies by framework |
+| Adversarial review | **Built into the recommended quality patterns** | Must wire nodes manually | Must wire agents manually |
+| Quality gate | Cross-checking + voting (built into deep-research) | Implement yourself | Implement yourself |
+| Integration form | **Embedded across all surfaces: IDE / CLI / Desktop / SDK** | Standalone Python framework | Standalone framework |
 
-**Claude Code workflow 的 4 点差异化**：
-1. **生成期由 LLM 担纲**，跳过 graph DSL 学习成本——用户描述任务，Claude 写脚本
-2. **天然嵌进全 surface**，不是独立 framework（无需 `pip install`）
-3. **与 subagents 已有底层共用**——worktree isolation / acceptEdits / tool allowlist；workflow 内 spawn 的 subagent 始终以 acceptEdits 模式运行
-4. **把 quality pattern（adversarial / 多角度 plan）写进官方 narrative**，而非留给开发者拼
+**Four differentiators of Claude Code workflows**:
+1. **Generation is handled by the LLM**, skipping the graph DSL learning cost—the user describes the task, and Claude writes the script
+2. **Naturally embedded into every surface**, not a standalone framework (no `pip install` needed)
+3. **Shares existing subagent foundations**—worktree isolation / acceptEdits / tool allowlist; subagents spawned inside a workflow always run in acceptEdits mode
+4. **Writes quality patterns (adversarial / multi-angle planning) into the official narrative**, instead of leaving developers to assemble them
 
 ---
 
-## 五、限制与坑
+## 5. Limitations and Pitfalls
 
-### 5.1 官方明文限制
+### 5.1 Explicit Official Limits
 
-| 限制 | 值 |
+| Limit | Value |
 |---|---|
-| 并发 agent 上限 | **16**（低 CPU 机器更少）|
-| 单 run agent 总数上限 | **1000**（防 runaway）|
-| workflow 自身权限 | **无 fs / shell**，所有 IO 由 spawn 的 agent 完成 |
-| mid-run user input | **无**（仅 agent 权限弹窗可暂停 run）|
-| Resume 范围 | **仅同一 session**；退出 CLI 重启从头跑 |
-| Token 消耗 | 显著高于普通对话，官方建议先在小范围试用 |
+| Concurrent agent limit | **16** (fewer on low-CPU machines) |
+| Total agent limit per run | **1000** (to prevent runaway) |
+| Workflow's own permissions | **No fs / shell**; all IO is performed by spawned agents |
+| mid-run user input | **None** (only agent permission prompts can pause a run) |
+| Resume scope | **Same session only**; exiting the CLI and restarting reruns from the beginning |
+| Token consumption | Significantly higher than ordinary conversations; official guidance recommends trying it first on a small scope |
 
 [source: code.claude.com/docs/en/workflows + claude.com/blog/...]
 
-### 5.2 社区反馈中的槽点
+### 5.2 Pain Points in Community Feedback
 
-- **双层 gate 静默失败**：v2.1.148 起客户端二进制有 `RB()` / `LB()` / `bp()` gate，env var `CLAUDE_CODE_WORKFLOWS=1` + GrowthBook `tengu_workflows_enabled` **必须同时通过**；任一缺失则 **0 日志 0 warning short-circuit 返回**，用户无法预测自己的功能面 [source: github.com/anthropics/claude-code/issues/61825, #61637]
-- **Workflow dispatch 双模式互斥**（Bug #63876, v2.1.158）：`name` 模式 args 能透传但找不到用户级 `~/.claude/workflows/*.mjs`；`scriptPath` 模式能定位脚本但 args 丢失。两种模式都无法同时满足「全局可发现 + args 可透传」，跨 repo 复用 workflow 受阻
-- `DISABLE_GROWTHBOOK=1` 本地绕过失效，证实 gate **实际在服务端而非二进制** [source: github.com/anthropics/claude-code/issues/61637]
+- **Two-layer gate fails silently**: since v2.1.148, the client binary has `RB()` / `LB()` / `bp()` gates; env var `CLAUDE_CODE_WORKFLOWS=1` + GrowthBook `tengu_workflows_enabled` **must both pass**. If either is missing, it returns through a **0-log, 0-warning short-circuit**, so users cannot predict their feature surface [source: github.com/anthropics/claude-code/issues/61825, #61637]
+- **Workflow dispatch has mutually exclusive dual modes** (Bug #63876, v2.1.158): `name` mode can pass through args but cannot find user-level `~/.claude/workflows/*.mjs`; `scriptPath` mode can locate the script but loses args. Neither mode can simultaneously satisfy "globally discoverable + args pass-through," blocking workflow reuse across repos
+- Local bypass with `DISABLE_GROWTHBOOK=1` does not work, confirming that the gate is **actually server-side rather than binary-side** [source: github.com/anthropics/claude-code/issues/61637]
 
-### 5.3 需注意的未验证 / 推断
+### 5.3 Unverified / Inferred Points to Note
 
-- Anthropic **Claude Opus 产品页未出现具名 "dynamic workflows"**，三次 WebFetch 交叉验证均未命中——"4.8 与 Workflows 同日捆绑发布"以 Claude Code 官方文档 + changelog + TechCrunch 报道为准，**不能用 Opus 产品页背书** `[未验证]`
-- 记者把 4.8 加速发布节奏归因于 4.7 反馈 disappointing + OpenAI Codex / Gemini Flash 竞争压力，是 **TechCrunch 推断**而非 Anthropic 官方说法
-- **8 个 primitives 的具体命名 / 调用约定 / return schema**：官方文档未披露 `[未验证]`
+- The Anthropic **Claude Opus product page does not name "dynamic workflows"**; three WebFetch cross-checks found no hit—"4.8 and Workflows were bundled for same-day release" should rely on Claude Code official docs + changelog + TechCrunch reporting, and **cannot be backed by the Opus product page** `[Unverified]`
+- The reporter attributes the accelerated 4.8 release cadence to disappointing 4.7 feedback + competitive pressure from OpenAI Codex / Gemini Flash; this is a **TechCrunch inference**, not Anthropic's official statement
+- **The specific names / call conventions / return schema of the 8 primitives**: not disclosed in official docs `[Unverified]`
 
 ---
 
-## 六、对 Qwen Code 的启发
+## 6. Implications for Qwen Code
 
-> **🆕 2026-06-03 更新：qwen-code 已开始 port。** LaZzyMan 在 [issue #4721](https://github.com/QwenLM/qwen-code/issues/4721)「Dynamic Workflows / Ultracode port」下分阶段实现，[PR#4732](https://github.com/QwenLM/qwen-code/pull/4732) 落地 **P1**：`node:vm` sandbox 跑 model 写的 JS + `args`/`phase`/`log`/sequential `agent()` globals，`isWorkflowsEnabled()` 默认关（`QWEN_CODE_ENABLE_WORKFLOWS=1`）。关键细节——**subagent system prompt 逐字取自 claude-code 2.1.160 binary §XmO 常量**，determinism stub（`Date.now`/`Math.random` throw）也与 Claude workflow runtime 一致，是明确的"对齐式 port"。架构上选了 **core 层 in-process tool**（在 `/swarm` #3433 + Agent Team #2886 之上的第三层），**不走 daemon runtime**；P2 `parallel()` / P3 schema-mode `agent()`+pipeline / P5 `budget` 的 forward-compat seam 已留在 `SandboxOptions`。下文 §6.1–§6.3 是 port 开始前写的启发分析，保留作背景。
+> **🆕 2026-06-03 update: qwen-code has started the port.** LaZzyMan implemented it in phases under [issue #4721](https://github.com/QwenLM/qwen-code/issues/4721), "Dynamic Workflows / Ultracode port"; [PR#4732](https://github.com/QwenLM/qwen-code/pull/4732) landed **P1**: a `node:vm` sandbox runs JS written by the model + `args`/`phase`/`log`/sequential `agent()` globals, with `isWorkflowsEnabled()` off by default (`QWEN_CODE_ENABLE_WORKFLOWS=1`). Key detail: the **subagent system prompt is taken verbatim from the claude-code 2.1.160 binary §XmO constant**, and the determinism stubs (`Date.now`/`Math.random` throw) also match the Claude workflow runtime; this is an explicit "alignment-style port." Architecturally, it chose a **core-layer in-process tool** (a third layer above `/swarm` #3433 + Agent Team #2886) and **does not use the daemon runtime**; forward-compat seams for P2 `parallel()` / P3 schema-mode `agent()`+pipeline / P5 `budget` have already been left in `SandboxOptions`. Sections §6.1–§6.3 below were written before the port began and are retained as background.
 
-### 6.1 相似 abstraction 对比
+### 6.1 Comparison of Similar Abstractions
 
-| 维度 | Claude Code Dynamic Workflows | Qwen Code daemon 系列 | chiga0 SDK | ytahdn web-shell |
+| Dimension | Claude Code Dynamic Workflows | Qwen Code daemon series | chiga0 SDK | ytahdn web-shell |
 |---|---|---|---|---|
-| 后台执行 | workflow runtime（隔离） | daemon route + ACP HTTP + non-blocking `/prompt` | SDK 层 | 远端 shell |
-| 多 agent 编排 | dozens-to-hundreds, JS 脚本驱动 | 当前以 jifeng MCP bridge 为主，**无显式 fan-out 抽象** | 暂无 | 无 |
-| Plan holder | 代码（Claude 即兴写） | Claude / 用户 prompt | SDK 调用方 | 用户 |
-| Quality pattern | adversarial review 内置 narrative | 暂无内置 | 暂无 | 不适用 |
+| Background execution | workflow runtime (isolated) | daemon route + ACP HTTP + non-blocking `/prompt` | SDK layer | Remote shell |
+| Multi-agent orchestration | Dozens-to-hundreds, JS-script driven | Currently mainly jifeng MCP bridge, **no explicit fan-out abstraction** | Not yet | None |
+| Plan holder | Code (Claude improvises it) | Claude / user prompt | SDK caller | User |
+| Quality pattern | adversarial review built into the narrative | Not built in yet | Not yet | Not applicable |
 
-**关键观察**：Qwen Code daemon 系列已经把"后台执行 + 多 client + 非阻塞 prompt"的**底层管道**铺好了（non-blocking `POST /prompt` 返 202 / context-usage API / ACP HTTP transport / MCP bridge），但**缺少最上面那层"让 LLM 即兴写编排脚本 + 在 daemon runtime 跑 fan-out"的胶水层**。这正是 dynamic workflows 填的位置。
+**Key observation**: The Qwen Code daemon series has already laid the **underlying pipeline** for "background execution + multiple clients + non-blocking prompts" (non-blocking `POST /prompt` returns 202 / context-usage API / ACP HTTP transport / MCP bridge), but it **lacks the top glue layer: "let the LLM improvise an orchestration script + run fan-out in the daemon runtime."** That is exactly the slot filled by dynamic workflows.
 
-### 6.2 借鉴价值
+### 6.2 Borrowing Value
 
-1. **「plan 搬进代码」是 Qwen Code 当前最缺的一层抽象**。daemon 系列底层已就绪，胶水层**不需从零造**——可直接用 daemon 现有 route + jifeng MCP bridge 当 agent runtime，workflow 脚本只做 plan / fan-out / 收敛逻辑。
-2. **bundled workflow 是低成本 GA 抓手**。`/deep-research` 用一个高频研究场景示范 fan-out + 交叉核对 + 投票 + cited report，Qwen Code 可用同思路绑 deep-research / codebase-bug-sweep / migration-helper 三个 bundled flow 作 dogfooding 入口。
-3. **`ultracode` effort 档位的打包思路**——一个开关把 xhigh reasoning + 自动 workflow 编排打包，session 内有效、新 session 重置。Qwen Code 可让 daemon 暴露一个 effort 切换 endpoint，不必新建配置项。
-4. **避坑**：Anthropic 的双层 gate 静默失败是反例，Qwen Code 若引入 workflow 灰度务必**显式日志 + `/status` 暴露 feature flag 当前态**——daemon 系列已有 file logger（#4559）和 capability tag 机制，天然适合做这件事。
+1. **"Moving the plan into code" is the abstraction layer Qwen Code currently lacks most**. The daemon-series foundation is ready, and the glue layer **does not need to be built from scratch**—it can directly use existing daemon routes + jifeng MCP bridge as the agent runtime, while the workflow script only handles plan / fan-out / convergence logic.
+2. **A bundled workflow is a low-cost GA entry point**. `/deep-research` uses a high-frequency research scenario to demonstrate fan-out + cross-checking + voting + cited report; Qwen Code could use the same idea to bind three bundled flows—deep-research / codebase-bug-sweep / migration-helper—as dogfooding entry points.
+3. **The packaging idea behind the `ultracode` effort tier**—one switch bundles xhigh reasoning + automatic workflow orchestration, effective within a session and reset for new sessions. Qwen Code could expose an effort-switching endpoint from the daemon without adding a new configuration item.
+4. **Pitfall to avoid**: Anthropic's silent failure under a two-layer gate is a counterexample. If Qwen Code introduces workflow rollout, it must **emit explicit logs + expose current feature-flag state in `/status`**. The daemon series already has a file logger (#4559) and capability tag mechanism, which are naturally suitable for this.
 
-### 6.3 实施成本（high level）
+### 6.3 Implementation Cost (High Level)
 
-| 模块 | 估算 | 复用点 |
+| Module | Estimate | Reuse points |
 |---|---|---|
-| 基础 runtime（JS 沙箱 + agent dispatch + script variables 隔离） | ~3-5 人周 | daemon non-blocking `/prompt` + jifeng MCP bridge |
-| 编排原语 8 件套 | ~2-3 人周 | 参照 LangGraph state machine + asyncio gather 混合 |
-| `/workflows` 管理 UI（runs 列表 / phase 视图 / pause-resume） | ~2 人周 | daemon-react-sdk subpath 加载能力 |
-| 1 个 bundled workflow（建议 deep-research / bug-sweep） | ~1-2 人周 | — |
-| 灰度 + 关停层级（settings.json / env var / 组织级 managed settings 三档） | ~1 人周 | daemon capability tag + file logger |
+| Basic runtime (JS sandbox + agent dispatch + script-variable isolation) | ~3-5 person-weeks | daemon non-blocking `/prompt` + jifeng MCP bridge |
+| Set of 8 orchestration primitives | ~2-3 person-weeks | Reference a LangGraph state machine + asyncio gather hybrid |
+| `/workflows` management UI (runs list / phase view / pause-resume) | ~2 person-weeks | daemon-react-sdk subpath loading capability |
+| 1 bundled workflow (recommended: deep-research / bug-sweep) | ~1-2 person-weeks | — |
+| Rollout + shutdown hierarchy (three tiers: settings.json / env var / org-level managed settings) | ~1 person-week | daemon capability tag + file logger |
 
-**合计 ~9-13 人周**，可拆 3 个 Wave 增量交付；首版可只支持 `/workflow run <name>` + 1 个 bundled flow，不开放用户自定义。
+**Total: ~9-13 person-weeks**, deliverable incrementally in 3 waves; the first version could support only `/workflow run <name>` + 1 bundled flow, without exposing user customization.
 
 ---
 
-## 七、引用
+## 7. References
 
-按相关度排序（primary source = 前 3）：
+Sorted by relevance (primary source = first 3):
 
-1. **[Orchestrate subagents at scale with dynamic workflows — Claude Code Docs](https://code.claude.com/docs/en/workflows)** — 官方权威定义页，覆盖语法 / runtime / 限制 / 触发方式 / 保存路径 / 禁用层级 / surface 覆盖。
-2. **[Introducing dynamic workflows in Claude Code — Anthropic blog (2026-05-28)](https://claude.com/blog/introducing-dynamic-workflows-in-claude-code)** — 官方公告，narrative + Bun 移植案例。
-3. **[Claude Code v2.1.154 Release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.154)** — Feature 在 changelog 首次出现，确认与 Opus 4.8 同日发布 + `/workflows` 命令 + task panel UI。
-4. **[Issue #63876 — Workflow dispatch by scriptPath drops args](https://github.com/anthropics/claude-code/issues/63876)** — 披露 `Workflow({ name/scriptPath, args })` API shape、`.mjs` 格式、`~/.claude/workflows/` 解析 bug。
-5. **[Issue #61637 — How to enable Workflow tool? GrowthBook gate](https://github.com/anthropics/claude-code/issues/61637)** — 启用机制反编译、双层 gate、8 primitives、schema-validated return。
-6. **[Issue #61825 — CLAUDE_CODE_WORKFLOWS env var silently gates](https://github.com/anthropics/claude-code/issues/61825)** — `RB()` 反编译细节 + anti-pattern 归纳。
-7. **[Create custom subagents — Claude Code Docs](https://code.claude.com/docs/en/sub-agents)** — workflow 赖以运行的底层 subagent 机制 + Agent SDK 关系。
-8. **[Anthropic releases Opus 4.8 with new 'dynamic workflow' tool — TechCrunch (2026-05-28)](https://techcrunch.com/2026/05/28/anthropic-releases-opus-4-8-with-new-dynamic-workflow-tool/)** — 二手主流媒体，确认时间线 + codebase-scale migration hero use case。
-9. **[Code w/ Claude SF 2026 — Anthropic blog](https://claude.com/blog/code-w-claude-sf-2026-sf)** — 公告前 22 天 Managed Agents orchestration 路线图 anchor。
-10. **[Claude Opus 4.8 product page](https://www.anthropic.com/claude/opus)** — ⚠️ **此页未出现具名 dynamic workflows**，仅作 Opus 4.8 模型侧能力素材，不能背书 feature 本身。
+1. **[Orchestrate subagents at scale with dynamic workflows — Claude Code Docs](https://code.claude.com/docs/en/workflows)** — Official authoritative definition page, covering syntax / runtime / limits / trigger methods / save paths / disable hierarchy / surface coverage.
+2. **[Introducing dynamic workflows in Claude Code — Anthropic blog (2026-05-28)](https://claude.com/blog/introducing-dynamic-workflows-in-claude-code)** — Official announcement, narrative + Bun port case.
+3. **[Claude Code v2.1.154 Release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.154)** — Feature first appears in the changelog, confirming same-day release with Opus 4.8 + `/workflows` command + task panel UI.
+4. **[Issue #63876 — Workflow dispatch by scriptPath drops args](https://github.com/anthropics/claude-code/issues/63876)** — Discloses `Workflow({ name/scriptPath, args })` API shape, `.mjs` format, and `~/.claude/workflows/` resolution bug.
+5. **[Issue #61637 — How to enable Workflow tool? GrowthBook gate](https://github.com/anthropics/claude-code/issues/61637)** — Enablement mechanism decompilation, two-layer gate, 8 primitives, schema-validated return.
+6. **[Issue #61825 — CLAUDE_CODE_WORKFLOWS env var silently gates](https://github.com/anthropics/claude-code/issues/61825)** — `RB()` decompilation details + anti-pattern summary.
+7. **[Create custom subagents — Claude Code Docs](https://code.claude.com/docs/en/sub-agents)** — Underlying subagent mechanism workflows rely on + relationship with Agent SDK.
+8. **[Anthropic releases Opus 4.8 with new 'dynamic workflow' tool — TechCrunch (2026-05-28)](https://techcrunch.com/2026/05/28/anthropic-releases-opus-4-8-with-new-dynamic-workflow-tool/)** — Secondary mainstream media source, confirming timeline + codebase-scale migration hero use case.
+9. **[Code w/ Claude SF 2026 — Anthropic blog](https://claude.com/blog/code-w-claude-sf-2026-sf)** — Managed Agents orchestration roadmap anchor 22 days before the announcement.
+10. **[Claude Opus 4.8 product page](https://www.anthropic.com/claude/opus)** — ⚠️ **This page does not name dynamic workflows**; use it only as model-side material for Opus 4.8, not as support for the feature itself.
 
-> **免责声明**：以上数据基于 2026-05-28 公开发布后约 1 日内的官方文档 + 社区证据，feature 处于 research preview 阶段，API / 灰度 / 限制可能快速变化。8 primitives 具体命名等未披露细节标注 `[未验证]`。
+> **Disclaimer**: The data above is based on official documentation and community evidence within roughly 1 day after the public 2026-05-28 release. The feature is in research preview, so APIs / rollout / limits may change quickly. Undisclosed details such as the specific names of the 8 primitives are marked `[Unverified]`.
